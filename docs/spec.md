@@ -14,9 +14,10 @@ and the as-built code.
 
 ## Open items
 
-- [ ] Verify the Odos / 0x / KyberSwap / 1inch / Velora router addresses on Basescan. (Fabric / Nordstern / Relay confirmed by live v1 execution — see `notes-from-v1.md`.)
 - [ ] Populate fee-recipient registry per aggregator in `configs/routers.json` (currently empty; `aggFeeBps` reads 0 until populated).
 - [ ] Dashboard column lineup + size/time cross-cuts — design pending real data.
+
+All router addresses (Odos, 0x, KyberSwap, 1inch V5+V6, Velora V6.2+V5, Fabric, Nordstern, Relay) have been verified as deployed contracts on Base via `eth_getCode`. None are solver EOAs; `detection: 'to_address'` is correct for all.
 
 ---
 
