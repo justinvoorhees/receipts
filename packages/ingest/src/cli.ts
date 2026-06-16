@@ -6,6 +6,7 @@ import { loadRouterRegistry } from './routerRegistry.js';
 import { POOLS, startPoller } from './poller.js';
 import { decodeTransaction } from './decoder.js';
 import { processSwap, recomputeP99 } from './processSwap.js';
+import { startPromoter } from './promoter.js';
 
 function requireEnv(name: string): string {
 	const v = process.env[name];
@@ -80,6 +81,35 @@ export async function main(argv: readonly string[]) {
 				),
 			);
 			console.log(`(rawTrace omitted; ${result.transfers.length} Transfer events extracted)`);
+		});
+
+	program
+		.command('promote')
+		.description('Tail staging for qualifying rows and run the promotion pipeline')
+		.option('--registry <path>', 'router registry JSON path', 'configs/routers.json')
+		.option('--batch-size <n>', 'rows per tick', '20')
+		.action(async (opts) => {
+			const databaseUrl = requireEnv('TCA_DATABASE_URL');
+			const rpcUrl = requireEnv('TCA_RPC_URL');
+			const pollIntervalMs = Number(process.env.TCA_PROMOTER_INTERVAL_MS ?? 5000);
+			const db = createDb(databaseUrl);
+			const registry = await loadRouterRegistry(resolve(process.cwd(), opts.registry));
+
+			const abortController = new AbortController();
+			process.on('SIGINT', () => {
+				console.log('SIGINT received — stopping promoter cleanly.');
+				abortController.abort();
+			});
+
+			await startPromoter({
+				db,
+				rpcUrl,
+				pollIntervalMs,
+				registry,
+				pools: POOLS,
+				batchSize: Number(opts.batchSize),
+				signal: abortController.signal,
+			});
 		});
 
 	program
