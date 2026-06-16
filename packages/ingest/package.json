@@ -1,0 +1,18 @@
+{
+	"name": "@fabric-tca/ingest",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./dist/cli.js",
+	"bin": { "tca-ingest": "./bin/tca-ingest.mjs" },
+	"scripts": {
+		"build": "tsc --build"
+	},
+	"dependencies": {
+		"@fabric-tca/db": "*",
+		"commander": "^12.0.0",
+		"dotenv": "^16.4.5",
+		"drizzle-orm": "^0.33.0",
+		"viem": "^2.21.0"
+	}
+}

@@ -1,0 +1,29 @@
+{
+	"name": "fabric-tca-decoder",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"dev": "npm --workspace packages/dashboard run dev",
+		"lint": "eslint packages",
+		"typecheck": "tsc --build",
+		"test": "vitest run",
+		"build": "tsc --build && npm --workspace packages/dashboard run build",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"db:check": "drizzle-kit check",
+		"ingest": "node packages/ingest/dist/cli.js"
+	},
+	"devDependencies": {
+		"@types/node": "^20.14.0",
+		"drizzle-kit": "^0.24.0",
+		"eslint": "^9.0.0",
+		"prettier": "^3.3.0",
+		"typescript": "^5.4.0",
+		"typescript-eslint": "^8.60.1",
+		"vitest": "^2.0.0"
+	}
+}

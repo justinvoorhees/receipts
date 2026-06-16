@@ -1,0 +1,83 @@
+{
+	"_comment": "Router registry per spec §3. `detection: 'to_address'` matches the tx's to field against the address. `detection: 'solver_eoa'` (not yet implemented) requires event-based detection — flag any router whose Basescan check shows an EOA instead of a contract.",
+	"routers": [
+		{
+			"name": "Odos",
+			"address": "0x19cEeAd7105607Cd444F5ad10dd51356436095a1",
+			"version": "V2",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true
+		},
+		{
+			"name": "0x",
+			"address": "0xdef1c0ded9bec7f1a1670819833240f027b25eff",
+			"version": "ExchangeProxy",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_note": "Verify on Basescan; canonical 0x proxy across most EVM chains."
+		},
+		{
+			"name": "KyberSwap",
+			"address": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
+			"version": "MetaAggregationRouterV2",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true
+		},
+		{
+			"name": "1inch",
+			"address": "0x1111111254eeb25477b68fb85ed929f73a960582",
+			"version": "AggregationRouterV5",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_note": "Also verify V6 0x111111125421ca6dc452d289314280a0f8842a65."
+		},
+		{
+			"name": "Velora",
+			"address": "0x6a000f20005980200259b80c5102003040001068",
+			"version": "AugustusV6.2",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true
+		},
+		{
+			"name": "Velora",
+			"address": "0x59C7C832e96D2568bea6db468C1aAdcbbDa08A52",
+			"version": "AugustusV5",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_note": "Legacy router; include for historical coverage."
+		},
+		{
+			"name": "Fabric",
+			"address": "0x7c137a37742437d2212b7bd873ed135b5c4c61da",
+			"version": "v1",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_note": "Confirmed as deployed contract via live execution in v1 (smoke-36 et al.)."
+		},
+		{
+			"name": "Nordstern",
+			"address": "0xC87De04e2EC1F4282dFF2933A2D58199f688fC3d",
+			"version": "v1",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_note": "Confirmed as deployed contract via live execution in v1."
+		},
+		{
+			"name": "Relay",
+			"address": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
+			"version": "v1",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_note": "Confirmed as deployed contract via live execution in v1."
+		}
+	]
+}

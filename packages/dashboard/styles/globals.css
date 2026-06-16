@@ -1,0 +1,43 @@
+@import 'tailwindcss';
+@import './fonts.css';
+@import './theme.css';
+
+html,
+body {
+	background: var(--color-surface-base);
+	color: var(--color-primary);
+	font-family: 'Sohne', sans-serif;
+	font-feature-settings: 'calt' 0;
+	-webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Shared underline rules for the nav tabs. Applied to every tab link so the
+ * offset / position / thickness stay consistent across states; the Tailwind
+ * utilities on the element decide whether the underline is shown at all and
+ * whether it's dotted (selected) or solid (hover).
+ */
+.tab-underline {
+	text-underline-offset: 4px;
+	text-underline-position: from-font;
+	-webkit-text-decoration-skip-ink: none;
+	text-decoration-skip-ink: none;
+	text-decoration-thickness: 0.08em;
+}
+
+/*
+ * Fade newly-mounted Transactions table rows in over 1s. React's stable
+ * key (run id) means only freshly-appended rows trigger this animation;
+ * already-mounted rows are reused and stay put.
+ */
+@keyframes row-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+.tx-row-enter {
+	animation: row-fade-in 1s ease-out backwards;
+}
