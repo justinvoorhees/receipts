@@ -19,11 +19,12 @@ import type { RouterRegistry } from './routerRegistry.js';
 
 /**
  * Cold-start floor (spec §3): until we have enough staging data for a
- * statistically meaningful P99, treat $500k as the minimum notional.
+ * statistically meaningful P99, treat this value as the minimum notional.
  * Once `recompute-p99` has been run and yields a higher threshold, that
- * takes over.
+ * takes over. Env-overridable for backfills / demos via
+ * `TCA_COLD_START_FLOOR_USD`.
  */
-const COLD_START_FLOOR_USD = 500_000;
+const COLD_START_FLOOR_USD = Number(process.env.TCA_COLD_START_FLOOR_USD ?? 500_000);
 
 export interface PromoterArgs {
 	db: Db;

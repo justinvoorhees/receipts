@@ -7,14 +7,14 @@ import { base } from 'viem/chains';
  *
  * Computation:
  *   sqrtPriceX96 = (await pool.slot0()).sqrtPriceX96
- *   raw_price    = (sqrtPriceX96 / 2^96)^2
- *   USDC/WETH    = raw_price * (10^6 / 10^18)  // decimal adjustment
+ *   raw_price    = (sqrtPriceX96 / 2^96)^2          // token1_raw per token0_raw
+ *   USDC/WETH    = raw_price * 10^(dec0 - dec1)     // = raw * 10^12 here
  *
- * `raw_price` from sqrtPriceX96 is in token1-per-token0 units. For the Base
- * USDC/WETH pool the token ordering is token0 = WETH (lower address),
- * token1 = USDC, so the raw price is already USDC-per-WETH at raw scale.
- * The `10^6 / 10^18` factor adjusts for the decimal difference between USDC
- * (6) and WETH (18).
+ * NB: the spec writes the decimal correction as `10^6 / 10^18` — that's the
+ * wrong direction for token0=WETH(18), token1=USDC(6). The standard Uniswap
+ * V3 conversion is `raw_price * 10^(decimals_token0 - decimals_token1)`,
+ * which for this pair is `* 10^12`. Reversing would give a price near zero
+ * (and divide-by-zero downstream in the TCA ledger).
  *
  * Requires archive RPC — Alchemy free tier returns "Requested resource not
  * found" on historical `eth_call`.
@@ -44,15 +44,15 @@ export async function getReferencePrice(args: ReferencePriceArgs): Promise<numbe
 }
 
 export function sqrtPriceX96ToUsdcPerWeth(sqrtPriceX96: bigint): number {
-	// `Number(sqrtPriceX96)` overflows IEEE 754 above ~2^53. Use scaled
-	// arithmetic: square the bigint, then divide by 2^192, then apply the
-	// 10^6 / 10^18 decimal factor as a single final scalar.
+	// `Number(sqrtPriceX96)` overflows IEEE 754 precision above ~2^53; do all
+	// multiplies as bigint and only convert at the end.
+	//
+	// Target: USDC_per_WETH = sqrtPriceX96^2 / 2^192 * 10^12
+	// Carry an extra 1e8 of precision through bigint so the final Number cast
+	// preserves cents-of-a-dollar accuracy at WETH prices up to six figures.
 	const Q192 = 1n << 192n;
-	const numerator = sqrtPriceX96 * sqrtPriceX96; // ≈ price * 2^192 at raw scale
-	// Bring it into a Number-safe range by scaling down. We want
-	// (numerator / Q192) * (1e6 / 1e18). That's numerator / (Q192 * 1e12).
-	// Scale the bigint by 1e18 (carrying 18 decimals of precision) before
-	// dividing, then convert to Number.
-	const scaled = (numerator * 10n ** 18n) / Q192 / 10n ** 12n;
-	return Number(scaled) / 1e18;
+	const DECIMAL_ADJUST = 10n ** 12n; // 10^(decimals_token0 - decimals_token1)
+	const PRECISION = 10n ** 8n;
+	const scaled = (sqrtPriceX96 * sqrtPriceX96 * DECIMAL_ADJUST * PRECISION) / Q192;
+	return Number(scaled) / Number(PRECISION);
 }
