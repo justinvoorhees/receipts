@@ -14,10 +14,15 @@ const SWAP_EVENT = parseAbiItem(
 	'event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)',
 );
 
-/** Verified Uniswap V3 USDC/WETH pools on Base (per spec §4.2). */
+/**
+ * Verified Uniswap V3 USDC/WETH pools on Base (per spec §4.2).
+ * Both verified via Uniswap V3 factory's getPool(WETH, USDC, fee) call
+ * against mainnet.base.org, with token0/token1/fee/slot0 round-tripped
+ * against each pool to confirm identity and liveness.
+ */
 export const POOLS: { address: `0x${string}`; feeTier: number }[] = [
 	{ address: '0xd0b53D9277642d899DF5C87A3966A349A798F224', feeTier: 500 }, // 0.05%
-	// 0.3% pool: spec says "Verify on Basescan before deploy" — add once confirmed.
+	{ address: '0x6c561B446416E1A00E8E93E221854d6eA4171372', feeTier: 3000 }, // 0.3%
 ];
 
 export interface PollerArgs {
