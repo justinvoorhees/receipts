@@ -1,8 +1,18 @@
 import 'dotenv/config';
 import { Command } from 'commander';
+import { resolve } from 'node:path';
+import { createDb } from '@fabric-tca/db';
+import { loadRouterRegistry } from './routerRegistry.js';
+import { POOLS, startPoller } from './poller.js';
 
-// Skeleton: wires up the CLI surface. Individual commands (poll, decode-tx,
-// recompute-p99, export) get implemented as their own modules and registered here.
+function requireEnv(name: string): string {
+	const v = process.env[name];
+	if (!v) {
+		throw new Error(`${name} is not set. Copy .env.example to .env and fill in this value.`);
+	}
+	return v;
+}
+
 export async function main(argv: readonly string[]) {
 	const program = new Command()
 		.name('tca-ingest')
@@ -12,10 +22,30 @@ export async function main(argv: readonly string[]) {
 	program
 		.command('poll')
 		.description('Run the eth_getLogs poller continuously')
-		.action(async () => {
-			// TODO: load registry, start poller loop, write to swaps_staging
-			console.error('Not yet implemented.');
-			process.exit(1);
+		.option('--from <block>', 'block to resume from (default: current head)')
+		.option('--registry <path>', 'router registry JSON path', 'configs/routers.json')
+		.action(async (opts) => {
+			const databaseUrl = requireEnv('TCA_DATABASE_URL');
+			const rpcUrl = requireEnv('TCA_RPC_URL');
+			const pollIntervalMs = Number(process.env.TCA_POLL_INTERVAL_MS ?? 2000);
+			const db = createDb(databaseUrl);
+			const registry = await loadRouterRegistry(resolve(process.cwd(), opts.registry));
+
+			const abortController = new AbortController();
+			process.on('SIGINT', () => {
+				console.log('SIGINT received — stopping poller cleanly.');
+				abortController.abort();
+			});
+
+			await startPoller({
+				db,
+				rpcUrl,
+				pollIntervalMs,
+				registry,
+				pools: POOLS,
+				...(opts.from ? { startBlock: BigInt(opts.from) } : {}),
+				signal: abortController.signal,
+			});
 		});
 
 	program
