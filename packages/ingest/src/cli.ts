@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { createDb } from '@fabric-tca/db';
 import { loadRouterRegistry } from './routerRegistry.js';
 import { POOLS, startPoller } from './poller.js';
+import { decodeTransaction } from './decoder.js';
 
 function requireEnv(name: string): string {
 	const v = process.env[name];
@@ -51,12 +52,33 @@ export async function main(argv: readonly string[]) {
 	program
 		.command('decode')
 		.argument('<tx_hash>')
-		.description('Decode a single tx and compute TCA ledger (manual / debug)')
-		.action(async () => {
-			// TODO: implement single-tx pipeline (fetch receipt + trace + slot0,
-			// compute components, write to swaps).
-			console.error('Not yet implemented.');
-			process.exit(1);
+		.option('--pool <address>', 'pool address', POOLS[0]!.address)
+		.option('--fee-tier <bps>', 'pool fee tier (500 | 3000)', String(POOLS[0]!.feeTier))
+		.option('--aggregator <name>', 'aggregator label (for context only)', '')
+		.description('Decode a single tx and dump its DecodedTx for inspection')
+		.action(async (txHash: string, opts) => {
+			const rpcUrl = requireEnv('TCA_RPC_URL');
+			const result = await decodeTransaction({
+				rpcUrl,
+				txHash: txHash as `0x${string}`,
+				context: {
+					aggregator: opts.aggregator || null,
+					poolAddress: opts.pool as `0x${string}`,
+					poolFeeTier: Number(opts.feeTier),
+				},
+			});
+			// rawTrace is huge; omit from the printed view but keep it on the
+			// object for downstream consumers.
+			const { rawTrace: _omit, ...summary } = result;
+			void _omit;
+			console.log(
+				JSON.stringify(
+					summary,
+					(_, v) => (typeof v === 'bigint' ? v.toString() : v),
+					2,
+				),
+			);
+			console.log(`(rawTrace omitted; ${result.transfers.length} Transfer events extracted)`);
 		});
 
 	program
