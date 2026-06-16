@@ -5,6 +5,7 @@ import { createDb } from '@fabric-tca/db';
 import { loadRouterRegistry } from './routerRegistry.js';
 import { POOLS, startPoller } from './poller.js';
 import { decodeTransaction } from './decoder.js';
+import { processSwap, recomputeP99 } from './processSwap.js';
 
 function requireEnv(name: string): string {
 	const v = process.env[name];
@@ -82,13 +83,41 @@ export async function main(argv: readonly string[]) {
 		});
 
 	program
+		.command('process')
+		.argument('<tx_hash>')
+		.option('--pool <address>', 'pool address', POOLS[0]!.address)
+		.option('--fee-tier <bps>', 'pool fee tier (500 | 3000)', String(POOLS[0]!.feeTier))
+		.option('--registry <path>', 'router registry JSON path', 'configs/routers.json')
+		.description('Run the full promotion pipeline for one tx and write to the swaps table')
+		.action(async (txHash: string, opts) => {
+			const databaseUrl = requireEnv('TCA_DATABASE_URL');
+			const rpcUrl = requireEnv('TCA_RPC_URL');
+			const db = createDb(databaseUrl);
+			const registry = await loadRouterRegistry(resolve(process.cwd(), opts.registry));
+			const result = await processSwap({
+				db,
+				rpcUrl,
+				txHash: txHash as `0x${string}`,
+				poolAddress: opts.pool as `0x${string}`,
+				poolFeeTier: Number(opts.feeTier),
+				registry,
+			});
+			console.log(
+				JSON.stringify(result, (_, v) => (typeof v === 'bigint' ? v.toString() : v), 2),
+			);
+		});
+
+	program
 		.command('recompute-p99')
+		.option('--window-days <n>', 'sample window in days', '30')
 		.description('Recompute the P99 threshold from staging and persist')
-		.action(async () => {
-			// TODO: percentile_cont(0.99) on notional_usd_estimate over last 30d,
-			// write to p99_thresholds, mark cold-start floor as superseded.
-			console.error('Not yet implemented.');
-			process.exit(1);
+		.action(async (opts) => {
+			const databaseUrl = requireEnv('TCA_DATABASE_URL');
+			const db = createDb(databaseUrl);
+			const result = await recomputeP99(db, Number(opts.windowDays));
+			console.log(
+				`p99 threshold: $${result.thresholdUsd.toFixed(2)} (n=${result.sampleCount})`,
+			);
 		});
 
 	await program.parseAsync([...argv]);
