@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
 
@@ -17,4 +17,36 @@ export async function getRecentSwaps(limit = 500): Promise<SwapRow[]> {
 		.where(eq(schema.swaps.processingStatus, 'complete'))
 		.orderBy(desc(schema.swaps.blockTimestamp))
 		.limit(limit);
+}
+
+/**
+ * (aggregator, executionQualityBps) pairs for every completed swap. Feeds the
+ * trust-matrix metric layer. Numeric coercion is done here so callers never
+ * see raw string numerics from Postgres.
+ */
+export async function getResidualsByAggregator(): Promise<
+	{ aggregator: string; executionQualityBps: number }[]
+> {
+	const db = getDb();
+	const rows = await db
+		.select({
+			aggregator: schema.swaps.aggregator,
+			executionQualityBps: schema.swaps.executionQualityBps,
+		})
+		.from(schema.swaps)
+		.where(
+			and(
+				eq(schema.swaps.processingStatus, 'complete'),
+				isNotNull(schema.swaps.aggregator),
+				isNotNull(schema.swaps.executionQualityBps),
+			),
+		);
+	return rows
+		.filter((r): r is { aggregator: string; executionQualityBps: string } =>
+			r.aggregator !== null && r.executionQualityBps !== null,
+		)
+		.map((r) => ({
+			aggregator: r.aggregator,
+			executionQualityBps: Number(r.executionQualityBps),
+		}));
 }
