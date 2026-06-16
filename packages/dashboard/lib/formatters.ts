@@ -13,20 +13,23 @@ export function formatVariability(value: number | null): string {
 	return `±${value.toFixed(1)}bps`;
 }
 
-/**
- * Accuracy is the inverse-sign framing of the stored `degradation_bps`.
- * The database records degradation where positive = loss; the UI prefers
- * to show accuracy where positive = surplus (better than quote). All
- * accuracy displays should go through this helper.
- */
-export function formatAccuracy(degradationBps: number | null): string {
-	if (degradationBps === null) return '–';
-	return formatBps(-degradationBps);
-}
-
 export function formatUsd(value: number | null): string {
 	if (value === null) return '–';
 	return `$${value.toFixed(2)}`;
+}
+
+/**
+ * Larger USD amounts — notionals, fee totals. Uses Intl with no fractional
+ * digits since trades are $500k+ and cents aren't meaningful at that scale.
+ */
+const NOTIONAL_FMT = new Intl.NumberFormat('en-US', {
+	style: 'currency',
+	currency: 'USD',
+	maximumFractionDigits: 0,
+});
+export function formatNotional(value: number | null): string {
+	if (value === null) return '–';
+	return NOTIONAL_FMT.format(value);
 }
 
 /**
@@ -43,8 +46,29 @@ export function formatTime(date: Date): string {
 	return date.toISOString().slice(11, 19);
 }
 
-export function formatSequence(seq: number): string {
-	return seq.toString().padStart(3, '0');
+/**
+ * "Jun 16, 14:32" — compact UTC stamp for trade rows. Same day's trades
+ * cluster visually; the month/day disambiguates older rows once you scroll.
+ */
+export function formatTradeTimestamp(epochSeconds: number): string {
+	const d = new Date(epochSeconds * 1000);
+	const monthDay = d.toLocaleDateString('en-US', {
+		month: 'short',
+		day: 'numeric',
+		timeZone: 'UTC',
+	});
+	const hhmm = d.toISOString().slice(11, 16);
+	return `${monthDay}, ${hhmm}`;
+}
+
+export function shortTxHash(txHash: string): string {
+	return `${txHash.slice(0, 6)}…${txHash.slice(-4)}`;
+}
+
+export function formatDirection(direction: string | null): string {
+	if (direction === 'buy_weth') return 'Buy WETH';
+	if (direction === 'sell_weth') return 'Sell WETH';
+	return direction ?? '–';
 }
 
 const CHAIN_DISPLAY_NAMES: Record<string, string> = {
