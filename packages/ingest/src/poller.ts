@@ -1,8 +1,13 @@
 import { createPublicClient, http, parseAbiItem } from 'viem';
 import { base } from 'viem/chains';
+import { eq } from 'drizzle-orm';
 import type { Db } from '@fabric-tca/db';
 import { schema } from '@fabric-tca/db';
 import type { RouterRegistry } from './routerRegistry.js';
+import { writeHeartbeat } from './heartbeat.js';
+
+const POLL_CURSOR_ID = 'main';
+const MAX_BACKOFF_MS = 60_000;
 
 /**
  * Uniswap V3 Swap event. `amount0` / `amount1` are signed deltas — positive
@@ -41,9 +46,27 @@ export async function startPoller(args: PollerArgs): Promise<void> {
 	const log = (msg: string) => (args.onProgress ? args.onProgress(msg) : console.log(msg));
 	const client = createPublicClient({ chain: base, transport: http(args.rpcUrl) });
 
-	const head = await client.getBlockNumber();
-	let lastProcessed = args.startBlock ?? head;
-	log(`poller starting at block ${lastProcessed} (chain head ${head})`);
+	// Cursor resolution priority: explicit --from > persisted cursor > chain head.
+	let lastProcessed: bigint;
+	if (args.startBlock !== undefined) {
+		lastProcessed = args.startBlock;
+		log(`poller starting at block ${lastProcessed} (explicit --from)`);
+	} else {
+		const persisted = await args.db
+			.select()
+			.from(schema.pollState)
+			.where(eq(schema.pollState.id, POLL_CURSOR_ID))
+			.limit(1);
+		if (persisted[0]) {
+			lastProcessed = BigInt(persisted[0].lastBlock);
+			log(`poller resuming from persisted cursor at block ${lastProcessed}`);
+		} else {
+			lastProcessed = await client.getBlockNumber();
+			log(`poller starting at chain head ${lastProcessed} (no persisted cursor)`);
+		}
+	}
+
+	let consecutiveFailures = 0;
 
 	while (!args.signal?.aborted) {
 		try {
@@ -116,12 +139,37 @@ export async function startPoller(args: PollerArgs): Promise<void> {
 					);
 				}
 				lastProcessed = head;
+				// Persist cursor so a crash doesn't gap-leak blocks.
+				await args.db
+					.insert(schema.pollState)
+					.values({ id: POLL_CURSOR_ID, lastBlock: Number(head) })
+					.onConflictDoUpdate({
+						target: schema.pollState.id,
+						set: { lastBlock: Number(head), updatedAt: new Date() },
+					});
 			}
+			await writeHeartbeat(args.db, 'poller', {
+				lastBlock: Number(lastProcessed),
+				status: 'ok',
+			});
+			consecutiveFailures = 0;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			log(`poller tick error: ${msg.slice(0, 200)}`);
+			consecutiveFailures += 1;
+			log(`poller tick error (${consecutiveFailures}): ${msg.slice(0, 200)}`);
+			await writeHeartbeat(args.db, 'poller', {
+				lastBlock: Number(lastProcessed),
+				status: 'error',
+				error: msg.slice(0, 500),
+			});
 		}
-		await sleep(args.pollIntervalMs, args.signal);
+		// Exponential backoff on consecutive failures, capped. Resets to base
+		// interval immediately after the first successful tick.
+		const delay =
+			consecutiveFailures === 0
+				? args.pollIntervalMs
+				: Math.min(args.pollIntervalMs * 2 ** consecutiveFailures, MAX_BACKOFF_MS);
+		await sleep(delay, args.signal);
 	}
 	log('poller stopped');
 }

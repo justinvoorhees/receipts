@@ -80,6 +80,33 @@ export const p99Thresholds = pgTable('p99_thresholds', {
 	windowDays: integer('window_days').notNull().default(30),
 });
 
+/**
+ * Persistent poller cursor. One row keyed by `id` so we can extend to
+ * per-pool cursors later if needed. Today there's a single row ('main')
+ * tracking the high-water-mark block across all configured pools.
+ */
+export const pollState = pgTable('poll_state', {
+	id: text('id').primaryKey(),
+	lastBlock: integer('last_block').notNull(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Liveness signal per ingest service. Each tick (success or failure)
+ * upserts the row keyed by `service`. The dashboard reads this to show
+ * staleness — if `last_tick_at` is older than a few minutes, the service
+ * is effectively down regardless of what its process state looks like.
+ */
+export const ingestHeartbeats = pgTable('ingest_heartbeats', {
+	service: text('service').primaryKey(), // 'poller' | 'promoter'
+	lastTickAt: timestamp('last_tick_at', { withTimezone: true }).notNull(),
+	lastBlock: integer('last_block'),
+	lastStatus: text('last_status').notNull(), // 'ok' | 'error'
+	lastError: text('last_error'),
+});
+
 export type SwapsStagingRow = typeof swapsStaging.$inferSelect;
 export type SwapRow = typeof swaps.$inferSelect;
 export type P99ThresholdRow = typeof p99Thresholds.$inferSelect;
+export type PollStateRow = typeof pollState.$inferSelect;
+export type IngestHeartbeatRow = typeof ingestHeartbeats.$inferSelect;

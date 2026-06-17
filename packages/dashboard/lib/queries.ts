@@ -3,6 +3,12 @@ import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
 
 export type SwapRow = typeof schema.swaps.$inferSelect;
+export type HeartbeatRow = typeof schema.ingestHeartbeats.$inferSelect;
+
+export async function getHeartbeats(): Promise<HeartbeatRow[]> {
+	const db = getDb();
+	return db.select().from(schema.ingestHeartbeats);
+}
 
 /**
  * Most-recent completed swaps for the trades table. Limit is intentionally

@@ -1,5 +1,7 @@
+import { Suspense } from 'react';
 import { NavTabs } from './NavTabs';
 import { ThemePicker } from './ThemePicker';
+import { IngestStatus } from './IngestStatus';
 
 // Native aspect ratio of the wordmark SVG is 512:139 (~3.683).
 // At 40px tall the rendered width is 40 * 512/139 ≈ 147.4px.
@@ -7,9 +9,6 @@ const LOGO_HEIGHT = 40;
 const LOGO_WIDTH = (LOGO_HEIGHT * 512) / 139;
 
 export function Header() {
-	// TODO: when an "ingestion-live" signal is wired up (e.g., a heartbeat row
-	// the poller updates on each tick), reintroduce the live indicator via a
-	// noStore'd query — pattern is preserved in v1's git history.
 	return (
 		<header className="flex items-center max-w-[1132px] mx-auto pt-20">
 			<a href="/" aria-label="Fabric — home" className="text-[var(--color-primary)]">
@@ -35,6 +34,9 @@ export function Header() {
 				/>
 			</a>
 			<div className="ml-auto flex items-center gap-[40px]">
+				<Suspense fallback={null}>
+					<IngestStatus />
+				</Suspense>
 				<NavTabs />
 				<ThemePicker />
 			</div>

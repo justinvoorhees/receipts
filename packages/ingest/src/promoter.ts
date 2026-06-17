@@ -3,6 +3,7 @@ import type { Db } from '@fabric-tca/db';
 import { schema } from '@fabric-tca/db';
 import { processSwap } from './processSwap.js';
 import type { RouterRegistry } from './routerRegistry.js';
+import { writeHeartbeat } from './heartbeat.js';
 
 /**
  * Continuous promotion loop. Tails `swaps_staging` for rows that
@@ -101,9 +102,14 @@ export async function startPromoter(args: PromoterArgs): Promise<void> {
 					// Row stays un-promoted; the next pass retries it.
 				}
 			}
+			await writeHeartbeat(args.db, 'promoter', { status: 'ok' });
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			log(`promoter tick error: ${msg.slice(0, 200)}`);
+			await writeHeartbeat(args.db, 'promoter', {
+				status: 'error',
+				error: msg.slice(0, 500),
+			});
 		}
 		await sleep(args.pollIntervalMs, args.signal);
 	}
