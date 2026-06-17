@@ -4,26 +4,20 @@ import type { AggregatorPoint, MetricStrategy } from '../lib/trustMatrix';
 /**
  * 2×2 trust matrix.
  *
- * Axes are driven entirely by the `metric` strategy (label + unit). The
- * quadrant boundaries sit at the data's own median on each axis — i.e.
- * positions are relative, not against a fixed threshold. That means the
- * matrix always tells a comparative story: "trustworthy among these
- * providers in this window," not "trustworthy in absolute terms."
+ * The plot is a true square: quadrant dividers sit at the geometric center
+ * of the plot area (not at the data median), so each aggregator's dot
+ * position is read against an absolute (0, max) scale on each axis. This
+ * matches the Figma spec where the dividers are an absolute affordance
+ * rather than a data-driven median line.
  *
  *   Y (severity →)
  *   ┌───────────────┬───────────────┐
- *   │   Volatile    │ Untrustworthy │
+ *   │   Volatile    │ Untrustworthy │  ← tinted red
  *   ├───────────────┼───────────────┤
- *   │ Trustworthy   │     Noisy     │
+ *   │ Trustworthy   │     Noisy     │  ← tinted green (bottom-left)
  *   └───────────────┴───────────────┘
- *                     X (frequency →)
+ *                       X (frequency →)
  */
-
-const W = 640;
-const H = 480;
-const M = { top: 40, right: 40, bottom: 56, left: 64 } as const;
-const PLOT_W = W - M.left - M.right;
-const PLOT_H = H - M.top - M.bottom;
 
 const MIN_SAMPLES = 5;
 
@@ -35,226 +29,138 @@ export interface TrustMatrixProps {
 export function TrustMatrix({ points, metric }: TrustMatrixProps) {
 	if (points.length === 0) {
 		return (
-			<p className="font-['Sohne_Mono'] text-[12px] text-[var(--color-secondary)] mt-10 max-w-[640px]">
-				No promoted swaps yet — the trust matrix needs at least one aggregator with
-				completed trades to plot. Run the ingest pipeline against an archive RPC and
-				this will populate.
-			</p>
+			<div className="border border-[rgba(179,179,179,0.2)] aspect-square w-full flex items-center justify-center">
+				<p className="font-['Sohne_Mono'] text-[12px] leading-[20px] text-[var(--color-secondary)] max-w-[400px] text-center">
+					Awaiting ingestion — the trust matrix needs at least one aggregator with
+					completed trades to plot.
+				</p>
+			</div>
 		);
 	}
 
+	// Axes range from 0 to a padded max. Padding leaves a small buffer so the
+	// rightmost / topmost dot doesn't kiss the border.
 	const xs = points.map((p) => p.x);
 	const ys = points.map((p) => p.y);
 	const xMax = Math.max(...xs, 0) * 1.15 || 10;
 	const yMax = Math.max(...ys, 0) * 1.15 || 10;
-	const xMid = median(xs);
-	const yMid = median(ys);
-
-	const xToPx = (x: number) => M.left + (x / xMax) * PLOT_W;
-	const yToPx = (y: number) => M.top + (1 - y / yMax) * PLOT_H;
-
-	const xMidPx = xToPx(xMid);
-	const yMidPx = yToPx(yMid);
 
 	return (
-		<svg
-			viewBox={`0 0 ${W} ${H}`}
-			width="100%"
-			role="img"
-			aria-label={`Trust matrix: ${metric.xLabel} vs ${metric.yLabel}`}
-			className="font-['Sohne_Mono']"
-		>
-			{/* Quadrant tints. Bottom-left is the goal state — gets a faint accent. */}
-			<rect
-				x={M.left}
-				y={yMidPx}
-				width={xMidPx - M.left}
-				height={M.top + PLOT_H - yMidPx}
-				fill="var(--color-fabric-green, #3a7)"
-				opacity="0.06"
-			/>
-			<rect
-				x={xMidPx}
-				y={M.top}
-				width={M.left + PLOT_W - xMidPx}
-				height={yMidPx - M.top}
-				fill="var(--color-fabric-red, #c44)"
-				opacity="0.06"
-			/>
-
-			{/* Plot frame */}
-			<rect
-				x={M.left}
-				y={M.top}
-				width={PLOT_W}
-				height={PLOT_H}
-				fill="none"
-				stroke="var(--color-primary)"
-				strokeWidth="1"
-			/>
-
-			{/* Quadrant divider lines at the data median */}
-			<line
-				x1={xMidPx}
-				y1={M.top}
-				x2={xMidPx}
-				y2={M.top + PLOT_H}
-				stroke="var(--color-primary)"
-				strokeOpacity="0.3"
-				strokeDasharray="2 3"
-			/>
-			<line
-				x1={M.left}
-				y1={yMidPx}
-				x2={M.left + PLOT_W}
-				y2={yMidPx}
-				stroke="var(--color-primary)"
-				strokeOpacity="0.3"
-				strokeDasharray="2 3"
-			/>
-
-			{/* Quadrant labels */}
-			<QuadrantLabel
-				x={M.left + (xMidPx - M.left) / 2}
-				y={M.top + (yMidPx - M.top) / 2}
-				text="Volatile"
-			/>
-			<QuadrantLabel
-				x={xMidPx + (M.left + PLOT_W - xMidPx) / 2}
-				y={M.top + (yMidPx - M.top) / 2}
-				text="Untrustworthy"
-			/>
-			<QuadrantLabel
-				x={M.left + (xMidPx - M.left) / 2}
-				y={yMidPx + (M.top + PLOT_H - yMidPx) / 2}
-				text="Trustworthy"
-			/>
-			<QuadrantLabel
-				x={xMidPx + (M.left + PLOT_W - xMidPx) / 2}
-				y={yMidPx + (M.top + PLOT_H - yMidPx) / 2}
-				text="Noisy"
-			/>
-
-			{/* Axes ticks: 0, midpoint, max. Minimal — the dots are the data. */}
-			<AxisTick value={0} px={xToPx(0)} axis="x" unit={metric.unit} />
-			<AxisTick value={xMid} px={xMidPx} axis="x" unit={metric.unit} />
-			<AxisTick value={xMax} px={xToPx(xMax)} axis="x" unit={metric.unit} />
-			<AxisTick value={0} px={yToPx(0)} axis="y" unit={metric.unit} />
-			<AxisTick value={yMid} px={yMidPx} axis="y" unit={metric.unit} />
-			<AxisTick value={yMax} px={yToPx(yMax)} axis="y" unit={metric.unit} />
-
-			{/* Axis titles */}
-			<text
-				x={M.left + PLOT_W / 2}
-				y={H - 12}
-				textAnchor="middle"
-				fontSize="12"
-				fill="var(--color-secondary)"
+		<div className="relative w-full">
+			{/* Y axis label */}
+			<div
+				className="absolute font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)]"
+				style={{
+					left: -16,
+					top: '50%',
+					transform: 'translate(-100%, -50%) rotate(-90deg)',
+					transformOrigin: '100% 50%',
+					whiteSpace: 'nowrap',
+					fontFeatureSettings: '"calt" 0',
+				}}
 			>
-				{metric.xLabel}
-			</text>
-			<text
-				transform={`translate(16, ${M.top + PLOT_H / 2}) rotate(-90)`}
-				textAnchor="middle"
-				fontSize="12"
-				fill="var(--color-secondary)"
-			>
-				{metric.yLabel}
-			</text>
+				Severity
+			</div>
 
-			{/* Data points */}
-			{points.map((p) => {
-				const cx = xToPx(p.x);
-				const cy = yToPx(p.y);
-				const dim = p.sampleCount < MIN_SAMPLES;
-				const color = providerColor(p.aggregator.toLowerCase());
-				return (
-					<g key={p.aggregator} opacity={dim ? 0.5 : 1}>
-						<circle
-							cx={cx}
-							cy={cy}
-							r={6}
-							fill={color}
-							stroke="var(--color-background)"
-							strokeWidth="1.5"
-						/>
-						<text
-							x={cx + 10}
-							y={cy + 4}
-							fontSize="11"
-							fill="var(--color-primary)"
+			{/* Plot square */}
+			<div className="relative aspect-square w-full border border-[rgba(179,179,179,0.2)]">
+				{/* Quadrant tints — bottom-left green (trustworthy), top-right red (untrustworthy) */}
+				<div className="absolute left-0 bottom-0 w-1/2 h-1/2 bg-[rgba(17,125,69,0.05)]" />
+				<div className="absolute right-0 top-0 w-1/2 h-1/2 bg-[rgba(250,11,84,0.05)]" />
+
+				{/* Crosshair lines at geometric center */}
+				<div className="absolute left-0 right-0 top-1/2 h-px bg-[rgba(179,179,179,0.4)]" />
+				<div className="absolute top-0 bottom-0 left-1/2 w-px bg-[rgba(179,179,179,0.4)]" />
+
+				{/* Quadrant labels */}
+				<QuadrantLabel pos="top-left" text="Volatile" />
+				<QuadrantLabel pos="top-right" text="Untrustworthy" />
+				<QuadrantLabel pos="bottom-left" text="Trustworthy" />
+				<QuadrantLabel pos="bottom-right" text="Noisy" />
+
+				{/* Aggregator dots */}
+				{points.map((p) => {
+					const xPct = (p.x / xMax) * 100;
+					const yPct = (1 - p.y / yMax) * 100;
+					const dim = p.sampleCount < MIN_SAMPLES;
+					const color = providerColor(p.aggregator.toLowerCase());
+					return (
+						<div
+							key={p.aggregator}
+							className="absolute flex items-center gap-[6px]"
+							style={{
+								left: `${xPct}%`,
+								top: `${yPct}%`,
+								transform: 'translate(-50%, -50%)',
+								opacity: dim ? 0.5 : 1,
+							}}
 						>
-							{formatProvider(p.aggregator.toLowerCase())}
-							{dim ? ` (n=${p.sampleCount})` : ''}
-						</text>
-					</g>
-				);
-			})}
-		</svg>
-	);
-}
+							<span
+								aria-hidden="true"
+								className="block"
+								style={{
+									width: 8,
+									height: 8,
+									borderRadius: 9999,
+									backgroundColor: color,
+									flex: 'none',
+								}}
+							/>
+							<span
+								className="font-['Sohne_Mono'] text-[12px] leading-[12px] whitespace-nowrap"
+								style={{ color, fontFeatureSettings: '"calt" 0' }}
+							>
+								{formatProvider(p.aggregator.toLowerCase())}
+								{dim ? ` (n=${p.sampleCount})` : ''}
+							</span>
+						</div>
+					);
+				})}
+			</div>
 
-function QuadrantLabel({ x, y, text }: { x: number; y: number; text: string }) {
-	return (
-		<text
-			x={x}
-			y={y}
-			textAnchor="middle"
-			fontSize="11"
-			fill="var(--color-secondary)"
-			letterSpacing="0.5"
-			style={{ textTransform: 'uppercase' }}
-			opacity="0.5"
-		>
-			{text.toUpperCase()}
-		</text>
-	);
-}
-
-function AxisTick({
-	value,
-	px,
-	axis,
-	unit,
-}: {
-	value: number;
-	px: number;
-	axis: 'x' | 'y';
-	unit: string;
-}) {
-	const label = `${value.toFixed(1)}${unit}`;
-	if (axis === 'x') {
-		return (
-			<text
-				x={px}
-				y={M.top + PLOT_H + 16}
-				textAnchor="middle"
-				fontSize="10"
-				fill="var(--color-secondary)"
+			{/* X axis label */}
+			<div
+				className="font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)] text-center mt-[16px]"
+				style={{ fontFeatureSettings: '"calt" 0' }}
 			>
-				{label}
-			</text>
-		);
-	}
-	return (
-		<text
-			x={M.left - 8}
-			y={px + 3}
-			textAnchor="end"
-			fontSize="10"
-			fill="var(--color-secondary)"
-		>
-			{label}
-		</text>
+				Frequency
+			</div>
+
+			{/* sr-only axis units for accessibility */}
+			<span className="sr-only">
+				{metric.xLabel}: 0 to {xMax.toFixed(1)} {metric.unit}.
+				{metric.yLabel}: 0 to {yMax.toFixed(1)} {metric.unit}.
+			</span>
+		</div>
 	);
 }
 
-function median(values: number[]): number {
-	if (values.length === 0) return 0;
-	const sorted = [...values].sort((a, b) => a - b);
-	const mid = Math.floor(sorted.length / 2);
-	if (sorted.length % 2 === 0) {
-		return (sorted[mid - 1]! + sorted[mid]!) / 2;
-	}
-	return sorted[mid]!;
+function QuadrantLabel({
+	pos,
+	text,
+}: {
+	pos: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+	text: string;
+}) {
+	// Position each label at the center of its quadrant — 25% / 75% on each
+	// axis. The center of the bottom-left quadrant is at (25%, 75%).
+	const positions = {
+		'top-left': { left: '25%', top: '25%' },
+		'top-right': { left: '75%', top: '25%' },
+		'bottom-left': { left: '25%', top: '75%' },
+		'bottom-right': { left: '75%', top: '75%' },
+	} as const;
+	const style = positions[pos];
+	return (
+		<span
+			className="absolute font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)] whitespace-nowrap"
+			style={{
+				...style,
+				transform: 'translate(-50%, -50%)',
+				fontFeatureSettings: '"calt" 0',
+			}}
+		>
+			{text}
+		</span>
+	);
 }

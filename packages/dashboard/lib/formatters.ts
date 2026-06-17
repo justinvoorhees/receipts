@@ -4,6 +4,17 @@ export function formatBps(value: number | null): string {
 }
 
 /**
+ * Sign-flipped framing of cost-bps. Our schema stores `positive = cost paid
+ * by user`, but the dashboard prefers "accuracy" framing where positive =
+ * surplus over reference. So `mean(total_cost_bps) = +12.3` (user paid)
+ * renders as accuracy `-12.3bps` (user is down).
+ */
+export function formatAccuracy(costBps: number | null): string {
+	if (costBps === null) return '–';
+	return formatBps(-costBps);
+}
+
+/**
  * Variability (stddev) is always presented prefixed with ± to signal it's a
  * spread, not a magnitude. Pairs naturally with a mean rendered via formatBps:
  * `29.8bps  ± 9.0bps`.
@@ -93,19 +104,19 @@ export function formatProvider(slug: string): string {
 	return PROVIDER_DISPLAY_NAMES[slug] ?? slug;
 }
 
-// Per-provider accent colors used in the cross-experiment scatter chart.
-// Values map to the existing --color-fabric-* CSS variables in theme.css so
-// they participate in theme switching cleanly.
-const PROVIDER_COLOR_VARS: Record<string, string> = {
-	fabric: 'var(--color-fabric-purple)',
-	nordstern: 'var(--color-fabric-blue)',
-	kyberswap: 'var(--color-fabric-green)',
-	odos: 'var(--color-fabric-pink)',
-	relay: 'var(--color-fabric-yellow)',
-	'0x': 'var(--color-fabric-red)',
-	velora: 'var(--color-fabric-light-blue)',
+// Per-provider accent hexes. Values from the Figma trust-matrix spec — kept
+// as raw hex (not theme vars) because the dots are part of the data viz and
+// should stay visually anchored across theme switches.
+const PROVIDER_COLOR_HEX: Record<string, string> = {
+	fabric: '#8800ff',
+	nordstern: '#332bfd',
+	kyberswap: '#117d45',
+	odos: '#fb42df',
+	relay: '#fba808',
+	'0x': '#fa0b54',
+	velora: '#0bc1fa',
 };
 
 export function providerColor(slug: string): string {
-	return PROVIDER_COLOR_VARS[slug] ?? 'var(--color-primary)';
+	return PROVIDER_COLOR_HEX[slug] ?? 'var(--color-primary)';
 }

@@ -10,7 +10,7 @@ const LOGO_WIDTH = (LOGO_HEIGHT * 512) / 139;
 
 export function Header() {
 	return (
-		<header className="flex items-center max-w-[1132px] mx-auto pt-20">
+		<header className="flex items-center max-w-[720px] mx-auto pt-20">
 			<a href="/" aria-label="Fabric — home" className="text-[var(--color-primary)]">
 				{/*
 				 * The wordmark is rendered as a CSS mask so its color follows the parent's
