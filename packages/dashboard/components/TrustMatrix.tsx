@@ -21,6 +21,20 @@ import type { AggregatorPoint, MetricStrategy } from '../lib/trustMatrix';
 
 const MIN_SAMPLES = 5;
 
+/**
+ * Inset (percent) on each side of the plot. Dots at the data extremes
+ * (value 0 or value max) would otherwise sit on the border and clip half
+ * outside the matrix because of the `translate(-50%, -50%)` centering.
+ */
+const PLOT_INSET = 4;
+
+/**
+ * Cluster proximity threshold (percent). When two dots resolve to
+ * positions within this distance on both axes, we treat them as a single
+ * cluster and stack their labels next to one anchor point.
+ */
+const CLUSTER_TOLERANCE = 3;
+
 export interface TrustMatrixProps {
 	points: AggregatorPoint[];
 	metric: MetricStrategy;
@@ -44,6 +58,12 @@ export function TrustMatrix({ points, metric }: TrustMatrixProps) {
 	const ys = points.map((p) => p.y);
 	const xMax = Math.max(...xs, 0) * 1.15 || 10;
 	const yMax = Math.max(...ys, 0) * 1.15 || 10;
+	const positioned = points.map((p) => ({
+		...p,
+		xPct: PLOT_INSET + (p.x / xMax) * (100 - 2 * PLOT_INSET),
+		yPct: PLOT_INSET + (1 - p.y / yMax) * (100 - 2 * PLOT_INSET),
+	}));
+	const clusters = clusterByProximity(positioned, CLUSTER_TOLERANCE);
 
 	return (
 		<div className="relative w-full">
@@ -78,29 +98,92 @@ export function TrustMatrix({ points, metric }: TrustMatrixProps) {
 				<QuadrantLabel pos="bottom-left" text="Trustworthy" />
 				<QuadrantLabel pos="bottom-right" text="Noisy" />
 
-				{/* Aggregator dots */}
-				{points.map((p) => {
-					const xPct = (p.x / xMax) * 100;
-					const yPct = (1 - p.y / yMax) * 100;
+				{/* Aggregator dots, with co-located clusters rendered as a stacked label group */}
+				{clusters.map((cluster, ci) => (
+					<ClusterMarker key={ci} cluster={cluster} />
+				))}
+			</div>
+
+			{/* X axis label */}
+			<div
+				className="font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)] text-center mt-[16px]"
+				style={{ fontFeatureSettings: '"calt" 0' }}
+			>
+				Frequency
+			</div>
+
+			{/* sr-only axis units for accessibility */}
+			<span className="sr-only">
+				{metric.xLabel}: 0 to {xMax.toFixed(1)} {metric.unit}.
+				{metric.yLabel}: 0 to {yMax.toFixed(1)} {metric.unit}.
+			</span>
+		</div>
+	);
+}
+
+interface PositionedPoint extends AggregatorPoint {
+	xPct: number;
+	yPct: number;
+}
+
+/**
+ * Group dots whose plot positions fall within `tolerance` percent of each
+ * other on both axes. The first dot's position anchors the cluster; ties
+ * resolve to insertion order. Returns clusters in input order so labels
+ * read predictably.
+ */
+function clusterByProximity(
+	points: PositionedPoint[],
+	tolerance: number,
+): PositionedPoint[][] {
+	const clusters: PositionedPoint[][] = [];
+	for (const p of points) {
+		const existing = clusters.find(
+			(c) =>
+				Math.abs(c[0]!.xPct - p.xPct) < tolerance &&
+				Math.abs(c[0]!.yPct - p.yPct) < tolerance,
+		);
+		if (existing) existing.push(p);
+		else clusters.push([p]);
+	}
+	return clusters;
+}
+
+function ClusterMarker({ cluster }: { cluster: PositionedPoint[] }) {
+	const anchor = cluster[0]!;
+	// Below 50% on Y we render labels downward from the dot; above 50% we
+	// render upward so labels never escape the plot.
+	const labelsBelow = anchor.yPct < 50;
+	return (
+		<div
+			className="absolute"
+			style={{
+				left: `${anchor.xPct}%`,
+				top: `${anchor.yPct}%`,
+				transform: 'translate(-50%, -50%)',
+			}}
+		>
+			<div
+				className={`flex ${labelsBelow ? 'flex-col' : 'flex-col-reverse'} items-start gap-[4px]`}
+			>
+				{cluster.map((p, i) => {
 					const dim = p.sampleCount < MIN_SAMPLES;
 					const color = providerColor(p.aggregator.toLowerCase());
 					return (
 						<div
 							key={p.aggregator}
-							className="absolute flex items-center gap-[6px]"
-							style={{
-								left: `${xPct}%`,
-								top: `${yPct}%`,
-								transform: 'translate(-50%, -50%)',
-								opacity: dim ? 0.5 : 1,
-							}}
+							className="flex items-center gap-[6px]"
+							style={{ opacity: dim ? 0.5 : 1 }}
 						>
+							{/* Only the first entry shows a dot at the actual anchor; the
+							    rest just show their color swatch + label so multi-aggregator
+							    clusters read as 'these are all at this position'. */}
 							<span
 								aria-hidden="true"
 								className="block"
 								style={{
-									width: 8,
-									height: 8,
+									width: i === 0 ? 8 : 6,
+									height: i === 0 ? 8 : 6,
 									borderRadius: 9999,
 									backgroundColor: color,
 									flex: 'none',
@@ -117,20 +200,6 @@ export function TrustMatrix({ points, metric }: TrustMatrixProps) {
 					);
 				})}
 			</div>
-
-			{/* X axis label */}
-			<div
-				className="font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)] text-center mt-[16px]"
-				style={{ fontFeatureSettings: '"calt" 0' }}
-			>
-				Frequency
-			</div>
-
-			{/* sr-only axis units for accessibility */}
-			<span className="sr-only">
-				{metric.xLabel}: 0 to {xMax.toFixed(1)} {metric.unit}.
-				{metric.yLabel}: 0 to {yMax.toFixed(1)} {metric.unit}.
-			</span>
 		</div>
 	);
 }
