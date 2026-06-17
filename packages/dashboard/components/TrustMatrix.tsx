@@ -149,58 +149,65 @@ function clusterByProximity(
 	return clusters;
 }
 
+/**
+ * Render a cluster as N independently-positioned rows. Each row's dot is
+ * centered on the anchor x; the first row's dot center sits on the anchor
+ * y, and subsequent rows stack vertically by `ROW_HEIGHT` pixels.
+ *
+ * Per-row positioning matters because the alternative (a single flex
+ * container with one transform) centers the WHOLE container — including
+ * label widths — on the anchor, which pulls dots off the plot when the
+ * widest label is wider than ~2× the anchor's distance from the edge.
+ */
 function ClusterMarker({ cluster }: { cluster: PositionedPoint[] }) {
 	const anchor = cluster[0]!;
-	// Below 50% on Y we render labels downward from the dot; above 50% we
-	// render upward so labels never escape the plot.
+	// Below 50% on Y → stack additional rows downward; above 50% → upward
+	// so labels never escape the plot.
 	const labelsBelow = anchor.yPct < 50;
+	const ROW_HEIGHT_PX = 16;
+	const DOT_PX = 8;
 	return (
-		<div
-			className="absolute"
-			style={{
-				left: `${anchor.xPct}%`,
-				top: `${anchor.yPct}%`,
-				transform: 'translate(-50%, -50%)',
-			}}
-		>
-			<div
-				className={`flex ${labelsBelow ? 'flex-col' : 'flex-col-reverse'} items-start gap-[4px]`}
-			>
-				{cluster.map((p, i) => {
-					const dim = p.sampleCount < MIN_SAMPLES;
-					const color = providerColor(p.aggregator.toLowerCase());
-					return (
-						<div
-							key={p.aggregator}
-							className="flex items-center gap-[6px]"
-							style={{ opacity: dim ? 0.5 : 1 }}
+		<>
+			{cluster.map((p, i) => {
+				const yOffset = (labelsBelow ? i : -i) * ROW_HEIGHT_PX;
+				const dim = p.sampleCount < MIN_SAMPLES;
+				const color = providerColor(p.aggregator.toLowerCase());
+				return (
+					<div
+						key={p.aggregator}
+						className="absolute flex items-center gap-[6px]"
+						style={{
+							left: `${anchor.xPct}%`,
+							top: `${anchor.yPct}%`,
+							// translateX(-DOT_PX/2) centers the dot on anchor.x;
+							// translateY(-50%) centers the row vertically on anchor.y;
+							// yOffset stacks subsequent rows.
+							transform: `translate(${-DOT_PX / 2}px, calc(-50% + ${yOffset}px))`,
+							opacity: dim ? 0.5 : 1,
+						}}
+					>
+						<span
+							aria-hidden="true"
+							className="block"
+							style={{
+								width: DOT_PX,
+								height: DOT_PX,
+								borderRadius: 9999,
+								backgroundColor: color,
+								flex: 'none',
+							}}
+						/>
+						<span
+							className="font-['Sohne_Mono'] text-[12px] leading-[12px] whitespace-nowrap"
+							style={{ color, fontFeatureSettings: '"calt" 0' }}
 						>
-							{/* Only the first entry shows a dot at the actual anchor; the
-							    rest just show their color swatch + label so multi-aggregator
-							    clusters read as 'these are all at this position'. */}
-							<span
-								aria-hidden="true"
-								className="block"
-								style={{
-									width: i === 0 ? 8 : 6,
-									height: i === 0 ? 8 : 6,
-									borderRadius: 9999,
-									backgroundColor: color,
-									flex: 'none',
-								}}
-							/>
-							<span
-								className="font-['Sohne_Mono'] text-[12px] leading-[12px] whitespace-nowrap"
-								style={{ color, fontFeatureSettings: '"calt" 0' }}
-							>
-								{formatProvider(p.aggregator.toLowerCase())}
-								{dim ? ` (n=${p.sampleCount})` : ''}
-							</span>
-						</div>
-					);
-				})}
-			</div>
-		</div>
+							{formatProvider(p.aggregator.toLowerCase())}
+							{dim ? ` (n=${p.sampleCount})` : ''}
+						</span>
+					</div>
+				);
+			})}
+		</>
 	);
 }
 
