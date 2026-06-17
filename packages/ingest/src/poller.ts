@@ -8,6 +8,14 @@ import { writeHeartbeat } from './heartbeat.js';
 
 const POLL_CURSOR_ID = 'main';
 const MAX_BACKOFF_MS = 60_000;
+/**
+ * Cap on the block range of a single `getLogs` call. Alchemy rejects ranges
+ * above ~10k on most plans; keeping it at 5k leaves headroom and bounds the
+ * per-call latency. Big backfills (e.g., 7 days = ~300k blocks) are processed
+ * as a sequence of chunks rather than one massive call. The persisted cursor
+ * advances after each chunk so a crash mid-backfill resumes cleanly.
+ */
+const MAX_LOG_RANGE_BLOCKS = 5000n;
 
 /**
  * Uniswap V3 Swap event. `amount0` / `amount1` are signed deltas — positive
@@ -71,9 +79,15 @@ export async function startPoller(args: PollerArgs): Promise<void> {
 	while (!args.signal?.aborted) {
 		try {
 			const head = await client.getBlockNumber();
-			if (head > lastProcessed) {
+			// Chunk the range so a multi-day backfill doesn't exceed Alchemy's
+			// per-call block-range limit. Live tail (head - cursor < MAX_RANGE)
+			// resolves to a single chunk like before.
+			while (lastProcessed < head && !args.signal?.aborted) {
 				const fromBlock = lastProcessed + 1n;
-				const toBlock = head;
+				const toBlock =
+					head - fromBlock + 1n > MAX_LOG_RANGE_BLOCKS
+						? fromBlock + MAX_LOG_RANGE_BLOCKS - 1n
+						: head;
 
 				const logs = await client.getLogs({
 					address: args.pools.map((p) => p.address),
@@ -135,17 +149,18 @@ export async function startPoller(args: PollerArgs): Promise<void> {
 					}
 
 					log(
-						`block ${fromBlock}..${head}: ${logs.length} swaps, ${aggregatorRouted.length} aggregator-routed`,
+						`block ${fromBlock}..${toBlock}: ${logs.length} swaps, ${aggregatorRouted.length} aggregator-routed`,
 					);
 				}
-				lastProcessed = head;
-				// Persist cursor so a crash doesn't gap-leak blocks.
+				lastProcessed = toBlock;
+				// Persist cursor after every chunk so a crash mid-backfill resumes
+				// cleanly from the last completed chunk, not the start of the range.
 				await args.db
 					.insert(schema.pollState)
-					.values({ id: POLL_CURSOR_ID, lastBlock: Number(head) })
+					.values({ id: POLL_CURSOR_ID, lastBlock: Number(toBlock) })
 					.onConflictDoUpdate({
 						target: schema.pollState.id,
-						set: { lastBlock: Number(head), updatedAt: new Date() },
+						set: { lastBlock: Number(toBlock), updatedAt: new Date() },
 					});
 			}
 			await writeHeartbeat(args.db, 'poller', {
