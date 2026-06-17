@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import {
 	getRecentSwaps,
 	TRADES_SORT_COLUMNS,
@@ -15,6 +14,7 @@ import {
 	formatTradeTimestamp,
 	shortTxHash,
 } from '../../lib/formatters';
+import { SortLink } from '../../components/SortLink';
 
 export const revalidate = 30;
 
@@ -51,7 +51,7 @@ export default async function TradesPage({
 			) : (
 				<div className="mt-[40px] overflow-x-auto">
 					<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px] min-w-fit">
-						<HeaderRow sort={sort} />
+						<HeaderRow />
 						{rows.map((r) => (
 							<DataRow key={r.txHash} row={r} />
 						))}
@@ -71,75 +71,42 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 	return { column, direction };
 }
 
-function HeaderRow({ sort }: { sort: TradesSort }) {
+function HeaderRow() {
 	return (
 		<div className="flex items-baseline justify-between gap-[40px] text-[var(--color-secondary)] uppercase font-medium">
 			<div className="flex items-baseline gap-[16px]">
-				<SortLink col="time" sort={sort} className="w-[96px] text-left">
+				<SortLink col="time" pathname="/trades" className="w-[96px] text-left">
 					Time
 				</SortLink>
 				<StaticHeader className="w-[80px] text-right">TXN</StaticHeader>
-				<SortLink col="aggregator" sort={sort} className="w-[72px] text-right">
+				<SortLink col="aggregator" pathname="/trades" className="w-[72px] text-right">
 					Aggregator
 				</SortLink>
-				<SortLink col="side" sort={sort} className="w-[64px] text-right">
+				<SortLink col="side" pathname="/trades" className="w-[64px] text-right">
 					Side
 				</SortLink>
-				<SortLink col="notional" sort={sort} className="w-[72px] text-right">
-					Notional
+				<SortLink col="notional" pathname="/trades" className="w-[72px] text-right">
+					Size
 				</SortLink>
 			</div>
 			<div className="flex items-baseline justify-end gap-[24px] text-right">
-				<SortLink col="accuracy" sort={sort} className="w-[58px]">
+				<SortLink col="accuracy" pathname="/trades" className="w-[58px]">
 					Accuracy
 				</SortLink>
-				<SortLink col="lpFee" sort={sort} className="w-[58px]">
+				<SortLink col="lpFee" pathname="/trades" className="w-[58px]">
 					L.p. Fee
 				</SortLink>
-				<SortLink col="slippage" sort={sort} className="w-[58px]">
+				<SortLink col="slippage" pathname="/trades" className="w-[58px]">
 					Slippage
 				</SortLink>
-				<SortLink col="aggFee" sort={sort} className="w-[58px]">
+				<SortLink col="aggFee" pathname="/trades" className="w-[58px]">
 					Agg. fee
 				</SortLink>
-				<SortLink col="gas" sort={sort} className="w-[58px]">
+				<SortLink col="gas" pathname="/trades" className="w-[58px]">
 					Gas
 				</SortLink>
 			</div>
 		</div>
-	);
-}
-
-/**
- * Sortable header link. Toggling click semantics:
- *   not currently active → next state: desc on this column
- *   active + desc        → next state: asc
- *   active + asc         → next state: desc
- */
-function SortLink({
-	col,
-	sort,
-	className,
-	children,
-}: {
-	col: TradesSortColumn;
-	sort: TradesSort;
-	className?: string;
-	children: React.ReactNode;
-}) {
-	const active = sort.column === col;
-	const nextDir: SortDirection = active && sort.direction === 'desc' ? 'asc' : 'desc';
-	const arrow = active ? (sort.direction === 'desc' ? ' ↓' : ' ↑') : '';
-	return (
-		<Link
-			href={{ pathname: '/trades', query: { sort: col, dir: nextDir } }}
-			className={`underline decoration-dotted underline-offset-[2px] whitespace-nowrap ${
-				active ? 'text-[var(--color-primary)]' : ''
-			} ${className ?? ''}`}
-		>
-			{children}
-			{arrow}
-		</Link>
 	);
 }
 
