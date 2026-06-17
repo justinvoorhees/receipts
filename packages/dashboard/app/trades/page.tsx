@@ -1,4 +1,11 @@
-import { getRecentSwaps } from '../../lib/queries';
+import Link from 'next/link';
+import {
+	getRecentSwaps,
+	TRADES_SORT_COLUMNS,
+	type SortDirection,
+	type TradesSort,
+	type TradesSortColumn,
+} from '../../lib/queries';
 import {
 	formatAccuracy,
 	formatBps,
@@ -11,8 +18,16 @@ import {
 
 export const revalidate = 30;
 
-export default async function TradesPage() {
-	const rows = await getRecentSwaps();
+const VALID_SORT_COLUMNS = new Set(Object.keys(TRADES_SORT_COLUMNS) as TradesSortColumn[]);
+const DEFAULT_SORT: TradesSort = { column: 'time', direction: 'desc' };
+
+export default async function TradesPage({
+	searchParams,
+}: {
+	searchParams: Promise<{ sort?: string; dir?: string }>;
+}) {
+	const sort = parseSort(await searchParams);
+	const rows = await getRecentSwaps(sort);
 
 	return (
 		<div className="pb-10">
@@ -36,7 +51,7 @@ export default async function TradesPage() {
 			) : (
 				<div className="mt-[40px] overflow-x-auto">
 					<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px] min-w-fit">
-						<HeaderRow />
+						<HeaderRow sort={sort} />
 						{rows.map((r) => (
 							<DataRow key={r.txHash} row={r} />
 						))}
@@ -49,61 +64,93 @@ export default async function TradesPage() {
 
 type SwapRow = Awaited<ReturnType<typeof getRecentSwaps>>[number];
 
-function HeaderRow() {
+function parseSort(params: { sort?: string; dir?: string }): TradesSort {
+	const column = (params.sort ?? '') as TradesSortColumn;
+	if (!VALID_SORT_COLUMNS.has(column)) return DEFAULT_SORT;
+	const direction: SortDirection = params.dir === 'asc' ? 'asc' : 'desc';
+	return { column, direction };
+}
+
+function HeaderRow({ sort }: { sort: TradesSort }) {
 	return (
 		<div className="flex items-baseline justify-between gap-[40px] text-[var(--color-secondary)] uppercase font-medium">
 			<div className="flex items-baseline gap-[16px]">
-				<HeaderCell width="w-[96px]">Time</HeaderCell>
-				<HeaderCell width="w-[80px]">Tx</HeaderCell>
-				<HeaderCell width="w-[72px]">Aggregator</HeaderCell>
-				<HeaderCell width="w-[64px]">Side</HeaderCell>
-				<HeaderCell width="w-[72px]" align="right">
+				<SortLink col="time" sort={sort} className="w-[96px] text-left">
+					Time
+				</SortLink>
+				<StaticHeader className="w-[80px] text-right">TXN</StaticHeader>
+				<SortLink col="aggregator" sort={sort} className="w-[72px] text-right">
+					Aggregator
+				</SortLink>
+				<SortLink col="side" sort={sort} className="w-[64px] text-right">
+					Side
+				</SortLink>
+				<SortLink col="notional" sort={sort} className="w-[72px] text-right">
 					Notional
-				</HeaderCell>
+				</SortLink>
 			</div>
 			<div className="flex items-baseline justify-end gap-[24px] text-right">
-				<SortableHeader className="w-[58px]">Accuracy</SortableHeader>
-				<SortableHeader className="w-[58px]">L.p. Fee</SortableHeader>
-				<SortableHeader className="w-[58px]">Slippage</SortableHeader>
-				<SortableHeader className="w-[58px]">Agg. fee</SortableHeader>
-				<SortableHeader className="w-[58px]">Gas</SortableHeader>
+				<SortLink col="accuracy" sort={sort} className="w-[58px]">
+					Accuracy
+				</SortLink>
+				<SortLink col="lpFee" sort={sort} className="w-[58px]">
+					L.p. Fee
+				</SortLink>
+				<SortLink col="slippage" sort={sort} className="w-[58px]">
+					Slippage
+				</SortLink>
+				<SortLink col="aggFee" sort={sort} className="w-[58px]">
+					Agg. fee
+				</SortLink>
+				<SortLink col="gas" sort={sort} className="w-[58px]">
+					Gas
+				</SortLink>
 			</div>
 		</div>
 	);
 }
 
-function HeaderCell({
+/**
+ * Sortable header link. Toggling click semantics:
+ *   not currently active → next state: desc on this column
+ *   active + desc        → next state: asc
+ *   active + asc         → next state: desc
+ */
+function SortLink({
+	col,
+	sort,
+	className,
 	children,
-	width,
-	align = 'left',
 }: {
+	col: TradesSortColumn;
+	sort: TradesSort;
+	className?: string;
 	children: React.ReactNode;
-	width: string;
-	align?: 'left' | 'right';
 }) {
+	const active = sort.column === col;
+	const nextDir: SortDirection = active && sort.direction === 'desc' ? 'asc' : 'desc';
+	const arrow = active ? (sort.direction === 'desc' ? ' ↓' : ' ↑') : '';
 	return (
-		<span
-			className={`${width} ${align === 'right' ? 'text-right' : ''} whitespace-nowrap`}
+		<Link
+			href={{ pathname: '/trades', query: { sort: col, dir: nextDir } }}
+			className={`underline decoration-dotted underline-offset-[2px] whitespace-nowrap ${
+				active ? 'text-[var(--color-primary)]' : ''
+			} ${className ?? ''}`}
 		>
 			{children}
-		</span>
+			{arrow}
+		</Link>
 	);
 }
 
-function SortableHeader({
+function StaticHeader({
 	children,
 	className,
 }: {
 	children: React.ReactNode;
 	className?: string;
 }) {
-	return (
-		<span
-			className={`underline decoration-dotted underline-offset-[2px] whitespace-nowrap ${className ?? ''}`}
-		>
-			{children}
-		</span>
-	);
+	return <span className={`whitespace-nowrap ${className ?? ''}`}>{children}</span>;
 }
 
 function DataRow({ row }: { row: SwapRow }) {
@@ -120,14 +167,16 @@ function DataRow({ row }: { row: SwapRow }) {
 					href={`https://basescan.org/tx/${row.txHash}`}
 					target="_blank"
 					rel="noreferrer"
-					className="w-[80px] underline decoration-dotted underline-offset-[2px] hover:decoration-solid whitespace-nowrap"
+					className="w-[80px] text-right underline decoration-dotted underline-offset-[2px] hover:decoration-solid whitespace-nowrap"
 				>
 					{shortTxHash(row.txHash)}
 				</a>
-				<span className="w-[72px] whitespace-nowrap">
+				<span className="w-[72px] text-right whitespace-nowrap">
 					{row.aggregator ? formatProvider(row.aggregator.toLowerCase()) : '–'}
 				</span>
-				<span className="w-[64px] whitespace-nowrap">{formatDirection(row.direction)}</span>
+				<span className="w-[64px] text-right whitespace-nowrap">
+					{formatDirection(row.direction)}
+				</span>
 				<span className="w-[72px] text-right whitespace-nowrap">
 					{formatNotional(row.notionalUsd !== null ? Number(row.notionalUsd) : null)}
 				</span>

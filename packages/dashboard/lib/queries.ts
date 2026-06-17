@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
 
@@ -8,6 +8,29 @@ export type HeartbeatRow = typeof schema.ingestHeartbeats.$inferSelect;
 export async function getHeartbeats(): Promise<HeartbeatRow[]> {
 	const db = getDb();
 	return db.select().from(schema.ingestHeartbeats);
+}
+
+/**
+ * Column keys allowed in the `/trades?sort=…` URL param. Each maps to a
+ * concrete `swaps` column; anything else falls back to `time`.
+ */
+export const TRADES_SORT_COLUMNS = {
+	time: schema.swaps.blockTimestamp,
+	aggregator: schema.swaps.aggregator,
+	side: schema.swaps.direction,
+	notional: schema.swaps.notionalUsd,
+	accuracy: schema.swaps.totalCostBps,
+	lpFee: schema.swaps.lpFeeBps,
+	slippage: schema.swaps.slippageBps,
+	aggFee: schema.swaps.aggFeeBps,
+	gas: schema.swaps.gasCostBps,
+} as const;
+
+export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMNS;
+export type SortDirection = 'asc' | 'desc';
+export interface TradesSort {
+	column: TradesSortColumn;
+	direction: SortDirection;
 }
 
 export interface AggregatorSummaryRow {
@@ -70,13 +93,18 @@ export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
  * generous — the table is the data anchor for the dashboard, so the design
  * favors "see everything" over pagination ergonomics at this stage.
  */
-export async function getRecentSwaps(limit = 500): Promise<SwapRow[]> {
+export async function getRecentSwaps(
+	sort: TradesSort = { column: 'time', direction: 'desc' },
+	limit = 500,
+): Promise<SwapRow[]> {
 	const db = getDb();
+	const column = TRADES_SORT_COLUMNS[sort.column];
+	const orderFn = sort.direction === 'asc' ? asc : desc;
 	return db
 		.select()
 		.from(schema.swaps)
 		.where(eq(schema.swaps.processingStatus, 'complete'))
-		.orderBy(desc(schema.swaps.blockTimestamp))
+		.orderBy(orderFn(column))
 		.limit(limit);
 }
 
