@@ -37,7 +37,9 @@ export function computeTcaLedger(input: TcaInputs): TcaLedger {
 			? input.referencePrice - input.executedPrice
 			: input.executedPrice - input.referencePrice;
 	const totalCostBps = (deviation / input.referencePrice) * 10_000;
-	const lpFeeBps = input.poolFeeTier / 1e4;
+	// Uniswap fee tier is in hundredths-of-a-bps (500 = 0.05% = 5 bps), so
+	// the bps conversion is /100, not /10_000. Spec §5.4 has the wrong factor.
+	const lpFeeBps = input.poolFeeTier / 100;
 	const aggFeeBps = (input.aggFeeUsd / input.notionalUsd) * 10_000;
 	const gasCostEth = (Number(input.gasUsed) * Number(input.effectiveGasPrice)) / 1e18;
 	const gasCostUsd = gasCostEth * input.ethPriceUsd;

@@ -1,17 +1,17 @@
 import { TrustMatrix } from '../components/TrustMatrix';
 import { AggregatorSummaryTable } from '../components/AggregatorSummaryTable';
 import { FilterRow } from '../components/FilterRow';
-import { getAggregatorSummary, getResidualsByAggregator } from '../lib/queries';
+import { getAggregatorSummary, getSlippageByAggregator } from '../lib/queries';
 import { DEFAULT_STRATEGY, computeAggregatorPoints } from '../lib/trustMatrix';
 
 export const revalidate = 30;
 
 export default async function DashboardIndex() {
-	const [residuals, summary] = await Promise.all([
-		getResidualsByAggregator(),
+	const [slippage, summary] = await Promise.all([
+		getSlippageByAggregator(),
 		getAggregatorSummary(),
 	]);
-	const points = computeAggregatorPoints(residuals, DEFAULT_STRATEGY);
+	const points = computeAggregatorPoints(slippage, DEFAULT_STRATEGY);
 	const totalTrades = summary.reduce((sum, r) => sum + r.tradeCount, 0);
 
 	return (

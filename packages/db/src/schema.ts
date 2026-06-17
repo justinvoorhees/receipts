@@ -43,11 +43,15 @@ export const swaps = pgTable(
 		notionalUsd: numeric('notional_usd'),
 		referencePrice: numeric('reference_price'),
 		executedPrice: numeric('executed_price'),
+		simulatedAmountOut: text('simulated_amount_out'), // QuoterV2 amountOut at block N-1
+		simulatedPrice: numeric('simulated_price'), // USDC/WETH derived from simulated amount
 		totalCostBps: numeric('total_cost_bps'),
 		lpFeeBps: numeric('lp_fee_bps'),
 		aggFeeBps: numeric('agg_fee_bps'),
 		gasCostUsd: numeric('gas_cost_usd'),
 		gasCostBps: numeric('gas_cost_bps'),
+		priceImpactBps: numeric('price_impact_bps'), // reference → simulated (pool depth)
+		slippageBps: numeric('slippage_bps'), // simulated → executed (MEV/sandwich/ordering)
 		executionQualityBps: numeric('execution_quality_bps'),
 		gasUsed: bigint('gas_used', { mode: 'bigint' }),
 		effectiveGasPrice: text('effective_gas_price'),

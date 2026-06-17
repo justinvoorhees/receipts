@@ -17,6 +17,7 @@ export interface AggregatorSummaryRow {
 	avgLpFeeBps: number;
 	avgAggFeeBps: number;
 	avgGasCostBps: number;
+	avgSlippageBps: number;
 	variabilityBps: number;
 }
 
@@ -35,6 +36,7 @@ export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
 		avg_lp_fee_bps: string | null;
 		avg_agg_fee_bps: string | null;
 		avg_gas_cost_bps: string | null;
+		avg_slippage_bps: string | null;
 		variability_bps: string | null;
 	}>(sql`
 		SELECT
@@ -44,7 +46,8 @@ export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
 			AVG(lp_fee_bps::numeric) AS avg_lp_fee_bps,
 			AVG(agg_fee_bps::numeric) AS avg_agg_fee_bps,
 			AVG(gas_cost_bps::numeric) AS avg_gas_cost_bps,
-			STDDEV_POP(execution_quality_bps::numeric) AS variability_bps
+			AVG(slippage_bps::numeric) AS avg_slippage_bps,
+			STDDEV_POP(slippage_bps::numeric) AS variability_bps
 		FROM swaps
 		WHERE processing_status = 'complete' AND aggregator IS NOT NULL
 		GROUP BY aggregator
@@ -57,6 +60,7 @@ export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
 		avgLpFeeBps: Number(r.avg_lp_fee_bps ?? 0),
 		avgAggFeeBps: Number(r.avg_agg_fee_bps ?? 0),
 		avgGasCostBps: Number(r.avg_gas_cost_bps ?? 0),
+		avgSlippageBps: Number(r.avg_slippage_bps ?? 0),
 		variabilityBps: Number(r.variability_bps ?? 0),
 	}));
 }
@@ -77,33 +81,38 @@ export async function getRecentSwaps(limit = 500): Promise<SwapRow[]> {
 }
 
 /**
- * (aggregator, executionQualityBps) pairs for every completed swap. Feeds the
- * trust-matrix metric layer. Numeric coercion is done here so callers never
- * see raw string numerics from Postgres.
+ * (aggregator, costBps) pairs for every completed swap. Feeds the trust-matrix
+ * metric layer. Numeric coercion is done here so callers never see raw string
+ * numerics from Postgres.
+ *
+ * Source column is `slippage_bps` — the aggregator's actual failure mode,
+ * cleanly decomposed from unavoidable pool depth (price impact). Prior to
+ * the slippage decomposition this used `execution_quality_bps`, which is now
+ * the residual that lands near zero by construction.
  */
-export async function getResidualsByAggregator(): Promise<
-	{ aggregator: string; executionQualityBps: number }[]
+export async function getSlippageByAggregator(): Promise<
+	{ aggregator: string; costBps: number }[]
 > {
 	const db = getDb();
 	const rows = await db
 		.select({
 			aggregator: schema.swaps.aggregator,
-			executionQualityBps: schema.swaps.executionQualityBps,
+			slippageBps: schema.swaps.slippageBps,
 		})
 		.from(schema.swaps)
 		.where(
 			and(
 				eq(schema.swaps.processingStatus, 'complete'),
 				isNotNull(schema.swaps.aggregator),
-				isNotNull(schema.swaps.executionQualityBps),
+				isNotNull(schema.swaps.slippageBps),
 			),
 		);
 	return rows
-		.filter((r): r is { aggregator: string; executionQualityBps: string } =>
-			r.aggregator !== null && r.executionQualityBps !== null,
+		.filter((r): r is { aggregator: string; slippageBps: string } =>
+			r.aggregator !== null && r.slippageBps !== null,
 		)
 		.map((r) => ({
 			aggregator: r.aggregator,
-			executionQualityBps: Number(r.executionQualityBps),
+			costBps: Number(r.slippageBps),
 		}));
 }

@@ -3,6 +3,7 @@ import { schema } from '@fabric-tca/db';
 import type { Db } from '@fabric-tca/db';
 import { decodeTransaction, type DecodedTx, type Direction } from './decoder.js';
 import { getReferencePrice } from './referencePrice.js';
+import { simulateAmountOut } from './quoter.js';
 import { computeTcaLedger, type TcaLedger } from './tcaCalculator.js';
 import type { RouterRegistry } from './routerRegistry.js';
 
@@ -35,7 +36,10 @@ export interface ProcessResult {
 	direction: Direction;
 	notionalUsd: number;
 	referencePrice: number;
+	simulatedPrice: number;
 	executedPrice: number;
+	priceImpactBps: number;
+	slippageBps: number;
 	ledger: TcaLedger;
 }
 
@@ -45,14 +49,29 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 	// depending on staging being current.)
 	const decoded = await decodeFromChain(args);
 
-	const referencePrice = await getReferencePrice({
-		rpcUrl: args.rpcUrl,
-		poolAddress: args.poolAddress,
-		blockNumber: BigInt(decoded.blockNumber),
-	});
+	// Reference and simulated prices share the same block-N-1 snapshot, so
+	// run them in parallel.
+	const tokenIn: `0x${string}` = decoded.direction === 'buy_weth' ? USDC : WETH;
+	const tokenOut: `0x${string}` = decoded.direction === 'buy_weth' ? WETH : USDC;
+	const [referencePrice, simulatedAmountOut] = await Promise.all([
+		getReferencePrice({
+			rpcUrl: args.rpcUrl,
+			poolAddress: args.poolAddress,
+			blockNumber: BigInt(decoded.blockNumber),
+		}),
+		simulateAmountOut({
+			rpcUrl: args.rpcUrl,
+			tokenIn,
+			tokenOut,
+			amountIn: decoded.amountInRaw,
+			feeTier: args.poolFeeTier,
+			blockNumber: BigInt(decoded.blockNumber) - 1n,
+		}),
+	]);
 
 	const notionalUsd = computeNotional(decoded);
 	const executedPrice = computeExecutedPrice(decoded);
+	const simulatedPrice = computeSimulatedPrice(decoded.direction, decoded.amountInRaw, simulatedAmountOut);
 	const aggFeeUsd = computeAggFeeUsd(decoded, referencePrice);
 
 	const ledger = computeTcaLedger({
@@ -67,6 +86,26 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 		aggFeeUsd,
 	});
 
+	// Sign convention: positive = cost paid by user, matching the rest of the
+	// ledger. Slippage = simulated → executed (MEV/sandwich/ordering).
+	const slippageBps = signedDeviationBps(decoded.direction, simulatedPrice, executedPrice);
+	// `ref → simulated` includes the pool's LP fee (Quoter deducts it before
+	// running the swap math). Subtract it to isolate "pure depth" — the cost
+	// purely attributable to the pool's liquidity curve at the trade size.
+	const rawRefToSimBps = signedDeviationBps(decoded.direction, referencePrice, simulatedPrice);
+	const priceImpactBps = rawRefToSimBps - ledger.lpFeeBps;
+
+	// Residual after every known component. If the math closes cleanly this
+	// is near zero; persistent values point at something we're not modelling
+	// (e.g., aggregator fees captured as positive slippage when fee_recipients
+	// is empty, or float-arithmetic slop from the bps-denominator mismatch).
+	const executionQualityBps =
+		ledger.totalCostBps -
+		ledger.lpFeeBps -
+		ledger.aggFeeBps -
+		priceImpactBps -
+		slippageBps;
+
 	const row = {
 		txHash: decoded.txHash,
 		blockNumber: decoded.blockNumber,
@@ -78,12 +117,16 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 		notionalUsd: notionalUsd.toFixed(4),
 		referencePrice: referencePrice.toFixed(8),
 		executedPrice: executedPrice.toFixed(8),
+		simulatedAmountOut: simulatedAmountOut.toString(),
+		simulatedPrice: simulatedPrice.toFixed(8),
 		totalCostBps: ledger.totalCostBps.toFixed(4),
 		lpFeeBps: ledger.lpFeeBps.toFixed(4),
 		aggFeeBps: ledger.aggFeeBps.toFixed(4),
 		gasCostUsd: ledger.gasCostUsd.toFixed(4),
 		gasCostBps: ledger.gasCostBps.toFixed(4),
-		executionQualityBps: ledger.executionQualityBps.toFixed(4),
+		priceImpactBps: priceImpactBps.toFixed(4),
+		slippageBps: slippageBps.toFixed(4),
+		executionQualityBps: executionQualityBps.toFixed(4),
 		gasUsed: decoded.gasUsed,
 		effectiveGasPrice: decoded.effectiveGasPrice.toString(),
 		poolFeeTier: args.poolFeeTier,
@@ -107,11 +150,15 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 				notionalUsd: row.notionalUsd,
 				referencePrice: row.referencePrice,
 				executedPrice: row.executedPrice,
+				simulatedAmountOut: row.simulatedAmountOut,
+				simulatedPrice: row.simulatedPrice,
 				totalCostBps: row.totalCostBps,
 				lpFeeBps: row.lpFeeBps,
 				aggFeeBps: row.aggFeeBps,
 				gasCostUsd: row.gasCostUsd,
 				gasCostBps: row.gasCostBps,
+				priceImpactBps: row.priceImpactBps,
+				slippageBps: row.slippageBps,
 				executionQualityBps: row.executionQualityBps,
 				gasUsed: row.gasUsed,
 				effectiveGasPrice: row.effectiveGasPrice,
@@ -133,8 +180,11 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 		direction: decoded.direction,
 		notionalUsd,
 		referencePrice,
+		simulatedPrice,
 		executedPrice,
-		ledger,
+		priceImpactBps,
+		slippageBps,
+		ledger: { ...ledger, executionQualityBps },
 	};
 }
 
@@ -187,6 +237,45 @@ function computeExecutedPrice(d: DecodedTx): number {
 	const wethIn = Number(d.amountInRaw) / 1e18;
 	const usdcOut = Number(d.amountOutRaw) / 1e6;
 	return usdcOut / wethIn;
+}
+
+/**
+ * Simulated execution price (USDC per WETH) from the QuoterV2's `amountOut`.
+ * Same math as the actual executedPrice; just swaps in the simulated output.
+ */
+function computeSimulatedPrice(
+	direction: Direction,
+	amountInRaw: bigint,
+	simulatedAmountOut: bigint,
+): number {
+	if (direction === 'buy_weth') {
+		const usdcIn = Number(amountInRaw) / 1e6;
+		const wethOut = Number(simulatedAmountOut) / 1e18;
+		return usdcIn / wethOut;
+	}
+	const wethIn = Number(amountInRaw) / 1e18;
+	const usdcOut = Number(simulatedAmountOut) / 1e6;
+	return usdcOut / wethIn;
+}
+
+/**
+ * Signed deviation in basis points from `baselinePrice` to `comparePrice`,
+ * direction-aware. Positive bps = cost paid by user (worse than baseline),
+ * matching the rest of the ledger's convention.
+ *
+ *   sell_weth: user received USDC; lower compare price = fewer USDC out = cost
+ *   buy_weth:  user paid USDC; higher compare price = more USDC in = cost
+ */
+function signedDeviationBps(
+	direction: Direction,
+	baselinePrice: number,
+	comparePrice: number,
+): number {
+	const deviation =
+		direction === 'sell_weth'
+			? baselinePrice - comparePrice
+			: comparePrice - baselinePrice;
+	return (deviation / baselinePrice) * 10_000;
 }
 
 function computeAggFeeUsd(d: DecodedTx, referencePrice: number): number {

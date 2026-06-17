@@ -54,14 +54,14 @@ export const DEFAULT_STRATEGY: MetricStrategy = {
 };
 
 export function computeAggregatorPoints(
-	rows: { aggregator: string | null; executionQualityBps: number }[],
+	rows: { aggregator: string | null; costBps: number }[],
 	strategy: MetricStrategy = DEFAULT_STRATEGY,
 ): AggregatorPoint[] {
 	const byAgg = new Map<string, number[]>();
 	for (const r of rows) {
 		if (!r.aggregator) continue;
 		const arr = byAgg.get(r.aggregator) ?? [];
-		arr.push(r.executionQualityBps);
+		arr.push(r.costBps);
 		byAgg.set(r.aggregator, arr);
 	}
 	return Array.from(byAgg.entries()).map(([aggregator, samples]) => {

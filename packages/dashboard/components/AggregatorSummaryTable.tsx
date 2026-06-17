@@ -36,11 +36,12 @@ function HeaderRow() {
 	return (
 		<div className="flex items-baseline justify-between text-[var(--color-secondary)] uppercase font-medium">
 			<span>Aggregator</span>
-			<div className="flex items-center justify-end gap-[40px] text-right">
+			<div className="flex items-center justify-end gap-[24px] text-right">
 				<SortableHeader className="w-[58px]">Accuracy</SortableHeader>
 				<SortableHeader className="w-[58px]">L.p. Fee</SortableHeader>
 				<SortableHeader>Agg. fee</SortableHeader>
 				<SortableHeader className="w-[58px]">Gas</SortableHeader>
+				<SortableHeader className="w-[58px]">Slippage</SortableHeader>
 				<SortableHeader className="w-[80px]">Variability</SortableHeader>
 			</div>
 		</div>
@@ -70,11 +71,12 @@ function DataRow({ row }: { row: AggregatorSummaryRow }) {
 			style={{ fontFeatureSettings: '"calt" 0' }}
 		>
 			<span className="w-[72px]">{formatProvider(row.aggregator.toLowerCase())}</span>
-			<div className="flex items-baseline justify-end gap-[40px] text-right">
+			<div className="flex items-baseline justify-end gap-[24px] text-right">
 				<span className="w-[58px]">{formatAccuracy(row.avgTotalCostBps)}</span>
 				<span className="w-[58px]">{formatBps(row.avgLpFeeBps)}</span>
 				<span className="w-[58px]">{formatBps(row.avgAggFeeBps)}</span>
 				<span className="w-[58px]">{formatBps(row.avgGasCostBps)}</span>
+				<span className="w-[58px]">{formatBps(row.avgSlippageBps)}</span>
 				<span className="w-[80px]">{formatVariability(row.variabilityBps)}</span>
 			</div>
 		</div>

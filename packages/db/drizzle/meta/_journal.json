@@ -15,6 +15,13 @@
       "when": 1781654750760,
       "tag": "0001_glamorous_quentin_quire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781659640292,
+      "tag": "0002_bumpy_ultimatum",
+      "breakpoints": true
     }
   ]
 }
