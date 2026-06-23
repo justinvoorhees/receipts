@@ -11,7 +11,7 @@
  * No DB writes. No dashboard. READ-ONLY spike.
  */
 
-import { createPublicClient, decodeEventLog, http, parseAbiItem } from 'viem';
+import { createPublicClient, decodeEventLog, http, parseAbiItem, toEventSelector } from 'viem';
 import { base } from 'viem/chains';
 import {
 	USDC,
@@ -30,6 +30,11 @@ const SWAP_TOPIC =
 const V3_SWAP_EVENT = parseAbiItem(
 	'event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)',
 );
+
+const V4_SWAP_EVENT = parseAbiItem(
+	'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
+);
+const V4_SWAP_TOPIC = toEventSelector(V4_SWAP_EVENT);
 
 const V2_SWAP_TOPIC =
 	'0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
@@ -59,14 +64,6 @@ const POOL_FEE_TIERS: Record<string, number> = {
 	'0x6c561b446416e1a00e8e93e221854d6ea4171372': 3000,  // 30 bps
 	'0x4c36388be6f416a29c8d8eee81c771ce6be14b18': 10000, // 100 bps
 	'0x0b1c2dcbbfa744ebd3fc17ff1a96a1e1eb4b2d69': 10000, // 100 bps
-};
-
-// Known V4 pool fee tiers (bps, NOT raw Uniswap units)
-// V4 PoolManager is a singleton — individual pools are identified by their key.
-// For this spike we use a known-map approach.
-const V4_POOL_FEE_BPS: Record<string, number> = {
-	// USDC/WETH V4 pool on Base — 0.05% (5 bps), seen in Fabric txn #4
-	'usdc_weth_v4_default': 5,
 };
 
 // Per-aggregator known fee-vault addresses
@@ -555,10 +552,24 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 			? Math.abs(pm.usdc)
 			: (Math.abs(pm.weth) + Math.abs(pm.nativeEth)) * input.realizedPrice;
 
-		// V4 fee tier — use known map
-		const v4FeeBps = V4_POOL_FEE_BPS['usdc_weth_v4_default'] ?? 0;
-		if (v4FeeBps === 0) {
+		// V4 fee tier — decoded from V4 Swap event(s) in the trace logs
+		const v4RawFees = decodeV4SwapFees(logs);
+		let v4FeeBps: number;
+		if (v4RawFees.length === 0) {
+			v4FeeBps = 0;
 			flags.push('NEEDS REVIEW: V4 pool fee tier unknown, defaulting to 0 bps');
+		} else {
+			const uniqueFees = [...new Set(v4RawFees)];
+			if (uniqueFees.length === 1) {
+				v4FeeBps = uniqueFees[0]! / 100;
+			} else {
+				// Multiple differing V4 fee tiers — use simple average
+				const avg = v4RawFees.reduce((s, f) => s + f, 0) / v4RawFees.length;
+				v4FeeBps = avg / 100;
+				flags.push(
+					`NEEDS REVIEW: multiple V4 Swap fees detected (${v4RawFees.join(', ')}), using average=${v4FeeBps.toFixed(2)} bps`,
+				);
+			}
 		}
 
 		hops.push({
@@ -751,6 +762,30 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 }
 
 // ─── Helpers ───
+
+/**
+ * Decode V4 Swap events from a flat log array and return the raw `fee` values
+ * (uint24, in hundredths-of-a-bps: 450 → 4.5 bps, 500 → 5 bps).
+ * Pure function — no RPC calls.
+ */
+export function decodeV4SwapFees(logs: readonly LogLike[]): number[] {
+	const fees: number[] = [];
+	for (const log of logs) {
+		if (!log.topics || log.topics.length < 3) continue;
+		if (log.topics[0] !== V4_SWAP_TOPIC) continue;
+		try {
+			const decoded = decodeEventLog({
+				abi: [V4_SWAP_EVENT],
+				data: log.data,
+				topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+			});
+			fees.push(Number(decoded.args.fee));
+		} catch {
+			// Malformed log — skip
+		}
+	}
+	return fees;
+}
 
 /** Flatten every log from a callTracer trace tree into a single ordered list. */
 function collectTraceLogs(trace: TraceNode): LogLike[] {
