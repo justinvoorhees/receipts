@@ -1,6 +1,7 @@
 import { asc, desc, sql } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
+import { DEFAULT_DATASET, DATASET_TABLE, DATASET_TABLE_NAME, type Dataset } from './datasets';
 
 export type SwapRow = typeof schema.swaps.$inferSelect;
 export type RouterTradeRow = typeof schema.routerTradesGated.$inferSelect;
@@ -12,22 +13,18 @@ export async function getHeartbeats(): Promise<HeartbeatRow[]> {
 }
 
 /**
- * Column keys allowed in the `/trades?sort=…` URL param. Each maps to a
- * concrete `router_trades_gated` column; anything else falls back to `block`.
+ * Column key map allowed in the `/trades?sort=…` URL param. Each maps to a
+ * column name string that exists on both `router_trades_gated` and `smoke_trades`.
  */
-export const TRADES_SORT_COLUMNS = {
-	block: schema.routerTradesGated.blockNumber,
-	aggregator: schema.routerTradesGated.aggregator,
-	side: schema.routerTradesGated.direction,
-	size: schema.routerTradesGated.usdcAmount,
-	accuracy: schema.routerTradesGated.allInCostBps,
-	lpFee: schema.routerTradesGated.lpFeeBps,
-	aggFee: schema.routerTradesGated.aggFeeBps,
-	slippage: schema.routerTradesGated.slippageBps,
-	gas: schema.routerTradesGated.gasCostUsd,
+export const TRADES_SORT_COLUMN_KEYS = {
+	block: 'blockNumber', aggregator: 'aggregator', side: 'direction',
+	size: 'usdcAmount', accuracy: 'allInCostBps', lpFee: 'lpFeeBps',
+	aggFee: 'aggFeeBps', slippage: 'slippageBps', gas: 'gasCostUsd',
 } as const;
+export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMN_KEYS;
+// Keep TRADES_SORT_COLUMNS as an alias for the trades page's VALID_SORT_COLUMNS check:
+export const TRADES_SORT_COLUMNS = TRADES_SORT_COLUMN_KEYS;
 
-export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMNS;
 export type SortDirection = 'asc' | 'desc';
 export interface TradesSort {
 	column: TradesSortColumn;
@@ -48,10 +45,11 @@ export interface AggregatorSummaryRow {
 }
 
 /**
- * v2.1 per-aggregator rollup over `router_trades_gated` (gated, decomposed).
+ * v2.1 per-aggregator rollup over the selected dataset table (gated, decomposed).
  */
-export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
+export async function getAggregatorSummary(dataset: Dataset = DEFAULT_DATASET): Promise<AggregatorSummaryRow[]> {
 	const db = getDb();
+	const table = sql.raw(DATASET_TABLE_NAME[dataset]);
 	const rows = await db.execute<{
 		aggregator: string;
 		trade_count: string;
@@ -75,7 +73,7 @@ export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY gas_cost_usd::numeric) AS median_gas_usd,
 			SUM((settled_in = 'WETH')::int) AS weth_count,
 			SUM((settled_in = 'ETH')::int) AS eth_count
-		FROM router_trades_gated
+		FROM ${table}
 		GROUP BY aggregator
 		ORDER BY trade_count DESC
 	`);
@@ -94,38 +92,32 @@ export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
 }
 
 /**
- * v2.1 trades from `router_trades_gated` (gated, decomposed). Every row
- * is a genuine user-identified USDC↔WETH/ETH aggregator trade with
+ * Trades from the selected dataset table (gated, decomposed). Every row
+ * is a genuine user-identified USDC<>WETH/ETH aggregator trade with
  * decomposition columns populated.
  */
 export async function getRecentTrades(
 	sort: TradesSort = { column: 'block', direction: 'desc' },
 	limit = 500,
+	dataset: Dataset = DEFAULT_DATASET,
 ): Promise<RouterTradeRow[]> {
 	const db = getDb();
-	const column = TRADES_SORT_COLUMNS[sort.column];
+	const table = DATASET_TABLE[dataset];
+	const column = (table as typeof schema.routerTradesGated)[TRADES_SORT_COLUMN_KEYS[sort.column]];
 	const orderFn = sort.direction === 'asc' ? asc : desc;
-	return db
-		.select()
-		.from(schema.routerTradesGated)
-		.orderBy(orderFn(column))
-		.limit(limit);
+	return db.select().from(table).orderBy(orderFn(column)).limit(limit) as unknown as Promise<RouterTradeRow[]>;
 }
 
 /**
- * (aggregator, costBps) samples from `router_trades_gated` — every gated
+ * (aggregator, costBps) samples from the selected dataset — every gated
  * genuine user trade. Feeds the trust-matrix metric layer.
  */
-export async function getCostByAggregator(): Promise<
+export async function getCostByAggregator(dataset: Dataset = DEFAULT_DATASET): Promise<
 	{ aggregator: string; costBps: number }[]
 > {
 	const db = getDb();
-	const rows = await db
-		.select({
-			aggregator: schema.routerTradesGated.aggregator,
-			allInCostBps: schema.routerTradesGated.allInCostBps,
-		})
-		.from(schema.routerTradesGated);
+	const table = DATASET_TABLE[dataset];
+	const rows = await db.select({ aggregator: table.aggregator, allInCostBps: table.allInCostBps }).from(table);
 	return rows.map((r) => ({
 		aggregator: r.aggregator,
 		costBps: Number(r.allInCostBps),

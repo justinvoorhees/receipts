@@ -1,14 +1,17 @@
 import { TrustMatrix } from '../components/TrustMatrix';
 import { AggregatorSummaryTable } from '../components/AggregatorSummaryTable';
+import { DatasetToggle } from '../components/DatasetToggle';
 import { getAggregatorSummary, getCostByAggregator } from '../lib/queries';
+import { parseDataset } from '../lib/datasets';
 import { DEFAULT_STRATEGY, computeAggregatorPoints } from '../lib/trustMatrix';
 
 export const revalidate = 30;
 
-export default async function DashboardIndex() {
+export default async function DashboardIndex({ searchParams }: { searchParams: Promise<{ ds?: string }> }) {
+	const dataset = parseDataset((await searchParams).ds);
 	const [costSamples, summary] = await Promise.all([
-		getCostByAggregator(),
-		getAggregatorSummary(),
+		getCostByAggregator(dataset),
+		getAggregatorSummary(dataset),
 	]);
 	const points = computeAggregatorPoints(costSamples, DEFAULT_STRATEGY);
 	const totalTrades = summary.reduce((sum, r) => sum + r.tradeCount, 0);
@@ -33,6 +36,8 @@ export default async function DashboardIndex() {
 					</span>
 					<span aria-hidden="true">•</span>
 					<span>{totalTrades.toLocaleString()} trades</span>
+					<span aria-hidden="true">•</span>
+					<DatasetToggle dataset={dataset} />
 				</div>
 			</div>
 
