@@ -1,47 +1,33 @@
 'use client';
 import { useMemo, useState } from 'react';
-import type { SwapRow, TradesSort, TradesSortColumn } from '../lib/queries';
+import type { RouterTradeRow, TradesSort, TradesSortColumn } from '../lib/queries';
 import {
 	formatAccuracy,
-	formatBps,
+	formatContribution,
 	formatDirection,
+	formatGasUsd,
 	formatNotional,
 	formatProvider,
-	formatTradeTimestamp,
 	shortTxHash,
 } from '../lib/formatters';
 
-/**
- * Trades table — fully client-sorted. The server page renders the initial
- * row order from the URL searchParams (so a reload or a shared URL still
- * lands on a correctly-sorted page), but every subsequent click sorts in
- * memory and updates the URL via `history.replaceState` — no navigation,
- * no server fetch, no re-render of the page shell.
- *
- * Sort accessors are typed against the schema so a column rename in
- * `swaps` surfaces here as a type error.
- */
-
-const ACCESSORS: Record<TradesSortColumn, (r: SwapRow) => string | number> = {
-	time: (r) => r.blockTimestamp,
-	aggregator: (r) => (r.aggregator ?? '').toLowerCase(),
-	side: (r) => r.direction ?? '',
-	notional: (r) => Number(r.notionalUsd ?? 0),
-	// Accuracy is the sign-flipped framing of total cost (positive accuracy =
-	// surplus). Sorting by `-totalCost` puts highest-accuracy rows first when
-	// direction is desc, which matches the user's mental model.
-	accuracy: (r) => -Number(r.totalCostBps ?? 0),
-	lpFee: (r) => Number(r.lpFeeBps ?? 0),
-	slippage: (r) => Number(r.slippageBps ?? 0),
-	aggFee: (r) => Number(r.aggFeeBps ?? 0),
-	gas: (r) => Number(r.gasCostBps ?? 0),
+const ACCESSORS: Record<TradesSortColumn, (r: RouterTradeRow) => string | number> = {
+	block: (r) => r.blockNumber,
+	aggregator: (r) => r.aggregator.toLowerCase(),
+	side: (r) => r.direction,
+	size: (r) => Number(r.usdcAmount),
+	accuracy: (r) => -Number(r.allInCostBps),
+	lpFee: (r) => -Number(r.lpFeeBps ?? 0),     // sign-flipped: sort matches display
+	aggFee: (r) => -Number(r.aggFeeBps ?? 0),    // sign-flipped: sort matches display
+	slippage: (r) => -Number(r.slippageBps ?? 0), // sign-flipped: sort matches display
+	gas: (r) => Number(r.gasCostUsd ?? 0),
 };
 
 export function TradesTable({
 	rows,
 	initialSort,
 }: {
-	rows: SwapRow[];
+	rows: RouterTradeRow[];
 	initialSort: TradesSort;
 }) {
 	const [sort, setSort] = useState<TradesSort>(initialSort);
@@ -54,8 +40,7 @@ export function TradesTable({
 			const bv = access(b);
 			if (av < bv) return -mul;
 			if (av > bv) return mul;
-			// Tie-break by block timestamp DESC so equal-cost rows still read newest-first.
-			return Number(b.blockTimestamp) - Number(a.blockTimestamp);
+			return b.blockNumber - a.blockNumber;
 		});
 	}, [rows, sort]);
 
@@ -63,8 +48,6 @@ export function TradesTable({
 		const nextDir: TradesSort['direction'] =
 			sort.column === col && sort.direction === 'desc' ? 'asc' : 'desc';
 		setSort({ column: col, direction: nextDir });
-		// Silent URL sync — keeps the URL shareable and reload-correct without
-		// triggering a Next navigation / server fetch.
 		if (typeof window !== 'undefined') {
 			const url = new URL(window.location.href);
 			url.searchParams.set('sort', col);
@@ -74,8 +57,8 @@ export function TradesTable({
 	};
 
 	return (
-		<div className="mt-[40px] overflow-x-auto">
-			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px] min-w-fit">
+		<div className="mt-[40px]">
+			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
 				<HeaderRow sort={sort} onSort={onSort} />
 				{sortedRows.map((r) => (
 					<DataRow key={r.txHash} row={r} />
@@ -95,8 +78,8 @@ function HeaderRow({
 	return (
 		<div className="flex items-baseline justify-between gap-[40px] text-[var(--color-secondary)] uppercase font-medium">
 			<div className="flex items-baseline gap-[16px]">
-				<SortHeader col="time" sort={sort} onSort={onSort} className="w-[96px] text-left">
-					Time
+				<SortHeader col="block" sort={sort} onSort={onSort} className="w-[72px] text-left">
+					Block
 				</SortHeader>
 				<span className="w-[80px] text-right whitespace-nowrap">TXN</span>
 				<SortHeader col="aggregator" sort={sort} onSort={onSort} className="w-[72px] text-right">
@@ -105,24 +88,24 @@ function HeaderRow({
 				<SortHeader col="side" sort={sort} onSort={onSort} className="w-[64px] text-right">
 					Side
 				</SortHeader>
-				<SortHeader col="notional" sort={sort} onSort={onSort} className="w-[72px] text-right">
+				<SortHeader col="size" sort={sort} onSort={onSort} className="w-[72px] text-right">
 					Size
 				</SortHeader>
 			</div>
 			<div className="flex items-baseline justify-end gap-[24px] text-right">
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} className="w-[58px]">
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} className="w-[72px] text-right">
 					Accuracy
 				</SortHeader>
-				<SortHeader col="lpFee" sort={sort} onSort={onSort} className="w-[58px]">
-					L.p. Fee
+				<SortHeader col="lpFee" sort={sort} onSort={onSort} className="w-[72px] text-right">
+					LP Fee
 				</SortHeader>
-				<SortHeader col="slippage" sort={sort} onSort={onSort} className="w-[58px]">
+				<SortHeader col="aggFee" sort={sort} onSort={onSort} className="w-[72px] text-right">
+					Agg Fee
+				</SortHeader>
+				<SortHeader col="slippage" sort={sort} onSort={onSort} className="w-[72px] text-right">
 					Slippage
 				</SortHeader>
-				<SortHeader col="aggFee" sort={sort} onSort={onSort} className="w-[58px]">
-					Agg. fee
-				</SortHeader>
-				<SortHeader col="gas" sort={sort} onSort={onSort} className="w-[58px]">
+				<SortHeader col="gas" sort={sort} onSort={onSort} className="w-[64px] text-right">
 					Gas
 				</SortHeader>
 			</div>
@@ -159,15 +142,23 @@ function SortHeader({
 	);
 }
 
-function DataRow({ row }: { row: SwapRow }) {
+function DataRow({ row }: { row: RouterTradeRow }) {
+	const costBps = Number(row.allInCostBps);
+	const accuracy = -costBps;
+	const accuracyColor = accuracy > 0.05 ? '#117d45' : accuracy < -0.05 ? '#fa0b54' : undefined;
+
+	const lp = formatContribution(row.lpFeeBps != null ? Number(row.lpFeeBps) : null);
+	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
+	const slip = formatContribution(row.slippageBps != null ? Number(row.slippageBps) : null);
+
 	return (
 		<div
 			className="flex items-baseline justify-between gap-[40px] text-[var(--color-primary)]"
 			style={{ fontFeatureSettings: '"calt" 0' }}
 		>
 			<div className="flex items-baseline gap-[16px]">
-				<span className="w-[96px] text-[var(--color-secondary)] whitespace-nowrap">
-					{formatTradeTimestamp(row.blockTimestamp)}
+				<span className="w-[72px] text-[var(--color-secondary)] whitespace-nowrap">
+					{row.blockNumber.toLocaleString()}
 				</span>
 				<a
 					href={`https://basescan.org/tx/${row.txHash}`}
@@ -178,30 +169,30 @@ function DataRow({ row }: { row: SwapRow }) {
 					{shortTxHash(row.txHash)}
 				</a>
 				<span className="w-[72px] text-right whitespace-nowrap">
-					{row.aggregator ? formatProvider(row.aggregator.toLowerCase()) : '–'}
+					{formatProvider(row.aggregator.toLowerCase())}
 				</span>
 				<span className="w-[64px] text-right whitespace-nowrap">
 					{formatDirection(row.direction)}
 				</span>
 				<span className="w-[72px] text-right whitespace-nowrap">
-					{formatNotional(row.notionalUsd !== null ? Number(row.notionalUsd) : null)}
+					{formatNotional(Number(row.usdcAmount))}
 				</span>
 			</div>
 			<div className="flex items-baseline justify-end gap-[24px] text-right">
-				<span className="w-[58px]">
-					{formatAccuracy(row.totalCostBps !== null ? Number(row.totalCostBps) : null)}
+				<span className="w-[72px]" style={accuracyColor ? { color: accuracyColor } : undefined}>
+					{formatAccuracy(costBps)}
 				</span>
-				<span className="w-[58px]">
-					{formatBps(row.lpFeeBps !== null ? Number(row.lpFeeBps) : null)}
+				<span className="w-[72px]" style={lp.color ? { color: lp.color } : undefined}>
+					{lp.text}
 				</span>
-				<span className="w-[58px]">
-					{formatBps(row.slippageBps !== null ? Number(row.slippageBps) : null)}
+				<span className="w-[72px]" style={agg.color ? { color: agg.color } : undefined}>
+					{agg.text}
 				</span>
-				<span className="w-[58px]">
-					{formatBps(row.aggFeeBps !== null ? Number(row.aggFeeBps) : null)}
+				<span className="w-[72px]" style={slip.color ? { color: slip.color } : undefined}>
+					{slip.text}
 				</span>
-				<span className="w-[58px]">
-					{formatBps(row.gasCostBps !== null ? Number(row.gasCostBps) : null)}
+				<span className="w-[64px]">
+					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</span>
 			</div>
 		</div>

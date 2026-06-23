@@ -1,5 +1,5 @@
 import {
-	getRecentSwaps,
+	getRecentTrades,
 	TRADES_SORT_COLUMNS,
 	type SortDirection,
 	type TradesSort,
@@ -10,7 +10,7 @@ import { TradesTable } from '../../components/TradesTable';
 export const revalidate = 30;
 
 const VALID_SORT_COLUMNS = new Set(Object.keys(TRADES_SORT_COLUMNS) as TradesSortColumn[]);
-const DEFAULT_SORT: TradesSort = { column: 'time', direction: 'desc' };
+const DEFAULT_SORT: TradesSort = { column: 'block', direction: 'desc' };
 
 export default async function TradesPage({
 	searchParams,
@@ -18,7 +18,7 @@ export default async function TradesPage({
 	searchParams: Promise<{ sort?: string; dir?: string }>;
 }) {
 	const sort = parseSort(await searchParams);
-	const rows = await getRecentSwaps(sort);
+	const rows = await getRecentTrades(sort);
 
 	return (
 		<div className="pb-10">
@@ -56,9 +56,7 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 function EmptyState() {
 	return (
 		<p className="font-['Sohne_Mono'] text-[12px] leading-[20px] text-[var(--color-secondary)] mt-[40px] max-w-[640px]">
-			No promoted swaps yet. Run <code>tca-ingest poll</code> and{' '}
-			<code>tca-ingest promote</code> against an archive RPC; rows appear here as the
-			pipeline completes them.
+			No trades yet — the table populates from the <code>router_trades</code> dataset.
 		</p>
 	);
 }

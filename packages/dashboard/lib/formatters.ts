@@ -4,6 +4,30 @@ export function formatBps(value: number | null): string {
 }
 
 /**
+ * Sign-flipped component contribution — displays a cost-model component
+ * (lp_fee_bps, agg_fee_bps, slippage_bps) as a signed contribution to
+ * Accuracy. Since `Accuracy = -all_in_cost` and `all_in = lp + agg + slippage`,
+ * each contribution is displayed as `-component` so they SUM to Accuracy.
+ *
+ * Returns { text, color } so the caller can apply green (positive = surplus)
+ * or red (negative = cost to user).
+ */
+export function formatContribution(
+	rawBps: number | null,
+): { text: string; color: string | undefined } {
+	if (rawBps === null) return { text: '–', color: undefined };
+	const flipped = -rawBps; // sign-flip: positive = good for user
+	const text = `${flipped >= 0 ? '+' : ''}${flipped.toFixed(1)}bps`;
+	const color =
+		flipped > 0.05
+			? '#117d45'   // green — surplus
+			: flipped < -0.05
+				? '#fa0b54' // red — cost to user
+				: undefined; // near zero — neutral
+	return { text, color };
+}
+
+/**
  * Sign-flipped framing of cost-bps. Our schema stores `positive = cost paid
  * by user`, but the dashboard prefers "accuracy" framing where positive =
  * surplus over reference. So `mean(total_cost_bps) = +12.3` (user paid)
@@ -94,6 +118,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	fabric: 'Fabric',
 	kyberswap: 'KyberSwap',
 	'0x': '0x',
+	'1inch': '1inch',
 	nordstern: 'Nordstern',
 	odos: 'Odos',
 	relay: 'Relay',
@@ -114,6 +139,7 @@ const PROVIDER_COLOR_HEX: Record<string, string> = {
 	odos: '#fb42df',
 	relay: '#fba808',
 	'0x': '#fa0b54',
+	'1inch': '#d82122',
 	velora: '#0bc1fa',
 };
 

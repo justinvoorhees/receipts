@@ -5,7 +5,7 @@ import { decodeTransaction, type DecodedTx, type Direction } from './decoder.js'
 import { getReferencePrice } from './referencePrice.js';
 import { simulateAmountOut } from './quoter.js';
 import { computeTcaLedger, type TcaLedger } from './tcaCalculator.js';
-import type { RouterRegistry } from './routerRegistry.js';
+import type { RouterRegistry, RouterEntry } from './routerRegistry.js';
 
 /**
  * Promotion pipeline (spec §6, §9.2 steps 4–7):
@@ -72,7 +72,6 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 	const notionalUsd = computeNotional(decoded);
 	const executedPrice = computeExecutedPrice(decoded);
 	const simulatedPrice = computeSimulatedPrice(decoded.direction, decoded.amountInRaw, simulatedAmountOut);
-	const aggFeeUsd = computeAggFeeUsd(decoded, referencePrice);
 
 	const ledger = computeTcaLedger({
 		direction: decoded.direction,
@@ -83,28 +82,16 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 		effectiveGasPrice: decoded.effectiveGasPrice,
 		ethPriceUsd: referencePrice, // USDC/WETH ⇒ ref price doubles as ETH price
 		poolFeeTier: args.poolFeeTier,
-		aggFeeUsd,
+		aggFeeUsd: 0, // will compute as residual below
 	});
 
 	// Sign convention: positive = cost paid by user, matching the rest of the
 	// ledger. Slippage = simulated → executed (MEV/sandwich/ordering).
 	const slippageBps = signedDeviationBps(decoded.direction, simulatedPrice, executedPrice);
-	// `ref → simulated` includes the pool's LP fee (Quoter deducts it before
-	// running the swap math). Subtract it to isolate "pure depth" — the cost
-	// purely attributable to the pool's liquidity curve at the trade size.
-	const rawRefToSimBps = signedDeviationBps(decoded.direction, referencePrice, simulatedPrice);
-	const priceImpactBps = rawRefToSimBps - ledger.lpFeeBps;
 
-	// Residual after every known component. If the math closes cleanly this
-	// is near zero; persistent values point at something we're not modelling
-	// (e.g., aggregator fees captured as positive slippage when fee_recipients
-	// is empty, or float-arithmetic slop from the bps-denominator mismatch).
-	const executionQualityBps =
-		ledger.totalCostBps -
-		ledger.lpFeeBps -
-		ledger.aggFeeBps -
-		priceImpactBps -
-		slippageBps;
+	// Aggregator fee is the residual after accounting for LP fee, slippage, and gas.
+	// This ensures: totalCost = lpFee + slippage + aggFee + gasCost
+	const aggFeeBps = ledger.totalCostBps - ledger.lpFeeBps - slippageBps - ledger.gasCostBps;
 
 	const row = {
 		txHash: decoded.txHash,
@@ -121,12 +108,12 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 		simulatedPrice: simulatedPrice.toFixed(8),
 		totalCostBps: ledger.totalCostBps.toFixed(4),
 		lpFeeBps: ledger.lpFeeBps.toFixed(4),
-		aggFeeBps: ledger.aggFeeBps.toFixed(4),
+		aggFeeBps: aggFeeBps.toFixed(4),
 		gasCostUsd: ledger.gasCostUsd.toFixed(4),
 		gasCostBps: ledger.gasCostBps.toFixed(4),
-		priceImpactBps: priceImpactBps.toFixed(4),
+		priceImpactBps: '0',
 		slippageBps: slippageBps.toFixed(4),
-		executionQualityBps: executionQualityBps.toFixed(4),
+		executionQualityBps: '0',
 		gasUsed: decoded.gasUsed,
 		effectiveGasPrice: decoded.effectiveGasPrice.toString(),
 		poolFeeTier: args.poolFeeTier,
@@ -182,9 +169,9 @@ export async function processSwap(args: ProcessSwapArgs): Promise<ProcessResult>
 		referencePrice,
 		simulatedPrice,
 		executedPrice,
-		priceImpactBps,
+		priceImpactBps: 0,
 		slippageBps,
-		ledger: { ...ledger, executionQualityBps },
+		ledger: { ...ledger, aggFeeBps },
 	};
 }
 
@@ -203,21 +190,57 @@ async function decodeFromChain(args: ProcessSwapArgs): Promise<DecodedTx> {
 	const router = first.to
 		? args.registry.byAddressLower.get(first.to.toLowerCase())
 		: undefined;
-	if (!router) {
+
+	let selectedRouter = router;
+	let aggregatorName = router?.name ?? null;
+
+	// If direct `to` address doesn't match registry, try trace-based detection
+	if (!router && first.rawTrace) {
+		const foundAggregator = findAggregatorInTrace(first.rawTrace, args.registry);
+		if (foundAggregator) {
+			selectedRouter = foundAggregator;
+			aggregatorName = foundAggregator.name;
+		}
+	}
+
+	if (!selectedRouter) {
 		// No aggregator match → leave aggregator null but keep the decoded data.
-		// Caller may still want to inspect or discard.
 		return first;
 	}
+
 	return decodeTransaction({
 		rpcUrl: args.rpcUrl,
 		txHash: args.txHash,
 		context: {
-			aggregator: router.name,
+			aggregator: aggregatorName,
 			poolAddress: args.poolAddress,
 			poolFeeTier: args.poolFeeTier,
-			feeRecipientsLower: new Set(router.fee_recipients.map((a) => a.toLowerCase())),
+			feeRecipientsLower: new Set(selectedRouter.fee_recipients.map((a) => a.toLowerCase())),
 		},
 	});
+}
+
+function findAggregatorInTrace(trace: unknown, registry: RouterRegistry): RouterEntry | null {
+	function walkTrace(call: any): string | null {
+		if (!call) return null;
+		const to = call.to?.toLowerCase();
+		if (to && registry.byAddressLower.has(to)) {
+			return to;
+		}
+		if (call.calls && Array.isArray(call.calls)) {
+			for (const subcall of call.calls) {
+				const found = walkTrace(subcall);
+				if (found) return found;
+			}
+		}
+		return null;
+	}
+
+	const found = walkTrace(trace);
+	if (found) {
+		return registry.byAddressLower.get(found) ?? null;
+	}
+	return null;
 }
 
 function computeNotional(d: DecodedTx): number {
@@ -276,20 +299,6 @@ function signedDeviationBps(
 			? baselinePrice - comparePrice
 			: comparePrice - baselinePrice;
 	return (deviation / baselinePrice) * 10_000;
-}
-
-function computeAggFeeUsd(d: DecodedTx, referencePrice: number): number {
-	let total = 0;
-	for (const t of d.transfers) {
-		if (t.recipientClass !== 'aggregator_fee') continue;
-		const tokenLower = t.token.toLowerCase();
-		if (tokenLower === USDC.toLowerCase()) {
-			total += Number(t.value) / 1e6;
-		} else if (tokenLower === WETH.toLowerCase()) {
-			total += (Number(t.value) / 1e18) * referencePrice;
-		}
-	}
-	return total;
 }
 
 /**

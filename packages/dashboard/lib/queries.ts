@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
+import { asc, desc, sql } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
 
 export type SwapRow = typeof schema.swaps.$inferSelect;
+export type RouterTradeRow = typeof schema.routerTradesGated.$inferSelect;
 export type HeartbeatRow = typeof schema.ingestHeartbeats.$inferSelect;
 
 export async function getHeartbeats(): Promise<HeartbeatRow[]> {
@@ -12,18 +13,18 @@ export async function getHeartbeats(): Promise<HeartbeatRow[]> {
 
 /**
  * Column keys allowed in the `/trades?sort=…` URL param. Each maps to a
- * concrete `swaps` column; anything else falls back to `time`.
+ * concrete `router_trades_gated` column; anything else falls back to `block`.
  */
 export const TRADES_SORT_COLUMNS = {
-	time: schema.swaps.blockTimestamp,
-	aggregator: schema.swaps.aggregator,
-	side: schema.swaps.direction,
-	notional: schema.swaps.notionalUsd,
-	accuracy: schema.swaps.totalCostBps,
-	lpFee: schema.swaps.lpFeeBps,
-	slippage: schema.swaps.slippageBps,
-	aggFee: schema.swaps.aggFeeBps,
-	gas: schema.swaps.gasCostBps,
+	block: schema.routerTradesGated.blockNumber,
+	aggregator: schema.routerTradesGated.aggregator,
+	side: schema.routerTradesGated.direction,
+	size: schema.routerTradesGated.usdcAmount,
+	accuracy: schema.routerTradesGated.allInCostBps,
+	lpFee: schema.routerTradesGated.lpFeeBps,
+	aggFee: schema.routerTradesGated.aggFeeBps,
+	slippage: schema.routerTradesGated.slippageBps,
+	gas: schema.routerTradesGated.gasCostUsd,
 } as const;
 
 export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMNS;
@@ -36,111 +37,97 @@ export interface TradesSort {
 export interface AggregatorSummaryRow {
 	aggregator: string;
 	tradeCount: number;
-	avgTotalCostBps: number;
-	avgLpFeeBps: number;
-	avgAggFeeBps: number;
-	avgGasCostBps: number;
-	avgSlippageBps: number;
-	variabilityBps: number;
+	medianCostBps: number;
+	stdevCostBps: number;
+	medianLpFeeBps: number;
+	medianAggFeeBps: number;
+	medianSlippageBps: number;
+	medianGasUsd: number;
+	wethCount: number;
+	ethCount: number;
 }
 
 /**
- * Per-aggregator rollup feeding the summary table. STDDEV_POP over
- * executionQualityBps is the variability ± column; the others are simple
- * means of their respective ledger components. Filtered to completed swaps
- * with a non-null aggregator (un-attributed staging promotions are excluded).
+ * v2.1 per-aggregator rollup over `router_trades_gated` (gated, decomposed).
  */
 export async function getAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
 	const db = getDb();
 	const rows = await db.execute<{
 		aggregator: string;
 		trade_count: string;
-		avg_total_cost_bps: string | null;
-		avg_lp_fee_bps: string | null;
-		avg_agg_fee_bps: string | null;
-		avg_gas_cost_bps: string | null;
-		avg_slippage_bps: string | null;
-		variability_bps: string | null;
+		median_cost_bps: string | null;
+		stdev_cost_bps: string | null;
+		median_lp_fee_bps: string | null;
+		median_agg_fee_bps: string | null;
+		median_slippage_bps: string | null;
+		median_gas_usd: string | null;
+		weth_count: string;
+		eth_count: string;
 	}>(sql`
 		SELECT
 			aggregator,
 			COUNT(*) AS trade_count,
-			AVG(total_cost_bps::numeric) AS avg_total_cost_bps,
-			AVG(lp_fee_bps::numeric) AS avg_lp_fee_bps,
-			AVG(agg_fee_bps::numeric) AS avg_agg_fee_bps,
-			AVG(gas_cost_bps::numeric) AS avg_gas_cost_bps,
-			AVG(slippage_bps::numeric) AS avg_slippage_bps,
-			STDDEV_POP(slippage_bps::numeric) AS variability_bps
-		FROM swaps
-		WHERE processing_status = 'complete' AND aggregator IS NOT NULL
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY all_in_cost_bps::numeric) AS median_cost_bps,
+			STDDEV_POP(all_in_cost_bps::numeric) AS stdev_cost_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY lp_fee_bps::numeric) AS median_lp_fee_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY agg_fee_bps::numeric) AS median_agg_fee_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY slippage_bps::numeric) AS median_slippage_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY gas_cost_usd::numeric) AS median_gas_usd,
+			SUM((settled_in = 'WETH')::int) AS weth_count,
+			SUM((settled_in = 'ETH')::int) AS eth_count
+		FROM router_trades_gated
 		GROUP BY aggregator
-		ORDER BY aggregator
+		ORDER BY trade_count DESC
 	`);
 	return rows.map((r) => ({
 		aggregator: r.aggregator,
 		tradeCount: Number(r.trade_count),
-		avgTotalCostBps: Number(r.avg_total_cost_bps ?? 0),
-		avgLpFeeBps: Number(r.avg_lp_fee_bps ?? 0),
-		avgAggFeeBps: Number(r.avg_agg_fee_bps ?? 0),
-		avgGasCostBps: Number(r.avg_gas_cost_bps ?? 0),
-		avgSlippageBps: Number(r.avg_slippage_bps ?? 0),
-		variabilityBps: Number(r.variability_bps ?? 0),
+		medianCostBps: Number(r.median_cost_bps ?? 0),
+		stdevCostBps: Number(r.stdev_cost_bps ?? 0),
+		medianLpFeeBps: Number(r.median_lp_fee_bps ?? 0),
+		medianAggFeeBps: Number(r.median_agg_fee_bps ?? 0),
+		medianSlippageBps: Number(r.median_slippage_bps ?? 0),
+		medianGasUsd: Number(r.median_gas_usd ?? 0),
+		wethCount: Number(r.weth_count ?? 0),
+		ethCount: Number(r.eth_count ?? 0),
 	}));
 }
 
 /**
- * Most-recent completed swaps for the trades table. Limit is intentionally
- * generous — the table is the data anchor for the dashboard, so the design
- * favors "see everything" over pagination ergonomics at this stage.
+ * v2.1 trades from `router_trades_gated` (gated, decomposed). Every row
+ * is a genuine user-identified USDC↔WETH/ETH aggregator trade with
+ * decomposition columns populated.
  */
-export async function getRecentSwaps(
-	sort: TradesSort = { column: 'time', direction: 'desc' },
+export async function getRecentTrades(
+	sort: TradesSort = { column: 'block', direction: 'desc' },
 	limit = 500,
-): Promise<SwapRow[]> {
+): Promise<RouterTradeRow[]> {
 	const db = getDb();
 	const column = TRADES_SORT_COLUMNS[sort.column];
 	const orderFn = sort.direction === 'asc' ? asc : desc;
 	return db
 		.select()
-		.from(schema.swaps)
-		.where(eq(schema.swaps.processingStatus, 'complete'))
+		.from(schema.routerTradesGated)
 		.orderBy(orderFn(column))
 		.limit(limit);
 }
 
 /**
- * (aggregator, costBps) pairs for every completed swap. Feeds the trust-matrix
- * metric layer. Numeric coercion is done here so callers never see raw string
- * numerics from Postgres.
- *
- * Source column is `slippage_bps` — the aggregator's actual failure mode,
- * cleanly decomposed from unavoidable pool depth (price impact). Prior to
- * the slippage decomposition this used `execution_quality_bps`, which is now
- * the residual that lands near zero by construction.
+ * (aggregator, costBps) samples from `router_trades_gated` — every gated
+ * genuine user trade. Feeds the trust-matrix metric layer.
  */
-export async function getSlippageByAggregator(): Promise<
+export async function getCostByAggregator(): Promise<
 	{ aggregator: string; costBps: number }[]
 > {
 	const db = getDb();
 	const rows = await db
 		.select({
-			aggregator: schema.swaps.aggregator,
-			slippageBps: schema.swaps.slippageBps,
+			aggregator: schema.routerTradesGated.aggregator,
+			allInCostBps: schema.routerTradesGated.allInCostBps,
 		})
-		.from(schema.swaps)
-		.where(
-			and(
-				eq(schema.swaps.processingStatus, 'complete'),
-				isNotNull(schema.swaps.aggregator),
-				isNotNull(schema.swaps.slippageBps),
-			),
-		);
-	return rows
-		.filter((r): r is { aggregator: string; slippageBps: string } =>
-			r.aggregator !== null && r.slippageBps !== null,
-		)
-		.map((r) => ({
-			aggregator: r.aggregator,
-			costBps: Number(r.slippageBps),
-		}));
+		.from(schema.routerTradesGated);
+	return rows.map((r) => ({
+		aggregator: r.aggregator,
+		costBps: Number(r.allInCostBps),
+	}));
 }

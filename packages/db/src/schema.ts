@@ -1,4 +1,4 @@
-import { pgTable, text, integer, numeric, bigint, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
+import { boolean, pgTable, text, integer, numeric, bigint, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
 
 /**
  * Staging table: every Swap event we observe, regardless of size. Promoted
@@ -73,6 +73,41 @@ export const swaps = pgTable(
 );
 
 /**
+ * v2.0 cost model (trade-centric, router-centric). One row per genuine USDC↔WETH
+ * or USDC↔ETH aggregator trade ≥ the notional floor, discovered by scanning
+ * aggregator routers (not pools). `all_in_cost_bps` = realized price vs market mid
+ * at block N-1 — the top-line cost the v2.1 decomposition must sum to.
+ * Distinct from the v1 `swaps` table (pool-centric, superseded).
+ */
+export const routerTrades = pgTable(
+	'router_trades',
+	{
+		txHash: text('tx_hash').primaryKey(),
+		aggregator: text('aggregator').notNull(),
+		trader: text('trader').notNull(),
+		direction: text('direction').notNull(), // 'buy_weth' | 'sell_weth'
+		settledIn: text('settled_in').notNull(), // 'WETH' (exact) | 'ETH' (wrap-net proxy)
+		usdcAmount: numeric('usdc_amount').notNull(), // trader's net USDC leg
+		wethAmount: numeric('weth_amount').notNull(), // trader's net WETH-equivalent leg
+		realizedPrice: numeric('realized_price').notNull(), // USDC per WETH, trader's rate
+		marketMid: numeric('market_mid').notNull(), // deepest pool slot0 mid @ N-1
+		allInCostBps: numeric('all_in_cost_bps').notNull(),
+		blockNumber: integer('block_number').notNull(),
+		// v2.1 decomposition (nullable — enriched after initial load)
+		gasUsed: bigint('gas_used', { mode: 'bigint' }),
+		effectiveGasPrice: text('effective_gas_price'), // wei
+		gasCostUsd: numeric('gas_cost_usd'),
+		lpFeeBps: numeric('lp_fee_bps'),
+		aggFeeBps: numeric('agg_fee_bps'),
+		slippageBps: numeric('slippage_bps'),
+		loadedAt: timestamp('loaded_at', { withTimezone: true }).defaultNow().notNull(),
+	},
+	(t) => ({
+		byAggregator: index('router_trades_aggregator_idx').on(t.aggregator),
+	}),
+);
+
+/**
  * P99 threshold history. Recomputed weekly from the staging table. Each row
  * captures the threshold at a point in time; the threshold applies prospectively
  * to discovered swaps from that point forward.
@@ -109,8 +144,44 @@ export const ingestHeartbeats = pgTable('ingest_heartbeats', {
 	lastError: text('last_error'),
 });
 
+/**
+ * v2.1 gated dataset. Subset of router_trades that passed the §C selection gate
+ * (genuine user trades, re-anchored where needed). Enriched with the §B
+ * decomposition: LP fee, agg fee, slippage (pure routes) or execution (impure),
+ * plus gas in USD. The original router_trades table is untouched.
+ */
+export const routerTradesGated = pgTable(
+	'router_trades_gated',
+	{
+		txHash: text('tx_hash').primaryKey(),
+		aggregator: text('aggregator').notNull(),
+		trader: text('trader').notNull(),
+		originalTrader: text('original_trader').notNull(),
+		reAnchored: boolean('re_anchored').notNull(),
+		direction: text('direction').notNull(),
+		settledIn: text('settled_in').notNull(),
+		usdcAmount: numeric('usdc_amount').notNull(),
+		wethAmount: numeric('weth_amount').notNull(),
+		realizedPrice: numeric('realized_price').notNull(),
+		marketMid: numeric('market_mid').notNull(),
+		allInCostBps: numeric('all_in_cost_bps').notNull(),
+		blockNumber: integer('block_number').notNull(),
+		gateReason: text('gate_reason').notNull(),
+		loadedAt: timestamp('loaded_at', { withTimezone: true }).defaultNow().notNull(),
+		// v2.1 decomposition columns
+		lpFeeBps: numeric('lp_fee_bps'),
+		aggFeeBps: numeric('agg_fee_bps'),
+		slippageBps: numeric('slippage_bps'),
+		executionBps: numeric('execution_bps'),
+		gasCostUsd: numeric('gas_cost_usd'),
+		routePure: boolean('route_pure'),
+	},
+);
+
 export type SwapsStagingRow = typeof swapsStaging.$inferSelect;
 export type SwapRow = typeof swaps.$inferSelect;
+export type RouterTradeRow = typeof routerTrades.$inferSelect;
+export type RouterTradeGatedRow = typeof routerTradesGated.$inferSelect;
 export type P99ThresholdRow = typeof p99Thresholds.$inferSelect;
 export type PollStateRow = typeof pollState.$inferSelect;
 export type IngestHeartbeatRow = typeof ingestHeartbeats.$inferSelect;

@@ -27,28 +27,31 @@ export interface MetricStrategy {
 }
 
 /**
- * Default strategy: median vs P95 of `executionQualityBps` clamped to
- * non-negative.
+ * v2.0 strategy: median all-in cost (X) vs stddev (Y), over `all_in_cost_bps`
+ * from `router_trades` (realized price vs market mid). The two axes are the two
+ * failure modes and are decorrelated by construction (a center statistic vs a
+ * spread statistic) — unlike the old stddev×P95 pair, which were both
+ * tail-driven and collapsed Volatile/Untrustworthy onto one diagonal.
  *
- * Why clamp instead of `|bps|`: a negative residual is a *surplus* (user
- * got better than reference net of fees). Surpluses aren't inaccuracy — they
- * shouldn't pull the dot rightward. Clamping says costs count, surpluses are
- * free wins.
+ *   X = median cost  → high = "Overpriced" (consistently costs more than mid)
+ *   Y = stddev cost  → high = "Volatile"   (large swings around its typical level)
  *
- * Why median + P95 (not mean + stddev): median is robust to the tail; P95 is
- * the tail. The two carry independent information. Mean leaks tail signal;
- * stddev under-weights rare-but-large events (the volatile quadrant).
+ * Quadrants (split at the cohort median of each axis): low/low = Trustworthy,
+ * high-X/low-Y = Overpriced, low-X/high-Y = Volatile, high/high = Untrustworthy.
+ * Cost is signed (negative = better than mid), so X spans negative→positive.
  */
 export const DEFAULT_STRATEGY: MetricStrategy = {
-	id: 'median-p95-clamped',
-	xLabel: 'Median cost',
-	yLabel: 'P95 cost',
+	id: 'median-stddev',
+	xLabel: 'Overpriced →',
+	yLabel: 'Volatile →',
 	unit: 'bps',
 	compute: (samples) => {
-		const clamped = samples.map((s) => Math.max(0, s));
+		const n = samples.length;
+		const mean = n > 0 ? samples.reduce((a, b) => a + b, 0) / n : 0;
+		const variance = n > 1 ? samples.reduce((a, b) => a + (b - mean) ** 2, 0) / n : 0;
 		return {
-			x: quantile(clamped, 0.5),
-			y: quantile(clamped, 0.95),
+			x: quantile(samples, 0.5), // median cost vs mid (signed)
+			y: Math.sqrt(variance),    // stddev: spread around the typical level
 		};
 	},
 };

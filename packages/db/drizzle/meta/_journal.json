@@ -22,6 +22,20 @@
       "when": 1781659640292,
       "tag": "0002_bumpy_ultimatum",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781820338990,
+      "tag": "0003_chunky_deathbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781824990628,
+      "tag": "0004_cute_juggernaut",
+      "breakpoints": true
     }
   ]
 }
