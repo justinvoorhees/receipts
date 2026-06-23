@@ -178,6 +178,48 @@ export const routerTradesGated = pgTable(
 	},
 );
 
+/**
+ * Smoke-test validation set (ETL orientation). One row per controlled v1
+ * "Aggregator Benchmark" swap, re-normalized into the v2 cost framework.
+ * Mirrors router_trades_gated's cost columns so the dashboard reads it the
+ * same way; adds v1 ground-truth + settlement-signature provenance.
+ * Bypasses the notional floor and ±100bps gate by design.
+ */
+export const smokeTrades = pgTable('smoke_trades', {
+	txHash: text('tx_hash').primaryKey(),
+	aggregator: text('aggregator').notNull(),
+	trader: text('trader').notNull(),
+	direction: text('direction').notNull(),
+	settledIn: text('settled_in').notNull(),
+	usdcAmount: numeric('usdc_amount').notNull(),
+	wethAmount: numeric('weth_amount').notNull(),
+	realizedPrice: numeric('realized_price').notNull(),
+	marketMid: numeric('market_mid').notNull(),
+	allInCostBps: numeric('all_in_cost_bps').notNull(),
+	blockNumber: integer('block_number').notNull(),
+	// v2.1 decomposition (same columns as router_trades_gated)
+	lpFeeBps: numeric('lp_fee_bps'),
+	aggFeeBps: numeric('agg_fee_bps'),
+	slippageBps: numeric('slippage_bps'),
+	executionBps: numeric('execution_bps'),
+	gasCostUsd: numeric('gas_cost_usd'),
+	routePure: boolean('route_pure'),
+	// provenance / ground-truth from v1
+	experimentSlug: text('experiment_slug').notNull(),
+	runId: text('run_id').notNull(),
+	v1Status: text('v1_status').notNull(),
+	v1QuoteAmountUsd: numeric('v1_quote_amount_usd'),
+	v1RealizedAmountUsd: numeric('v1_realized_amount_usd'),
+	// settlement-signature provenance
+	settlementEventName: text('settlement_event_name'),
+	settlementEventTopic0: text('settlement_event_topic0'),
+	settlementEventSeen: boolean('settlement_event_seen').notNull().default(false),
+	normalizeFlags: jsonb('normalize_flags'),
+	loadedAt: timestamp('loaded_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+	byAggregator: index('smoke_trades_aggregator_idx').on(t.aggregator),
+}));
+
 export type SwapsStagingRow = typeof swapsStaging.$inferSelect;
 export type SwapRow = typeof swaps.$inferSelect;
 export type RouterTradeRow = typeof routerTrades.$inferSelect;
@@ -185,3 +227,4 @@ export type RouterTradeGatedRow = typeof routerTradesGated.$inferSelect;
 export type P99ThresholdRow = typeof p99Thresholds.$inferSelect;
 export type PollStateRow = typeof pollState.$inferSelect;
 export type IngestHeartbeatRow = typeof ingestHeartbeats.$inferSelect;
+export type SmokeTradeRow = typeof smokeTrades.$inferSelect;
