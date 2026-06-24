@@ -290,6 +290,10 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		if (allKnownVaults.has(addr)) continue; // Don't probe known fee vaults
 		const wethRetained = delta.weth + delta.nativeEth;
 		const totalRetained = Math.abs(delta.usdc) + Math.abs(wethRetained) * input.realizedPrice;
+		// Intentional: this and the other structural thresholds (V4 detection, RFQ
+		// gap, hub qualification) use the fixed DUST_USDC constant, NOT the profile's
+		// `dustUsdc`. Only the fee-sink classification gates (the two checks in Step 3)
+		// scale with the smoke profile. Don't "unify" these — it would alter funnel.
 		if (totalRetained < DUST_USDC) continue;
 
 		// Try fee() — V3 pool. Only accept if fee is a plausible Uniswap tier
