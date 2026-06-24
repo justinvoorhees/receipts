@@ -12,7 +12,7 @@ import {
 	USDC, WETH, decodeTransferLogs, collectNativeEthDeltas,
 	type Direction,
 } from './tradeEndpoints.js';
-import { decomposeTrade, type DecomposeResult } from './decompose-trade.js';
+import { decomposeRoute, type RouteDecomposeResult } from './decomposeRoute.js';
 import { getReferencePrice } from './referencePrice.js';
 import { signedDeviationBps } from './priceMath.js';
 import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSignatures.js';
@@ -32,10 +32,23 @@ export interface SmokeTradeRow {
 	marketMid: number; allInCostBps: number; blockNumber: number;
 	lpFeeBps: number | null; aggFeeBps: number; slippageBps: number | null;
 	executionBps: number | null; gasCostUsd: number; routePure: boolean;
+	routeShape: string | null; hopCount: number | null;
+	routeLegs: unknown[] | null; reconResidualBps: number | null;
+	decompConfidence: string | null;
 	experimentSlug: string; runId: string; v1Status: string;
 	v1QuoteAmountUsd: number | null; v1RealizedAmountUsd: number | null;
 	settlementEventName: string | null; settlementEventTopic0: string | null;
 	settlementEventSeen: boolean; normalizeFlags: string[];
+}
+
+/** Subset of decomposition fields that buildSmokeRow actually reads. */
+interface DecompFields {
+	lpFeeBps: number | null;
+	aggFeeBps: number;
+	slippageBps: number | null;
+	executionBps: number | null;
+	gasBps: number;
+	flags: string[];
 }
 export type NormalizeResult =
 	| { ok: true; row: SmokeTradeRow }
@@ -64,7 +77,12 @@ export function buildSmokeRow(args: {
 	effectiveGasPriceWei: bigint;
 	marketMid: number;
 	blockNumber: number;
-	decomposition: DecomposeResult;
+	decomposition: DecompFields;
+	routeShape?: string | null;
+	hopCount?: number | null;
+	routeLegs?: unknown[] | null;
+	reconResidualBps?: number | null;
+	decompConfidence?: string | null;
 }): NormalizeResult {
 	const { candidate: c } = args;
 	const trader = c.trader.toLowerCase();
@@ -112,7 +130,13 @@ export function buildSmokeRow(args: {
 			direction, settledIn, usdcAmount, wethAmount, realizedPrice,
 			marketMid: args.marketMid, allInCostBps, blockNumber: args.blockNumber,
 			lpFeeBps: d.lpFeeBps, aggFeeBps: d.aggFeeBps, slippageBps: d.slippageBps,
-			executionBps: d.executionBps, gasCostUsd, routePure: d.slippageBps !== null,
+			executionBps: d.executionBps, gasCostUsd,
+			routePure: (args.routeShape ?? null) === 'single',
+			routeShape: args.routeShape ?? null,
+			hopCount: args.hopCount ?? null,
+			routeLegs: args.routeLegs ?? null,
+			reconResidualBps: args.reconResidualBps ?? null,
+			decompConfidence: args.decompConfidence ?? null,
 			experimentSlug: c.experimentSlug, runId: c.runId, v1Status: c.v1Status,
 			v1QuoteAmountUsd: c.v1QuoteAmountUsd, v1RealizedAmountUsd: c.v1RealizedAmountUsd,
 			settlementEventName: sig?.eventName ?? null,
@@ -140,16 +164,16 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 
 		const marketMid = await getReferencePrice({ rpcUrl, poolAddress: POOL_5BPS, blockNumber: receipt.blockNumber });
 
-		// Derive trader deltas first to feed decomposeTrade's required inputs.
+		// Derive trader deltas first to feed decomposeRoute's required inputs.
 		const probe = buildSmokeRow({
 			candidate: c, trace, receiptLogs,
 			gasUsed: receipt.gasUsed, effectiveGasPriceWei: receipt.effectiveGasPrice,
 			marketMid, blockNumber,
-			decomposition: { lpFeeBps: null, aggFeeBps: 0, slippageBps: null, executionBps: null, gasBps: 0, hops: [], feeSinks: [], flags: [] },
+			decomposition: { lpFeeBps: null, aggFeeBps: 0, slippageBps: null, executionBps: null, gasBps: 0, flags: [] },
 		});
 		if (!probe.ok) return probe;
 
-		const decomposition = await decomposeTrade({
+		const routeResult = await decomposeRoute({
 			trace: trace as never,
 			txHash: c.txHash,
 			trader: probe.row.trader,
@@ -169,10 +193,27 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 			impureOnVenueThirdToken: true,
 		});
 
+		// Build compact per-leg representation for storage
+		const compactLegs = routeResult.legs.map((l) => ({
+			venue: l.leg.venue,
+			type: l.leg.type,
+			tokenIn: l.leg.tokenIn,
+			tokenOut: l.leg.tokenOut,
+			feeTierBps: l.feeTierBps,
+			notionalUsdc: l.notionalUsdc,
+			lpFeeBps: l.lpFeeBps,
+		}));
+
 		return buildSmokeRow({
 			candidate: c, trace, receiptLogs,
 			gasUsed: receipt.gasUsed, effectiveGasPriceWei: receipt.effectiveGasPrice,
-			marketMid, blockNumber, decomposition,
+			marketMid, blockNumber,
+			decomposition: routeResult,
+			routeShape: routeResult.routeShape,
+			hopCount: routeResult.hopCount,
+			routeLegs: compactLegs,
+			reconResidualBps: routeResult.reconResidualBps,
+			decompConfidence: routeResult.confidence,
 		});
 	} catch (e) {
 		return { ok: false, aggregator: c.aggregator, txHash: c.txHash, reason: e instanceof Error ? e.message : String(e) };

@@ -204,6 +204,11 @@ export const smokeTrades = pgTable('smoke_trades', {
 	executionBps: numeric('execution_bps'),
 	gasCostUsd: numeric('gas_cost_usd'),
 	routePure: boolean('route_pure'),
+	routeShape: text('route_shape'),
+	hopCount: integer('hop_count'),
+	routeLegs: jsonb('route_legs'),
+	reconResidualBps: numeric('recon_residual_bps'),
+	decompConfidence: text('decomp_confidence'),
 	batch: text('batch').notNull().default('smoke-01'),
 	// provenance / ground-truth from v1
 	experimentSlug: text('experiment_slug').notNull(),

@@ -68,6 +68,7 @@ export interface RouteDecomposeResult {
 	lpFeeBps: number | null;
 	aggFeeBps: number;
 	slippageBps: number | null;
+	executionBps: number | null;
 	gasBps: number;
 	routeShape: RouteShape;
 	hopCount: number;
@@ -447,6 +448,7 @@ export async function decomposeRoute(
 			lpFeeBps,
 			aggFeeBps: base.aggFeeBps,
 			slippageBps,
+			executionBps: base.executionBps,
 			gasBps,
 			routeShape: graph.shape,
 			hopCount: graph.legs.length,
@@ -466,6 +468,7 @@ export async function decomposeRoute(
 		lpFeeBps: null,
 		aggFeeBps: base.aggFeeBps,
 		slippageBps: null,
+		executionBps: base.executionBps,
 		gasBps,
 		routeShape: graph.shape,
 		hopCount: graph.legs.length,

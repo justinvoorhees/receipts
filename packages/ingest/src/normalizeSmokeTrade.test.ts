@@ -32,7 +32,7 @@ describe('buildSmokeRow', () => {
 			marketMid: 2100, // USDC per WETH
 			blockNumber: 12345,
 			// decomposition is exercised in the async path; here pass a stub
-			decomposition: { lpFeeBps: 5, aggFeeBps: 0, slippageBps: 1, executionBps: 6, gasBps: 0, hops: [], feeSinks: [], flags: [] },
+			decomposition: { lpFeeBps: 5, aggFeeBps: 0, slippageBps: 1, executionBps: 6, gasBps: 0, flags: [] },
 		});
 		expect(r.ok).toBe(true);
 		if (!r.ok) return;
