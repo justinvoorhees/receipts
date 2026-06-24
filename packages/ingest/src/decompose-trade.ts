@@ -31,6 +31,9 @@ const V3_SWAP_EVENT = parseAbiItem(
 	'event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)',
 );
 
+const PANCAKE_V3_SWAP_TOPIC = '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83';
+const PANCAKE_V3_SWAP_EVENT = parseAbiItem('event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint128 protocolFeesToken0, uint128 protocolFeesToken1)');
+
 const V4_SWAP_EVENT = parseAbiItem(
 	'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
 );
@@ -129,6 +132,13 @@ export interface DecomposeTradeInput {
 	aggregator: string;
 	blockNumber: bigint;
 	rpcUrl: string;
+	/** Fee-floor + route-classification profile. Smoke set passes tighter values;
+	 *  funnel callers omit these → current v2.1 behavior. */
+	dustUsdc?: number;                 // default 0.01  (fee-sink dust gate)
+	structuralFloorUsd?: number;       // default 1.00  (unknown-sink absolute floor)
+	structuralFloorBps?: number;       // default 1     (unknown-sink bps floor)
+	recognizeV3Forks?: boolean;        // default false (count PancakeSwap V3 LP fees)
+	impureOnVenueThirdToken?: boolean; // default false (3rd token at a venue ⇒ impure)
 }
 
 export interface VenueHop {
@@ -163,6 +173,11 @@ export interface DecomposeResult {
 export async function decomposeTrade(input: DecomposeTradeInput): Promise<DecomposeResult> {
 	const flags: string[] = [];
 	const traderLower = input.trader.toLowerCase();
+
+	// Resolve optional profile parameters (defaults preserve v2.1 funnel behavior)
+	const dustUsdc = input.dustUsdc ?? DUST_USDC;
+	const structFloorUsd = input.structuralFloorUsd ?? STRUCTURAL_FEE_FLOOR_USD;
+	const structFloorBps = input.structuralFloorBps ?? STRUCTURAL_FEE_FLOOR_BPS;
 
 	// ── Step 1: Collect all logs and build value-flow graph ──
 
@@ -229,32 +244,22 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 
 	// ── Step 2: Classify addresses ──
 
-	// Find venues: addresses that emitted a V3 Swap, V2 Swap/Sync, or are the V4 PoolManager
+	// Find venues: addresses that emitted a V3/PancakeV3 Swap, V2 Swap/Sync, or are the V4 PoolManager
 	const venueAddresses = new Set<string>();
-	const v3SwapEvents: { pool: string; amount0: bigint; amount1: bigint }[] = [];
 
+	// Decode V3-like swaps (Uniswap V3 + optionally PancakeSwap V3)
+	const v3SwapEvents = decodeV3LikeSwaps(logs, input.recognizeV3Forks ?? false);
+	for (const swap of v3SwapEvents) {
+		venueAddresses.add(swap.pool);
+	}
+
+	// Detect V2/Aerodrome venue addresses from remaining logs
 	for (const log of logs) {
 		if (!log.topics || log.topics.length === 0) continue;
 		const topic0 = log.topics[0]!;
 		const addr = log.address.toLowerCase();
 
-		if (topic0 === SWAP_TOPIC && log.topics.length >= 3) {
-			venueAddresses.add(addr);
-			try {
-				const decoded = decodeEventLog({
-					abi: [V3_SWAP_EVENT],
-					data: log.data,
-					topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
-				});
-				v3SwapEvents.push({
-					pool: addr,
-					amount0: decoded.args.amount0 as bigint,
-					amount1: decoded.args.amount1 as bigint,
-				});
-			} catch {
-				// Non-V3 Swap with same topic — unlikely but safe
-			}
-		} else if (
+		if (
 			topic0 === V2_SWAP_TOPIC || topic0 === V2_SYNC_TOPIC ||
 			topic0 === AERODROME_SWAP_TOPIC || topic0 === AERODROME_SYNC_TOPIC
 		) {
@@ -352,7 +357,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		const wethRetained = delta.weth + delta.nativeEth;
 		const totalUsdc = usdcRetained + wethRetained * input.realizedPrice;
 
-		if (Math.abs(totalUsdc) < DUST_USDC && !knownVaults.has(addr)) continue;
+		if (Math.abs(totalUsdc) < dustUsdc && !knownVaults.has(addr)) continue;
 
 		// Gate: if this address moved ANY third token (non-USDC/WETH), it is a
 		// venue doing a swap (e.g. USDC→USDT stableswap), not a fee collector.
@@ -393,8 +398,8 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 				// retained value exceeds max($1.00, 1 bps of notional).
 				// Below the floor, still surface the NEEDS REVIEW flag.
 				const structuralFloor = Math.max(
-					STRUCTURAL_FEE_FLOOR_USD,
-					(STRUCTURAL_FEE_FLOOR_BPS / 10_000) * input.notionalUsdc,
+					structFloorUsd,
+					(structFloorBps / 10_000) * input.notionalUsdc,
 				);
 				if (totalUsdc >= structuralFloor) {
 					flags.push(
@@ -661,24 +666,39 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		}
 	}
 
-	// Step 4b-ii: Check if any third token flows through ANY hub address
-	// A third token makes the route impure only if a hub received or sent it.
+	// Build the impurity-trigger set: hub addresses plus (optionally) venue
+	// addresses when impureOnVenueThirdToken is true. This makes third-token
+	// flow through a pool (e.g. USDC→VIRTUAL→WETH via a VIRTUAL pool) trigger
+	// impurity consistently regardless of fee magnitude.
+	const impurityTriggerAddrs = new Set<string>(hubAddresses);
+	if (input.impureOnVenueThirdToken) {
+		for (const v of venueAddresses) impurityTriggerAddrs.add(v);
+	}
+
+	// Step 4b-ii: Check if any third token flows through ANY impurity-trigger address
+	// A third token makes the route impure only if a trigger address received or sent it.
 	const thirdTokens = new Set<string>();
-	const thirdTokenHubs = new Map<string, string>(); // token → hub address that held it
+	const thirdTokenHubs = new Map<string, string>(); // token → hub/venue address that held it
 
 	for (const t of transfers) {
 		const token = t.token.toLowerCase();
 		if (token === USDC || token === WETH) continue;
 		const fromLower = t.from.toLowerCase();
 		const toLower = t.to.toLowerCase();
-		// Check if either side of this transfer is a hub address
-		if (hubAddresses.has(fromLower)) {
+		// Check if either side of this transfer is an impurity-trigger address
+		if (impurityTriggerAddrs.has(fromLower)) {
 			thirdTokens.add(token);
-			if (!thirdTokenHubs.has(token)) thirdTokenHubs.set(token, fromLower);
+			if (!thirdTokenHubs.has(token)) {
+				const source = hubAddresses.has(fromLower) ? 'hub' : 'venue';
+				thirdTokenHubs.set(token, `${source}:${fromLower}`);
+			}
 		}
-		if (hubAddresses.has(toLower)) {
+		if (impurityTriggerAddrs.has(toLower)) {
 			thirdTokens.add(token);
-			if (!thirdTokenHubs.has(token)) thirdTokenHubs.set(token, toLower);
+			if (!thirdTokenHubs.has(token)) {
+				const source = hubAddresses.has(toLower) ? 'hub' : 'venue';
+				thirdTokenHubs.set(token, `${source}:${toLower}`);
+			}
 		}
 	}
 
@@ -696,8 +716,12 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 	if (isImpure) {
 		// Route hops through a third token via the hub — LP and slippage are not separable
 		const tokenDetails = [...thirdTokens].map(t => {
-			const hub = thirdTokenHubs.get(t);
-			const hubStr = hub ? ` via hub ${hub.slice(0, 6)}...${hub.slice(-4)}` : '';
+			const hubEntry = thirdTokenHubs.get(t);
+			let hubStr = '';
+			if (hubEntry) {
+				const [source, addr] = hubEntry.split(':');
+				hubStr = addr ? ` via ${source} ${addr.slice(0, 6)}...${addr.slice(-4)}` : ` via ${hubEntry}`;
+			}
 			return `${t.slice(0, 6)}...${t.slice(-4)}${hubStr}`;
 		}).join(', ');
 		flags.push(`MULTI-HOP: route touches ${tokenDetails} — LP/slippage not separable`);
@@ -762,6 +786,34 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 }
 
 // ─── Helpers ───
+
+/**
+ * Decode V3-like Swap events (Uniswap V3 + optionally PancakeSwap V3) from a
+ * flat log array. Returns pool address + amount0/amount1 for each decoded swap.
+ * Pure function — no RPC calls.
+ */
+export function decodeV3LikeSwaps(
+	logs: readonly LogLike[],
+	recognizeForks: boolean,
+): { pool: string; amount0: bigint; amount1: bigint }[] {
+	const out: { pool: string; amount0: bigint; amount1: bigint }[] = [];
+	for (const log of logs) {
+		if (!log.topics || log.topics.length < 3) continue;
+		const topic0 = log.topics[0]!.toLowerCase();
+		const isUni = topic0 === SWAP_TOPIC;
+		const isPancake = recognizeForks && topic0 === PANCAKE_V3_SWAP_TOPIC;
+		if (!isUni && !isPancake) continue;
+		try {
+			const decoded = decodeEventLog({
+				abi: [isPancake ? PANCAKE_V3_SWAP_EVENT : V3_SWAP_EVENT],
+				data: log.data,
+				topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+			});
+			out.push({ pool: log.address.toLowerCase(), amount0: decoded.args.amount0 as bigint, amount1: decoded.args.amount1 as bigint });
+		} catch { /* topic collision; skip */ }
+	}
+	return out;
+}
 
 /**
  * Decode V4 Swap events from a flat log array and return the raw `fee` values

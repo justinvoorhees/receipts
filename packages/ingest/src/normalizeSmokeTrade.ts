@@ -162,6 +162,11 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 			aggregator: capitalizeAgg(c.aggregator),
 			blockNumber: receipt.blockNumber,
 			rpcUrl,
+			dustUsdc: 1e-6,
+			structuralFloorUsd: 0,
+			structuralFloorBps: 0.5,
+			recognizeV3Forks: true,
+			impureOnVenueThirdToken: true,
 		});
 
 		return buildSmokeRow({
