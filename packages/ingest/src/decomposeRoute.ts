@@ -377,7 +377,6 @@ export async function decomposeRoute(
 	let allFeesResolved = true;
 
 	const legFeeInputs: LegFeeInput[] = [];
-	const legDefaulted: boolean[] = [];
 	for (const leg of graph.legs) {
 		// Resolve fee tier
 		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw);
@@ -385,12 +384,9 @@ export async function decomposeRoute(
 
 		if (feeResult.defaulted) {
 			allFeesResolved = false;
-			legDefaulted.push(true);
 			if (leg.type === 'aerodrome') {
 				routeFlags.push(`AERO_FEE_DEFAULTED: leg ${leg.venue.slice(0, 10)} used 30bps default`);
 			}
-		} else {
-			legDefaulted.push(false);
 		}
 
 		// Value the leg's notional in USDC
