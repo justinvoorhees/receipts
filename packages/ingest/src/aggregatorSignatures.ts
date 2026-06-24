@@ -70,7 +70,8 @@ export function settlementEventPresent(
 ): boolean {
 	if (sig.detectBy === 'event_anywhere') {
 		if (!sig.eventTopic0) return false;
-		return logs.some((l) => l.topics[0]?.toLowerCase() === sig.eventTopic0);
+		const want = sig.eventTopic0.toLowerCase();
+		return logs.some((l) => l.topics[0]?.toLowerCase() === want);
 	}
 	const events = findSettlementEvents(logs, sig.settlementContract);
 	return sig.eventTopic0 ? events.some((e) => e.topic0 === sig.eventTopic0) : events.length > 0;
