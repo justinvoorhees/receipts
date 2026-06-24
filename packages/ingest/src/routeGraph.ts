@@ -94,17 +94,19 @@ function identifyTraderTokens(
     if (delta < 0n) {
       // Trader sent more than received → input token
       if (inputToken !== null) {
-        // Multiple input tokens — pick the largest magnitude
-        const existing = traderDeltas.get(inputToken)!;
-        if (delta < existing) inputToken = token;
+        // Multiple input tokens — pick the one with the largest absolute magnitude
+        const existingAbs = -(traderDeltas.get(inputToken)!); // positive
+        const currentAbs = -delta; // positive
+        if (currentAbs > existingAbs) inputToken = token;
       } else {
         inputToken = token;
       }
     } else if (delta > 0n) {
       // Trader received more than sent → output token
       if (outputToken !== null) {
-        const existing = traderDeltas.get(outputToken)!;
-        if (delta > existing) outputToken = token;
+        // Multiple output tokens — pick the one with the largest absolute magnitude
+        const existingAbs = traderDeltas.get(outputToken)!; // already positive
+        if (delta > existingAbs) outputToken = token;
       } else {
         outputToken = token;
       }
@@ -151,10 +153,11 @@ function buildLegs(
     }
 
     if (knownVenue) {
-      // Known venue from Swap events — it should have exactly one tokenIn (received)
-      // and one tokenOut (sent)
-      if (netReceived.length >= 1 && netSent.length >= 1) {
-        // Take the primary pair (first of each)
+      // Known venue from Swap events — it must have exactly one tokenIn (received)
+      // and one tokenOut (sent) to emit a clean leg.
+      // Multi-token venues (>1 net-received or >1 net-sent) are skipped here;
+      // the missing leg will cause chainLegs to classify the route as 'complex'.
+      if (netReceived.length === 1 && netSent.length === 1) {
         const tokenIn = netReceived[0]!;
         const tokenOut = netSent[0]!;
 
@@ -233,8 +236,8 @@ function chainLegs(
   // Check for split: multiple first-legs starting from inputToken
   const firstLegs = legs.filter(l => l.tokenIn === inputToken);
   if (firstLegs.length > 1) {
-    // Split route — best-effort ordering
-    return { ordered: legs, shape: 'split', reconstructed: true };
+    // Split route — legs are unordered; downstream gates confidence on this flag
+    return { ordered: legs, shape: 'split', reconstructed: false };
   }
 
   // Complex / stalled — return best-effort
@@ -278,12 +281,16 @@ function tryBuildChain(
 export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   const traderLc = args.trader.toLowerCase();
 
-  // Normalize venue keys to lowercase
+  // Normalize venue keys and denylist to lowercase
   const venuesLc = new Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number }>();
   for (const [addr, info] of args.venues) {
     venuesLc.set(addr.toLowerCase(), info);
   }
-  const argsNorm: BuildRouteArgs = { ...args, trader: traderLc, venues: venuesLc };
+  const denylistLc = new Set<string>();
+  for (const addr of args.denylist) {
+    denylistLc.add(addr.toLowerCase());
+  }
+  const argsNorm: BuildRouteArgs = { ...args, trader: traderLc, venues: venuesLc, denylist: denylistLc };
 
   // 1. Build per-address per-token net deltas and gross flows
   const { deltas, gross } = buildDeltas(args.transfers);

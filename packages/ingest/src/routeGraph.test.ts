@@ -36,4 +36,105 @@ describe('buildRouteGraph', () => {
     expect(g.legs[0]!.type).toBe('rfq');
     expect(g.shape).toBe('linear');
   });
+
+  it('single-leg: direct USDC→WETH swap through one venue', () => {
+    const pool = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const t = [
+      { token: USDC, from: trader, to: pool, value: 500_000000n },
+      { token: WETH, from: pool, to: trader, value: 250_000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map([[pool, { type: 'univ3' as const }]]),
+      denylist: new Set(),
+    });
+    expect(g.shape).toBe('single');
+    expect(g.reconstructed).toBe(true);
+    expect(g.legs).toHaveLength(1);
+    expect(g.legs[0]!.tokenIn).toBe(USDC);
+    expect(g.legs[0]!.tokenOut).toBe(WETH);
+    expect(g.legs[0]!.type).toBe('univ3');
+  });
+
+  it('complex (stalled chain): orphan leg that does not chain', () => {
+    const poolA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const AERO = '0xcccccccccccccccccccccccccccccccccccccccc';
+    // poolA: USDC→VIRTUAL (connects from input)
+    // poolB: AERO→WETH (orphan — AERO isn't produced by any leg or the input)
+    const t = [
+      { token: USDC, from: trader, to: poolA, value: 1_000000n },
+      { token: VIRTUAL, from: poolA, to: trader, value: 2_000000000000000000n },
+      { token: AERO, from: trader, to: poolB, value: 500_000000000000000n },
+      { token: WETH, from: poolB, to: trader, value: 100_000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map([
+        [poolA, { type: 'univ3' as const }],
+        [poolB, { type: 'aerodrome' as const }],
+      ]),
+      denylist: new Set(),
+    });
+    // Trader's largest negative delta is VIRTUAL (2e18 sent effectively — but
+    // actually USDC is 1e6 and AERO is 5e17; VIRTUAL has +2e18 positive).
+    // The trader sends USDC(1e6) and AERO(5e17) — both negative.
+    // Trader receives VIRTUAL(2e18) and WETH(1e17) — both positive.
+    // Largest negative = AERO (5e17 > 1e6), largest positive = VIRTUAL (2e18 > 1e17).
+    // So inputToken=AERO, outputToken=VIRTUAL.
+    // poolA leg: USDC→VIRTUAL — tokenIn(USDC)!=inputToken(AERO) so chain stalls.
+    expect(g.shape).toBe('complex');
+    expect(g.reconstructed).toBe(false);
+  });
+
+  it('split: trader fans out to two venues producing output token', () => {
+    const poolA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    // Both venues receive USDC from trader and return WETH to trader
+    const t = [
+      { token: USDC, from: trader, to: poolA, value: 1_000000n },
+      { token: WETH, from: poolA, to: trader, value: 500_000000000000000n },
+      { token: USDC, from: trader, to: poolB, value: 1_000000n },
+      { token: WETH, from: poolB, to: trader, value: 500_000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map([
+        [poolA, { type: 'univ3' as const }],
+        [poolB, { type: 'univ2' as const }],
+      ]),
+      denylist: new Set(),
+    });
+    expect(g.shape).toBe('split');
+    expect(g.reconstructed).toBe(false);
+    expect(g.legs).toHaveLength(2);
+    expect(g.inputToken).toBe(USDC);
+    expect(g.outputToken).toBe(WETH);
+  });
+
+  it('C1 regression: multi-token venue yields complex, not guessed leg', () => {
+    const multiVenue = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const TOKB = '0xdddddddddddddddddddddddddddddddddddddd';
+    // multiVenue receives USDC and TOKB, sends WETH and VIRTUAL
+    // → 2 net-received, 2 net-sent: must NOT guess a single leg
+    const t = [
+      { token: USDC, from: trader, to: multiVenue, value: 1_000000n },
+      { token: TOKB, from: trader, to: multiVenue, value: 2_000000n },
+      { token: WETH, from: multiVenue, to: trader, value: 500_000000000000000n },
+      { token: VIRTUAL, from: multiVenue, to: trader, value: 1_000000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map([[multiVenue, { type: 'univ3' as const }]]),
+      denylist: new Set(),
+    });
+    // No legs should be emitted for this multi-token venue
+    expect(g.legs).toHaveLength(0);
+    expect(g.shape).toBe('complex');
+    expect(g.reconstructed).toBe(false);
+  });
 });
