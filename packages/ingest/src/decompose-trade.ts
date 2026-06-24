@@ -381,7 +381,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 				totalUsdc,
 				source: 'vault_map',
 			});
-		} else if (totalUsdc > DUST_USDC) {
+		} else if (totalUsdc > dustUsdc) {
 			// Check if this is a counterparty (retains the bulk of notional)
 			// vs a fee sink (retains a small fraction). Counterparties are venues
 			// that filled the trade — their retained value IS the trade, not a fee.
