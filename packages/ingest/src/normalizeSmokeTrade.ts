@@ -15,7 +15,7 @@ import {
 import { decomposeTrade, type DecomposeResult } from './decompose-trade.js';
 import { getReferencePrice } from './referencePrice.js';
 import { signedDeviationBps } from './priceMath.js';
-import { AGGREGATOR_SIGNATURES, findSettlementEvents } from './aggregatorSignatures.js';
+import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSignatures.js';
 
 const POOL_5BPS = '0xd0b53D9277642d899DF5C87A3966A349A798F224' as `0x${string}`;
 const WETH_DUST_RAW = 10_000_000_000n;
@@ -98,13 +98,7 @@ export function buildSmokeRow(args: {
 	const gasCostUsd = gasCostEth * realizedPrice;
 
 	const sig = AGGREGATOR_SIGNATURES[c.aggregator];
-	let settlementEventSeen = false;
-	if (sig) {
-		const events = findSettlementEvents(args.receiptLogs, sig.settlementContract);
-		settlementEventSeen = sig.eventTopic0
-			? events.some((e) => e.topic0 === sig.eventTopic0)
-			: events.length > 0;
-	}
+	const settlementEventSeen = sig ? settlementEventPresent(args.receiptLogs, sig) : false;
 
 	const d = args.decomposition;
 	const flags = [...d.flags];

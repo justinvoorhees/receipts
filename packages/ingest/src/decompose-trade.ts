@@ -352,7 +352,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		const wethRetained = delta.weth + delta.nativeEth;
 		const totalUsdc = usdcRetained + wethRetained * input.realizedPrice;
 
-		if (Math.abs(totalUsdc) < DUST_USDC) continue;
+		if (Math.abs(totalUsdc) < DUST_USDC && !knownVaults.has(addr)) continue;
 
 		// Gate: if this address moved ANY third token (non-USDC/WETH), it is a
 		// venue doing a swap (e.g. USDC→USDT stableswap), not a fee collector.
