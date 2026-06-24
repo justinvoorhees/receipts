@@ -1,7 +1,7 @@
-import { asc, desc, sql } from 'drizzle-orm';
+import { asc, desc, eq, sql } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
-import { DEFAULT_DATASET, DATASET_TABLE, DATASET_TABLE_NAME, type Dataset } from './datasets';
+import { DEFAULT_DATASET, DATASET_TABLE, DATASET_TABLE_NAME, DATASET_BATCH, type Dataset } from './datasets';
 
 export type SwapRow = typeof schema.swaps.$inferSelect;
 export type RouterTradeRow = typeof schema.routerTradesGated.$inferSelect;
@@ -50,6 +50,7 @@ export interface AggregatorSummaryRow {
 export async function getAggregatorSummary(dataset: Dataset = DEFAULT_DATASET): Promise<AggregatorSummaryRow[]> {
 	const db = getDb();
 	const table = sql.raw(DATASET_TABLE_NAME[dataset]);
+	const batch = DATASET_BATCH[dataset];
 	const rows = await db.execute<{
 		aggregator: string;
 		trade_count: string;
@@ -74,6 +75,7 @@ export async function getAggregatorSummary(dataset: Dataset = DEFAULT_DATASET): 
 			SUM((settled_in = 'WETH')::int) AS weth_count,
 			SUM((settled_in = 'ETH')::int) AS eth_count
 		FROM ${table}
+		${batch ? sql`WHERE batch = ${batch}` : sql``}
 		GROUP BY aggregator
 		ORDER BY trade_count DESC
 	`);
@@ -105,7 +107,10 @@ export async function getRecentTrades(
 	const table = DATASET_TABLE[dataset];
 	const column = (table as typeof schema.routerTradesGated)[TRADES_SORT_COLUMN_KEYS[sort.column]];
 	const orderFn = sort.direction === 'asc' ? asc : desc;
-	return db.select().from(table).orderBy(orderFn(column)).limit(limit) as unknown as Promise<RouterTradeRow[]>;
+	const batch = DATASET_BATCH[dataset];
+	const q = db.select().from(table);
+	const filtered = batch ? q.where(eq(schema.smokeTrades.batch, batch)) : q;
+	return filtered.orderBy(orderFn(column)).limit(limit) as unknown as Promise<RouterTradeRow[]>;
 }
 
 /**
@@ -117,7 +122,10 @@ export async function getCostByAggregator(dataset: Dataset = DEFAULT_DATASET): P
 > {
 	const db = getDb();
 	const table = DATASET_TABLE[dataset];
-	const rows = await db.select({ aggregator: table.aggregator, allInCostBps: table.allInCostBps }).from(table);
+	const batch = DATASET_BATCH[dataset];
+	const q = db.select({ aggregator: table.aggregator, allInCostBps: table.allInCostBps }).from(table);
+	const filtered = batch ? q.where(eq(schema.smokeTrades.batch, batch)) : q;
+	const rows = await filtered;
 	return rows.map((r) => ({
 		aggregator: r.aggregator,
 		costBps: Number(r.allInCostBps),

@@ -1,0 +1,1 @@
+ALTER TABLE "smoke_trades" ADD COLUMN "batch" text DEFAULT 'smoke-01' NOT NULL;

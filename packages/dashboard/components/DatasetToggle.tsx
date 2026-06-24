@@ -6,7 +6,8 @@ import type { Dataset } from '../lib/datasets';
 
 const OPTIONS: { value: Dataset; label: string }[] = [
 	{ value: 'funnel', label: 'Funnel' },
-	{ value: 'smoke', label: 'Smoke test' },
+	{ value: 'smoke', label: 'Smoke 01' },
+	{ value: 'smoke02', label: 'Smoke 02' },
 ];
 
 export function DatasetToggle({ dataset }: { dataset: Dataset }) {
