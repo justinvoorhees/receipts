@@ -19,7 +19,7 @@ import {
 } from './tradeEndpoints.js';
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput, type LpRollup } from './legFees.js';
-import { decomposeTrade, decodeV3LikeSwaps, type DecomposeTradeInput, type DecomposeResult } from './decompose-trade.js';
+import { decomposeTrade, type DecomposeTradeInput, type DecomposeResult } from './decompose-trade.js';
 
 // ─── Constants ───
 
@@ -81,8 +81,8 @@ export interface RouteDecomposeResult {
 export interface DecomposeRouteDeps {
 	/** Pre-fetched trace (skip RPC call). */
 	trace?: TraceNode;
-	/** Custom fee-tier reader. Signature: (poolAddr, venueType, v4FeeRaw?) → feeTierBps. */
-	feeReader?: (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<number> | number;
+	/** Custom fee-tier reader. Signature: (poolAddr, venueType, v4FeeRaw?) → { bps, defaulted }. */
+	feeReader?: (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
 }
 
 // ─── Helpers ───
@@ -184,10 +184,10 @@ function scanVenues(logs: readonly LogLike[], recognizeForks: boolean): Map<stri
 
 // ─── Default fee reader (live RPC) ───
 
-function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<number> {
+function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> {
 	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
 
-	return async (addr: string, type: VenueType, v4FeeRaw?: number): Promise<number> => {
+	return async (addr: string, type: VenueType, v4FeeRaw?: number): Promise<{ bps: number; defaulted: boolean }> => {
 		switch (type) {
 			case 'univ3':
 			case 'pancakev3': {
@@ -198,29 +198,26 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 						functionName: 'fee',
 						blockNumber,
 					});
-					return Number(fee) / 100;
+					return { bps: Number(fee) / 100, defaulted: false };
 				} catch {
-					return 0;
+					return { bps: 0, defaulted: false };
 				}
 			}
 			case 'univ4':
-				return v4FeeRaw !== undefined ? v4FeeRaw / 100 : 0;
+				return { bps: v4FeeRaw !== undefined ? v4FeeRaw / 100 : 0, defaulted: false };
 			case 'univ2':
-				return 30;
+				// 30 bps is the canonical V2 fee, not a guess
+				return { bps: 30, defaulted: false };
 			case 'aerodrome': {
-				// Try to read Aerodrome fee; default to 30 bps
-				try {
-					// Aerodrome pools typically expose a fee via stable/volatile classification
-					// For now, default to 30 bps
-					return 30;
-				} catch {
-					return 30;
-				}
+				// Aerodrome pools expose fee via stable/volatile classification.
+				// Falling back to 30 bps is a guess — signal defaulted.
+				return { bps: 30, defaulted: true };
 			}
 			case 'rfq':
+				return { bps: 0, defaulted: false };
 			case 'unknown':
 			default:
-				return 0;
+				return { bps: 0, defaulted: true };
 		}
 	};
 }
@@ -272,15 +269,13 @@ function resolveV4Settlement(
 		return { transfers, extendedDenylist: new Set(denylist) };
 	}
 
-	const pmReceived: string[] = []; // tokens PM net-received
-	const pmSent: string[] = [];     // tokens PM net-sent
-	for (const [token, delta] of pmDeltas) {
-		if (delta > 0n) pmReceived.push(token);
-		else if (delta < 0n) pmSent.push(token);
+	// Check if PM has any net-sent tokens (both sides present → no fix needed)
+	let pmHasSent = false;
+	for (const [, delta] of pmDeltas) {
+		if (delta < 0n) { pmHasSent = true; break; }
 	}
 
-	// If PM already has both sides, no fix needed
-	if (pmSent.length > 0) {
+	if (pmHasSent) {
 		return { transfers, extendedDenylist: new Set(denylist) };
 	}
 
@@ -382,9 +377,21 @@ export async function decomposeRoute(
 	let allFeesResolved = true;
 
 	const legFeeInputs: LegFeeInput[] = [];
+	const legDefaulted: boolean[] = [];
 	for (const leg of graph.legs) {
 		// Resolve fee tier
-		const feeTierBps = await feeReader(leg.venue, leg.type, leg.v4FeeRaw);
+		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw);
+		const feeTierBps = feeResult.bps;
+
+		if (feeResult.defaulted) {
+			allFeesResolved = false;
+			legDefaulted.push(true);
+			if (leg.type === 'aerodrome') {
+				routeFlags.push(`AERO_FEE_DEFAULTED: leg ${leg.venue.slice(0, 10)} used 30bps default`);
+			}
+		} else {
+			legDefaulted.push(false);
+		}
 
 		// Value the leg's notional in USDC
 		const { notionalUsdc, approx } = valueLegNotionalUsdc(
@@ -393,10 +400,6 @@ export async function decomposeRoute(
 			input.notionalUsdc,
 			decimalsOf,
 		);
-
-		if (approx) {
-			allFeesResolved = false; // approx notional downgrades confidence
-		}
 
 		legFeeInputs.push({
 			leg,
@@ -427,9 +430,9 @@ export async function decomposeRoute(
 		// Confidence assessment
 		let confidence: 'high' | 'medium' | 'low' = 'high';
 
-		// Check for approx legs
+		// Downgrade to medium if any leg has approximate notional or defaulted fee
 		const hasApproxLegs = legFeeInputs.some((lfi) => lfi.notionalApprox);
-		if (hasApproxLegs) {
+		if (hasApproxLegs || !allFeesResolved) {
 			confidence = 'medium';
 		}
 

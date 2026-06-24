@@ -18,6 +18,26 @@ const kyberB2Trace = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__/ky
 
 const PANCAKE_POOL = '0x7cb770d0513c30e0cb45e4899e4a2cbeed6f9830';
 
+const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const WETH = '0x4200000000000000000000000000000000000006';
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+/** Build a minimal ERC-20 Transfer log entry for a synthetic trace. */
+function transferLog(
+  tokenAddr: `0x${string}`,
+  from: `0x${string}`,
+  to: `0x${string}`,
+  value: bigint,
+): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`, `0x${string}`, `0x${string}`] } {
+  const pad = (addr: string) => ('0x' + addr.slice(2).padStart(64, '0')) as `0x${string}`;
+  const hexVal = ('0x' + value.toString(16).padStart(64, '0')) as `0x${string}`;
+  return {
+    address: tokenAddr,
+    data: hexVal,
+    topics: [TRANSFER_TOPIC as `0x${string}`, pad(from), pad(to)],
+  };
+}
+
 describe('decomposeRoute', () => {
   describe('kyber batch-01 (PancakeSwap V3 5bps + V4 4.5bps)', () => {
     const input: DecomposeTradeInput = {
@@ -45,10 +65,10 @@ describe('decomposeRoute', () => {
         trace: kyberB1Trace as any,
         feeReader: async (addr, type, v4FeeRaw) => {
           // PancakeSwap V3 pool: fee() = 500 → 5 bps
-          if (addr === PANCAKE_POOL) return 5;
+          if (addr === PANCAKE_POOL) return { bps: 5, defaulted: false };
           // V4: fee from event / 100
-          if (type === 'univ4' && v4FeeRaw !== undefined) return v4FeeRaw / 100;
-          return 0;
+          if (type === 'univ4' && v4FeeRaw !== undefined) return { bps: v4FeeRaw / 100, defaulted: false };
+          return { bps: 0, defaulted: false };
         },
       });
 
@@ -103,10 +123,10 @@ describe('decomposeRoute', () => {
         trace: kyberB2Trace as any,
         feeReader: async (addr, type, v4FeeRaw) => {
           // RFQ leg: fee = 0
-          if (type === 'rfq') return 0;
+          if (type === 'rfq') return { bps: 0, defaulted: false };
           // V4: fee from event / 100 = 10000/100 = 100
-          if (type === 'univ4' && v4FeeRaw !== undefined) return v4FeeRaw / 100;
-          return 0;
+          if (type === 'univ4' && v4FeeRaw !== undefined) return { bps: v4FeeRaw / 100, defaulted: false };
+          return { bps: 0, defaulted: false };
         },
       });
 
@@ -129,6 +149,75 @@ describe('decomposeRoute', () => {
 
       // Per-leg detail
       expect(result.legs).toHaveLength(2);
+    });
+  });
+
+  describe('non-reconstructed fallback (Design Decision 7)', () => {
+    // Synthetic trace: two orphan legs that don't chain from inputToken to
+    // outputToken. This exercises the !reconstructed branch without RPC.
+    //
+    // Transfers:
+    //   Trader → poolA: USDC 1e6     (poolA receives USDC)
+    //   poolA  → Trader: tokenX 2e18 (poolA sends tokenX)
+    //   Trader → poolB: tokenY 5e17  (poolB receives tokenY)
+    //   poolB  → Trader: WETH 1e17   (poolB sends WETH)
+    //
+    // Trader net: USDC -1e6, tokenX +2e18, tokenY -5e17, WETH +1e17
+    // Largest negative = tokenY (5e17 > 1e6), largest positive = tokenX (2e18 > 1e17)
+    // → inputToken = tokenY, outputToken = tokenX
+    // poolA leg: USDC→tokenX (tokenIn ≠ inputToken → orphan)
+    // poolB leg: tokenY→WETH (tokenOut ≠ outputToken → stalled chain)
+    // → shape = 'complex', reconstructed = false
+
+    const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+    const poolA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`;
+    const tokenX = '0x1111111111111111111111111111111111111111' as `0x${string}`;
+    const tokenY = '0x2222222222222222222222222222222222222222' as `0x${string}`;
+
+    const syntheticTrace = {
+      from: syntheticTrader,
+      to: '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`,
+      input: '0x' as `0x${string}`,
+      logs: [
+        transferLog(USDC as `0x${string}`, syntheticTrader, poolA, 1_000000n),
+        transferLog(tokenX, poolA, syntheticTrader, 2_000000000000000000n),
+        transferLog(tokenY, syntheticTrader, poolB, 500_000000000000000n),
+        transferLog(WETH as `0x${string}`, poolB, syntheticTrader, 100_000000000000000n),
+      ],
+      calls: [],
+    };
+
+    const input: DecomposeTradeInput = {
+      trace: syntheticTrace as any,
+      txHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+      trader: syntheticTrader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: -5.0,
+      notionalUsdc: 1.0,
+      realizedPrice: 1800,
+      gasCostUsd: 0.001,
+      aggregator: 'Unknown',
+      blockNumber: 1n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+    };
+
+    it('yields null LP/slippage, low confidence, and ROUTE_NOT_DECOMPOSED flag', async () => {
+      const result = await decomposeRoute(input, {
+        trace: syntheticTrace as any,
+        feeReader: async () => ({ bps: 0, defaulted: false }),
+      });
+
+      expect(result.lpFeeBps).toBeNull();
+      expect(result.slippageBps).toBeNull();
+      expect(result.confidence).toBe('low');
+      expect(result.flags.some(f => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(true);
+      // Route should not be reconstructed
+      expect(result.routeShape).toBe('complex');
     });
   });
 });
