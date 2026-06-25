@@ -87,6 +87,7 @@ async function main(): Promise<void> {
 					allInCostBps: String(row.allInCostBps), lpFeeBps: row.lpFeeBps == null ? null : String(row.lpFeeBps),
 					aggFeeBps: String(row.aggFeeBps), slippageBps: row.slippageBps == null ? null : String(row.slippageBps),
 					executionBps: row.executionBps == null ? null : String(row.executionBps), gasCostUsd: String(row.gasCostUsd),
+					routePure: row.routePure,
 					routeShape: row.routeShape,
 					hopCount: row.hopCount,
 					routeLegs: row.routeLegs != null ? JSON.stringify(row.routeLegs) : null,
