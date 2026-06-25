@@ -20,7 +20,7 @@ import {
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput, type LpRollup } from './legFees.js';
 import { decomposeTrade, type DecomposeTradeInput, type DecomposeResult } from './decompose-trade.js';
-import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
+import { getLegMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
 
 // ─── Constants ───
 
@@ -91,8 +91,10 @@ export interface DecomposeRouteDeps {
 	trace?: TraceNode;
 	/** Custom fee-tier reader. Signature: (poolAddr, venueType, v4FeeRaw?) → { bps, defaulted }. */
 	feeReader?: (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
-	/** Custom mid-price reader. Signature: (tokenIn, tokenOut, venue, blockNumber) → PairMidResult | null. */
-	midReader?: (tokenIn: string, tokenOut: string, venue: string, blockNumber: bigint) => Promise<PairMidResult | null> | PairMidResult | null;
+	/** Custom mid-price reader. Signature: (leg, blockNumber) → PairMidResult | null. */
+	midReader?: (leg: Leg, blockNumber: bigint) => Promise<PairMidResult | null> | PairMidResult | null;
+	/** Custom decimals reader (for realized-price computation). Falls back to inline USDC=6/else=18. */
+	decimalsReader?: (token: string) => Promise<number> | number;
 }
 
 // ─── Helpers ───
@@ -234,32 +236,34 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 
 // ─── Default mid reader (live RPC) ───
 
-function createDefaultMidReader(
+export function createDefaultMidReader(
 	rpcUrl: string,
 	blockNumber: bigint,
-): (tokenIn: string, tokenOut: string, venue: string, atBlock: bigint) => Promise<PairMidResult | null> {
+): {
+	midReader: (leg: Leg, atBlock: bigint) => Promise<PairMidResult | null>;
+	decimalsReader: (token: string) => Promise<number>;
+} {
 	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
 	const decCache = makeRpcDecimalsCache(rpc as never);
 
-	return async (
-		tokenIn: string,
-		tokenOut: string,
-		venue: string,
-		atBlock: bigint,
-	): Promise<PairMidResult | null> => {
-		try {
-			return await getPairMidAtBlock(
-				rpc as never,
-				tokenIn,
-				tokenOut,
-				atBlock,
-				decCache,
-				venue as `0x${string}`,
-			);
-		} catch {
-			// RPC failure (e.g. invalid URL in test) — treat as no mid available
-			return null;
-		}
+	return {
+		midReader: async (
+			leg: Leg,
+			atBlock: bigint,
+		): Promise<PairMidResult | null> => {
+			try {
+				return await getLegMidAtBlock(
+					rpc as never,
+					leg,
+					atBlock,
+					decCache,
+				);
+			} catch {
+				// RPC failure (e.g. invalid URL in test) — treat as no mid available
+				return null;
+			}
+		},
+		decimalsReader: decCache,
 	};
 }
 
@@ -361,7 +365,10 @@ function resolveV4Settlement(
 			// Self-transfer within proxies — drop
 			continue;
 		} else if (isFromProxy) {
-			// Proxy sends → replace with V4 PM sends
+			// Proxy sends → replace with V4 PM sends.
+			// BUT if the destination is already V4 PM, the rewrite produces a
+			// self-transfer (PM → PM) which double-counts the gross flow. Drop it.
+			if (toLc === UNISWAP_V4_POOL_MANAGER) continue;
 			rewritten.push({ ...t, from: UNISWAP_V4_POOL_MANAGER });
 		} else if (isToProxy) {
 			// Something sends to proxy → replace with something sends to V4 PM
@@ -473,18 +480,28 @@ export async function decomposeRoute(
 		const midReader = deps?.midReader ?? null;
 		let hasNullMid = !midReader; // no reader → treat as all-null (skip loop body)
 
+		const decReader = deps?.decimalsReader ?? null;
 		for (const lwl of legsWithLp) {
 			if (!midReader) continue;
 			const leg = lwl.leg;
-			const decIn = decimalsOf(leg.tokenIn);
-			const decOut = decimalsOf(leg.tokenOut);
+			// Use RPC-backed decimals when available, else fall back to inline
+			const decIn = decReader ? await decReader(leg.tokenIn) : decimalsOf(leg.tokenIn);
+			const decOut = decReader ? await decReader(leg.tokenOut) : decimalsOf(leg.tokenOut);
+
+			// Guard: amountInRaw === 0 → div-by-zero; skip this leg
+			if (leg.amountInRaw === 0n) {
+				lwl.priceImpactBps = null;
+				hasNullMid = true;
+				routeFlags.push(`AMOUNT_IN_ZERO: leg ${leg.venue.slice(0, 10)} has zero amountInRaw`);
+				continue;
+			}
 
 			// Realized price: tokenOut per tokenIn in human units
 			const realizedPrice = (Number(leg.amountOutRaw) / 10 ** decOut) /
 				(Number(leg.amountInRaw) / 10 ** decIn);
 
 			// Reference mid at block N-1 from the leg's own pool
-			const midResult = await midReader(leg.tokenIn, leg.tokenOut, leg.venue, input.blockNumber - 1n);
+			const midResult = await midReader(leg, input.blockNumber - 1n);
 
 			if (midResult === null || midResult.price <= 0) {
 				lwl.priceImpactBps = null;

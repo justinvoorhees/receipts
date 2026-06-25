@@ -19,7 +19,9 @@ import {
   readSlot0,
   readV2Reserves,
   readV4Slot0,
+  V4_POOL_MANAGER,
 } from './poolDiscovery.js';
+import type { Leg } from './routeGraph.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -284,6 +286,112 @@ export async function getTokenUsdcValue(
     if (wethUsdcMid !== null && wethUsdcMid.price > 0) {
       return humanAmount * tokenWethMid.price * wethUsdcMid.price;
     }
+  }
+
+  return null;
+}
+
+// ── Leg-aware mid pricing ───────────────────────────────────────────────────
+
+/**
+ * Read the mid price from a leg's OWN pool at a given block.
+ *
+ * Returns the price as "tokenOut per tokenIn" in human units, so the caller
+ * can compute price-impact as `(mid - realized) / mid` where
+ * `realized = amountOut / amountIn` in the same orientation.
+ *
+ * Routing logic:
+ *   - `univ3` / `pancakev3` -> readSlot0(leg.venue) -> sqrtPriceX96ToPrice
+ *   - `univ2` / `aerodrome` -> readV2Reserves(leg.venue) -> v2MidFromReserves
+ *   - `univ4`               -> readV4Slot0(leg.v4PoolId) -> sqrtPriceX96ToPrice
+ *   - `rfq` / `unknown`    -> factory discovery for (tokenIn, tokenOut)
+ */
+export async function getLegMidAtBlock(
+  client: PublicClient,
+  leg: Leg,
+  blockNumber: bigint,
+  decimalsOf: (address: string) => Promise<number>,
+): Promise<PairMidResult | null> {
+  const tokenIn = leg.tokenIn.toLowerCase();
+  const tokenOut = leg.tokenOut.toLowerCase();
+
+  // Sort tokens into Uniswap convention (lower address = token0)
+  const { token0, token1, inverted } = sortTokens(tokenIn, tokenOut);
+  // inverted = true means tokenIn > tokenOut, i.e. tokenIn=token1, tokenOut=token0
+  // We want "tokenOut per tokenIn".
+  // sqrtPriceX96ToPrice returns "token1 per token0".
+  // If !inverted: tokenIn=token0, tokenOut=token1 -> raw = token1/token0 = tokenOut/tokenIn (correct)
+  // If inverted: tokenIn=token1, tokenOut=token0 -> raw = token1/token0 = tokenIn/tokenOut -> need 1/raw
+
+  const [dec0, dec1] = await Promise.all([
+    decimalsOf(token0),
+    decimalsOf(token1),
+  ]);
+
+  const type = leg.type;
+
+  // V3-style pools: read slot0 from the pool address
+  if (type === 'univ3' || type === 'pancakev3') {
+    const sqrtPriceX96 = await readSlot0(client, leg.venue as `0x${string}`, blockNumber);
+    if (sqrtPriceX96 === null) return null;
+    const rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1);
+    const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
+    return { price, poolAddress: leg.venue, poolKind: type };
+  }
+
+  // V2-style pools: read reserves from the pair address
+  if (type === 'univ2' || type === 'aerodrome') {
+    const reserves = await readV2Reserves(client, leg.venue as `0x${string}`, blockNumber);
+    if (reserves === null) return null;
+    const rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
+    const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
+    return { price, poolAddress: leg.venue, poolKind: type };
+  }
+
+  // V4 pools: read via StateView getSlot0(poolId).
+  // V4 pools may use native ETH (address 0x0) instead of WETH, so the pool's
+  // currency0/currency1 order may differ from the address-sort of the leg's
+  // ERC-20 tokens. We compute the raw sqrtPrice with both decimal orderings
+  // and pick the one consistent with the leg's realized price direction.
+  if (type === 'univ4') {
+    if (!leg.v4PoolId) return null;
+    const sqrtPriceX96 = await readV4Slot0(client, leg.v4PoolId as `0x${string}`, blockNumber);
+    if (sqrtPriceX96 === null) return null;
+
+    // Compute raw price both ways (the pool's token0/token1 is unknown)
+    const priceA = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1); // token1/token0 if sorted-order matches pool
+    const priceB = priceA > 0 ? 1 / priceA : 0;                  // inverse
+
+    // Realized price = tokenOut / tokenIn (in human units)
+    const decIn = tokenIn === token0 ? dec0 : dec1;
+    const decOut = tokenOut === token0 ? dec0 : dec1;
+    const realized = leg.amountInRaw > 0n
+      ? (Number(leg.amountOutRaw) / 10 ** decOut) / (Number(leg.amountInRaw) / 10 ** decIn)
+      : 0;
+
+    // tokenOut-per-tokenIn: if sorted-order matches pool, then:
+    //   !inverted → tokenIn=token0, tokenOut=token1 → want token1/token0 = priceA
+    //   inverted  → tokenIn=token1, tokenOut=token0 → want token0/token1 = priceB
+    // But if pool order is flipped (V4 + native ETH), the correct answer is swapped.
+    // Pick whichever candidate is closer to realized (log-space ratio test).
+    const candidateA = inverted ? priceB : priceA; // address-sort assumption
+    const candidateB = inverted ? priceA : priceB; // flipped assumption
+
+    let price: number;
+    if (realized <= 0) {
+      price = candidateA; // default to address-sort if no realized available
+    } else {
+      const ratioA = candidateA > 0 ? Math.abs(Math.log(candidateA / realized)) : Infinity;
+      const ratioB = candidateB > 0 ? Math.abs(Math.log(candidateB / realized)) : Infinity;
+      price = ratioA <= ratioB ? candidateA : candidateB;
+    }
+
+    return { price, poolAddress: V4_POOL_MANAGER, poolKind: 'univ4' };
+  }
+
+  // RFQ / unknown: no own pool -- use factory discovery
+  if (type === 'rfq' || type === 'unknown') {
+    return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
   }
 
   return null;

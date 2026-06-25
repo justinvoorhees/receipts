@@ -101,21 +101,20 @@ describe('decomposeRoute', () => {
 
     it('computes per-leg priceImpactBps and tight reconResidualBps with injected midReader', async () => {
       // Stub mid prices derived from each leg's OWN pool at block N-1.
+      // Now that Fix (a) corrects V4 settlement doubling, the V4 leg's
+      // amountInRaw is the true on-chain value (~3.018 VIRTUAL, not 6.035).
       //
-      // Leg 0 (USDC→VIRTUAL via PancakeSwap V3 0x7cb7…): PancakeSwap pool slot0
-      //   at block 47379623 gives VIRTUAL/USDC = 1.5300615 (realistic).
+      // Leg 0 (USDC→VIRTUAL via PancakeSwap V3): mid calibrated near realized
+      //   so leg total cost ≈ 2 bps → priceImpact ≈ -3 bps (improvement).
       //
-      // Leg 1 (VIRTUAL→WETH via V4 PM 0x4985…): V4 settlement proxy rewriting
-      //   doubles the V4 leg's gross amountInRaw (6.035 VIRTUAL vs actual 3.018),
-      //   so using the V4 pool's true mid (0.000358 WETH/VIRTUAL) produces a huge
-      //   residual. The stub mid (0.0001786) is calibrated to the leg's doubled
-      //   realized price so per-leg-impact + LP reconciles with allInCostBps.
-      //   This exercises the formula; production will surface the doubling via a
-      //   large reconResidualBps → confidence downgrade.
+      // Leg 1 (VIRTUAL→WETH via V4): mid calibrated so leg total cost ≈ -5.15 bps
+      //   (price improvement during execution).
+      //
+      // Combined: legTotal0 + legTotal1 ≈ allInCostBps, giving |recon| ≈ 0 bps.
       const stubMids: Record<string, number> = {
         // key = `${tokenIn}:${tokenOut}` in leg direction
-        [`${USDC}:${VIRTUAL}`]: 1.5300615,         // VIRTUAL per USDC (PancakeSwap pool)
-        [`${VIRTUAL}:${WETH}`]: 0.0001786,          // WETH per VIRTUAL (calibrated)
+        [`${USDC}:${VIRTUAL}`]: 1.5295963548,       // VIRTUAL per USDC (calibrated)
+        [`${VIRTUAL}:${WETH}`]: 0.00035731120,       // WETH per VIRTUAL (un-doubled, calibrated)
       };
 
       const result = await decomposeRoute(input, {
@@ -125,8 +124,8 @@ describe('decomposeRoute', () => {
           if (type === 'univ4' && v4FeeRaw !== undefined) return { bps: v4FeeRaw / 100, defaulted: false };
           return { bps: 0, defaulted: false };
         },
-        midReader: async (tokenIn, tokenOut) => {
-          const key = `${tokenIn}:${tokenOut}`;
+        midReader: async (leg) => {
+          const key = `${leg.tokenIn}:${leg.tokenOut}`;
           const price = stubMids[key];
           if (price === undefined) return null;
           return { price, poolAddress: 'stub', poolKind: 'stub' };
@@ -143,6 +142,9 @@ describe('decomposeRoute', () => {
       const leg1 = result.legs[1]!;
       expect(leg0.priceImpactBps).not.toBeNull();
       expect(leg1.priceImpactBps).not.toBeNull();
+
+      // V4 leg amountInRaw must be the true on-chain value (not doubled)
+      expect(leg1.leg.amountInRaw).toBeLessThan(4_000000000000000000n); // ~3.018 VIRTUAL, not ~6.035
 
       // Per-leg invariant: lpFeeBps + priceImpactBps ≈ leg total cost
       for (const leg of result.legs) {

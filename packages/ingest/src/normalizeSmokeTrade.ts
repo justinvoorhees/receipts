@@ -12,7 +12,7 @@ import {
 	USDC, WETH, decodeTransferLogs, collectNativeEthDeltas,
 	type Direction,
 } from './tradeEndpoints.js';
-import { decomposeRoute, type RouteDecomposeResult } from './decomposeRoute.js';
+import { decomposeRoute, createDefaultMidReader, type RouteDecomposeResult } from './decomposeRoute.js';
 import { getReferencePrice } from './referencePrice.js';
 import { signedDeviationBps } from './priceMath.js';
 import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSignatures.js';
@@ -173,6 +173,7 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 		});
 		if (!probe.ok) return probe;
 
+		const { midReader, decimalsReader } = createDefaultMidReader(rpcUrl, receipt.blockNumber);
 		const routeResult = await decomposeRoute({
 			trace: trace as never,
 			txHash: c.txHash,
@@ -191,6 +192,9 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 			structuralFloorBps: 0.5,
 			recognizeV3Forks: true,
 			impureOnVenueThirdToken: true,
+		}, {
+			midReader,
+			decimalsReader,
 		});
 
 		// Build compact per-leg representation for storage
