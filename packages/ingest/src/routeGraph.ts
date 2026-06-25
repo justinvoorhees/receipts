@@ -133,7 +133,7 @@ function buildLegs(
   const candidates = new Set<string>();
   for (const [addr] of deltas) {
     if (addr === traderLc) continue;
-    if (args.denylist.has(addr)) continue;
+    if (args.denylist.has(addr) && !args.venues.has(addr)) continue;
     candidates.add(addr);
   }
 
@@ -236,8 +236,10 @@ function chainLegs(
   // Check for split: multiple first-legs starting from inputToken
   const firstLegs = legs.filter(l => l.tokenIn === inputToken);
   if (firstLegs.length > 1) {
-    // Split route — legs are unordered; downstream gates confidence on this flag
-    return { ordered: legs, shape: 'split', reconstructed: false };
+    // Clean direct-pair split: every leg swaps inputToken→outputToken directly.
+    // Deeper / nested / mixed splits stay reconstructed=false (low confidence).
+    const cleanSplit = legs.every(l => l.tokenIn === inputToken && l.tokenOut === outputToken);
+    return { ordered: legs, shape: 'split', reconstructed: cleanSplit };
   }
 
   // Complex / stalled — return best-effort

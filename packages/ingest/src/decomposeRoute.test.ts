@@ -152,6 +152,83 @@ describe('decomposeRoute', () => {
     });
   });
 
+  describe('clean parallel split (Fix 2 — direct-pair decomposition)', () => {
+    // Synthetic trace: trader fans out USDC to two V3 pools, each returns WETH.
+    // Pool A: 5 bps fee tier, pool B: 30 bps fee tier. Equal notional split.
+    const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+    const poolA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`;
+
+    // Swap event topic for Uni V3 (identifies pools as venues)
+    const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67' as `0x${string}`;
+
+    /** Build a minimal V3 Swap log (only topic0 + 2 indexed topics needed for venue scan). */
+    function swapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`, `0x${string}`, `0x${string}`] } {
+      return {
+        address: pool,
+        data: '0x' + '00'.repeat(160) as `0x${string}`,
+        topics: [UNI_V3_SWAP_TOPIC, '0x' + '00'.repeat(32) as `0x${string}`, '0x' + '00'.repeat(32) as `0x${string}`],
+      };
+    }
+
+    const syntheticTrace = {
+      from: syntheticTrader,
+      to: '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`,
+      input: '0x' as `0x${string}`,
+      logs: [
+        // Swap events to register both pools as venues
+        swapLog(poolA),
+        swapLog(poolB),
+        // ERC-20 transfers
+        transferLog(USDC as `0x${string}`, syntheticTrader, poolA, 1_000000n),
+        transferLog(WETH as `0x${string}`, poolA, syntheticTrader, 500_000000000000000n),
+        transferLog(USDC as `0x${string}`, syntheticTrader, poolB, 1_000000n),
+        transferLog(WETH as `0x${string}`, poolB, syntheticTrader, 500_000000000000000n),
+      ],
+      calls: [],
+    };
+
+    const input: DecomposeTradeInput = {
+      trace: syntheticTrace as any,
+      txHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+      trader: syntheticTrader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: -5.0,
+      notionalUsdc: 2.0,
+      realizedPrice: 1800,
+      gasCostUsd: 0.001,
+      aggregator: 'Unknown',
+      blockNumber: 1n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+    };
+
+    it('decomposes a clean 2-pool split with correct LP, slippage, hopCount, confidence', async () => {
+      const result = await decomposeRoute(input, {
+        trace: syntheticTrace as any,
+        feeReader: async (addr) => {
+          if (addr === poolA.toLowerCase()) return { bps: 5, defaulted: false };
+          if (addr === poolB.toLowerCase()) return { bps: 30, defaulted: false };
+          return { bps: 0, defaulted: false };
+        },
+      });
+
+      expect(result.routeShape).toBe('split');
+      // Parallel split = 1 hop (one token-step across N pools)
+      expect(result.hopCount).toBe(1);
+      // LP = notional-weighted average: (1*5 + 1*30) / 2 = 17.5
+      expect(result.lpFeeBps).toBeCloseTo(17.5, 1);
+      // Slippage = allIn - lp - agg
+      expect(result.slippageBps).toBeCloseTo(input.allInCostBps - 17.5 - result.aggFeeBps, 1);
+      expect(result.slippageBps).not.toBeNull();
+      expect(result.confidence).toBe('high');
+      expect(result.legs).toHaveLength(2);
+    });
+  });
+
   describe('non-reconstructed fallback (Design Decision 7)', () => {
     // Synthetic trace: two orphan legs that don't chain from inputToken to
     // outputToken. This exercises the !reconstructed branch without RPC.

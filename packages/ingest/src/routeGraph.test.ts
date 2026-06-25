@@ -109,10 +109,106 @@ describe('buildRouteGraph', () => {
       denylist: new Set(),
     });
     expect(g.shape).toBe('split');
-    expect(g.reconstructed).toBe(false);
+    // Clean direct-pair split: all legs swap inputToken→outputToken, so reconstructed=true
+    expect(g.reconstructed).toBe(true);
     expect(g.legs).toHaveLength(2);
     expect(g.inputToken).toBe(USDC);
     expect(g.outputToken).toBe(WETH);
+  });
+
+  it('denylisted swap venue still produces a leg (Fix 1)', () => {
+    // Real case: nordstern b1 swaps through a USDC/WETH pool that is in the
+    // DENYLIST. The pool emitted a Swap event so it IS in venues — it must
+    // not be excluded from leg construction.
+    const denylistedPool = '0xb4cb800910b228ed3d0834cf79d697127bbb00e5';
+    const t = [
+      { token: USDC, from: trader, to: denylistedPool, value: 500_000000n },
+      { token: WETH, from: denylistedPool, to: trader, value: 250_000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map([[denylistedPool, { type: 'univ3' as const }]]),
+      denylist: new Set([denylistedPool]),
+    });
+    expect(g.shape).toBe('single');
+    expect(g.reconstructed).toBe(true);
+    expect(g.legs).toHaveLength(1);
+    expect(g.legs[0]!.tokenIn).toBe(USDC);
+    expect(g.legs[0]!.tokenOut).toBe(WETH);
+  });
+
+  it('denylisted non-venue RFQ filler is still excluded (Fix 1 negative)', () => {
+    // A denylisted address that is NOT a venue should still be excluded —
+    // the denylist blocks RFQ-filler / proxy identification, not venues.
+    const denylistedFiller = '0xb4cb800910b228ed3d0834cf79d697127bbb00e5';
+    const t = [
+      { token: USDC, from: trader, to: denylistedFiller, value: 500_000000n },
+      { token: WETH, from: denylistedFiller, to: trader, value: 250_000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map(),  // NOT a venue
+      denylist: new Set([denylistedFiller]),
+    });
+    // No legs — the filler is denylisted and not a venue
+    expect(g.legs).toHaveLength(0);
+    expect(g.shape).toBe('complex');
+    expect(g.reconstructed).toBe(false);
+  });
+
+  it('clean parallel split: reconstructed=true (Fix 2)', () => {
+    // Two pools both swap USDC→WETH (the trader's direct pair).
+    // This is a clean split — every leg is inputToken→outputToken.
+    const poolA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const t = [
+      { token: USDC, from: trader, to: poolA, value: 1_000000n },
+      { token: WETH, from: poolA, to: trader, value: 500_000000000000000n },
+      { token: USDC, from: trader, to: poolB, value: 1_000000n },
+      { token: WETH, from: poolB, to: trader, value: 500_000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map([
+        [poolA, { type: 'univ3' as const }],
+        [poolB, { type: 'univ3' as const }],
+      ]),
+      denylist: new Set(),
+    });
+    expect(g.shape).toBe('split');
+    expect(g.reconstructed).toBe(true);
+    expect(g.legs).toHaveLength(2);
+    expect(g.legs.every(l => l.tokenIn === USDC && l.tokenOut === WETH)).toBe(true);
+  });
+
+  it('mixed split (one multi-hop branch) stays reconstructed=false (Fix 2 negative)', () => {
+    // One branch: USDC→WETH (direct). Another: USDC→VIRTUAL→WETH (multi-hop).
+    // This is NOT a clean direct-pair split — must stay reconstructed=false.
+    const poolDirect = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const poolHop1 = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const poolHop2 = '0xcccccccccccccccccccccccccccccccccccccccc';
+    const t = [
+      { token: USDC, from: trader, to: poolDirect, value: 1_000000n },
+      { token: WETH, from: poolDirect, to: trader, value: 500_000000000000000n },
+      { token: USDC, from: trader, to: poolHop1, value: 1_000000n },
+      { token: VIRTUAL, from: poolHop1, to: poolHop2, value: 2_000000000000000000n },
+      { token: WETH, from: poolHop2, to: trader, value: 500_000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t,
+      trader,
+      venues: new Map([
+        [poolDirect, { type: 'univ3' as const }],
+        [poolHop1, { type: 'univ3' as const }],
+        [poolHop2, { type: 'univ3' as const }],
+      ]),
+      denylist: new Set(),
+    });
+    expect(g.shape).toBe('split');
+    expect(g.reconstructed).toBe(false);
   });
 
   it('C1 regression: multi-token venue yields complex, not guessed leg', () => {

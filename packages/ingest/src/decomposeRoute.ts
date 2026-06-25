@@ -420,7 +420,7 @@ export async function decomposeRoute(
 		? (input.gasCostUsd / input.notionalUsdc) * 10_000
 		: 0;
 
-	if (graph.reconstructed && (graph.shape === 'single' || graph.shape === 'linear')) {
+	if (graph.reconstructed && (graph.shape === 'single' || graph.shape === 'linear' || graph.shape === 'split')) {
 		const lpFeeBps = rollup.lpFeeBps;
 		const slippageBps = input.allInCostBps - lpFeeBps - base.aggFeeBps;
 
@@ -444,6 +444,10 @@ export async function decomposeRoute(
 			}
 		}
 
+		// hopCount: for a parallel split the legs are concurrent (one token-step
+		// across N pools), so hopCount = 1; for single/linear it equals leg count.
+		const hopCount = graph.shape === 'split' ? 1 : graph.legs.length;
+
 		return {
 			lpFeeBps,
 			aggFeeBps: base.aggFeeBps,
@@ -451,7 +455,7 @@ export async function decomposeRoute(
 			executionBps: base.executionBps,
 			gasBps,
 			routeShape: graph.shape,
-			hopCount: graph.legs.length,
+			hopCount,
 			legs: legsWithLp,
 			reconResidualBps: null, // Phase 2
 			confidence,
