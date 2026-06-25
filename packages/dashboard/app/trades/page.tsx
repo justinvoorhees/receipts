@@ -62,7 +62,7 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 function EmptyState() {
 	return (
 		<p className="font-['Sohne_Mono'] text-[12px] leading-[20px] text-[var(--color-secondary)] mt-[40px] max-w-[640px]">
-			No trades yet — the table populates from the <code>router_trades</code> dataset.
+			No trades yet — the table populates from the <code>smoke_trades</code> dataset.
 		</p>
 	);
 }

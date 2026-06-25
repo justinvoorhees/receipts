@@ -4,10 +4,11 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useTransition } from 'react';
 import type { Dataset } from '../lib/datasets';
 
+// Funnel is archived (see lib/datasets.ts) — intentionally omitted from the toggle.
 const OPTIONS: { value: Dataset; label: string }[] = [
-	{ value: 'funnel', label: 'Funnel' },
 	{ value: 'smoke', label: 'Smoke 01' },
 	{ value: 'smoke02', label: 'Smoke 02' },
+	{ value: 'smoke03', label: 'Smoke 03' },
 ];
 
 export function DatasetToggle({ dataset }: { dataset: Dataset }) {
@@ -18,7 +19,7 @@ export function DatasetToggle({ dataset }: { dataset: Dataset }) {
 
 	const select = (value: Dataset) => {
 		const next = new URLSearchParams(params?.toString() ?? '');
-		if (value === 'funnel') next.delete('ds'); else next.set('ds', value);
+		next.set('ds', value);
 		const qs = next.toString();
 		startTransition(() => router.push((qs ? `${pathname}?${qs}` : pathname) as Route));
 	};

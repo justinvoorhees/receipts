@@ -17,7 +17,10 @@ export function formatContribution(
 ): { text: string; color: string | undefined } {
 	if (rawBps === null) return { text: '–', color: undefined };
 	const flipped = -rawBps; // sign-flip: positive = good for user
-	const text = `${flipped >= 0 ? '+' : ''}${flipped.toFixed(1)}bps`;
+	// Show a leading '+' only for strictly-positive values; an exact 0.0 (and
+	// any value that rounds to it, incl. -0.0) renders as a bare "0.0bps".
+	const rounded = Number(flipped.toFixed(1));
+	const text = rounded === 0 ? '0.0bps' : `${rounded > 0 ? '+' : ''}${rounded.toFixed(1)}bps`;
 	const color =
 		flipped > 0.05
 			? '#117d45'   // green — surplus

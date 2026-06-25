@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import type { TradeRow, TradesSort, TradesSortColumn, RouteLeg } from '../lib/queries';
+import type { TradeRow, TradesSort, TradesSortColumn } from '../lib/queries';
 import {
 	formatAccuracy,
 	formatContribution,
@@ -10,8 +10,6 @@ import {
 	formatProvider,
 	shortTxHash,
 } from '../lib/formatters';
-import { RouteLegs } from './RouteLegs';
-import { ChevronDown } from './ChevronDown';
 
 const ACCESSORS: Record<TradesSortColumn, (r: TradeRow) => string | number> = {
 	block: (r) => r.blockNumber,
@@ -144,23 +142,7 @@ function SortHeader({
 	);
 }
 
-/** Format route shape for the hop badge label. */
-function hopBadgeLabel(row: TradeRow): string | null {
-	const hops = row.hopCount;
-	if (hops == null || hops <= 1) return null;
-	if (row.routeShape === 'split') return 'split';
-	if (row.routeShape === 'complex') return 'complex';
-	return `${hops}-hop`;
-}
-
-/** Whether the decomposition confidence warrants a low-confidence marker. */
-function isLowConfidence(row: TradeRow): boolean {
-	return row.decompConfidence === 'low' || row.decompConfidence === 'medium';
-}
-
 function DataRow({ row }: { row: TradeRow }) {
-	const [expanded, setExpanded] = useState(false);
-
 	const costBps = Number(row.allInCostBps);
 	const accuracy = -costBps;
 	const accuracyColor = accuracy > 0.05 ? '#117d45' : accuracy < -0.05 ? '#fa0b54' : undefined;
@@ -168,11 +150,6 @@ function DataRow({ row }: { row: TradeRow }) {
 	const lp = formatContribution(row.lpFeeBps != null ? Number(row.lpFeeBps) : null);
 	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
 	const slip = formatContribution(row.slippageBps != null ? Number(row.slippageBps) : null);
-
-	const badge = hopBadgeLabel(row);
-	const lowConf = isLowConfidence(row);
-	const legs = row.routeLegs as RouteLeg[] | null | undefined;
-	const expandable = legs != null && legs.length > 0;
 
 	return (
 		<div>
@@ -201,35 +178,6 @@ function DataRow({ row }: { row: TradeRow }) {
 					<span className="w-[72px] text-right whitespace-nowrap">
 						{formatNotional(Number(row.usdcAmount))}
 					</span>
-					{badge != null && (
-						<button
-							type="button"
-							onClick={() => expandable && setExpanded((v) => !v)}
-							className={`flex items-center gap-[2px] text-[10px] leading-[14px] px-[4px] py-[1px] rounded-[2px] border whitespace-nowrap ${
-								lowConf
-									? 'border-[var(--color-secondary)] text-[var(--color-secondary)] opacity-50'
-									: 'border-[var(--color-secondary)] text-[var(--color-secondary)]'
-							} ${expandable ? 'cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]' : 'cursor-default'}`}
-						>
-							{badge}{lowConf ? '*' : ''}
-							{expandable && (
-								<span
-									className={`inline-flex transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`}
-									style={{ width: 14, height: 14 }}
-								>
-									<ChevronDown className="!size-[14px]" />
-								</span>
-							)}
-						</button>
-					)}
-					{badge == null && lowConf && row.routeShape != null && (
-						<span
-							className="text-[10px] leading-[14px] text-[var(--color-secondary)] opacity-50 whitespace-nowrap"
-							title="Low decomposition confidence"
-						>
-							*
-						</span>
-					)}
 				</div>
 				<div className="flex items-baseline justify-end gap-[24px] text-right">
 					<span className="w-[72px]" style={accuracyColor ? { color: accuracyColor } : undefined}>
@@ -249,9 +197,6 @@ function DataRow({ row }: { row: TradeRow }) {
 					</span>
 				</div>
 			</div>
-			{expanded && legs && (
-				<RouteLegs legs={legs} reconResidualBps={row.reconResidualBps} />
-			)}
 		</div>
 	);
 }
