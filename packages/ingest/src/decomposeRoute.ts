@@ -42,6 +42,13 @@ const UNISWAP_V4_POOL_MANAGER =
 
 const LEG_FEE_CAP_BPS = 300;
 
+/**
+ * Per-leg price-impact above this magnitude (in either direction) indicates a
+ * bad or stale reference mid — e.g. RFQ legs priced off a stale discovery pool.
+ * Null it out rather than persist garbage.
+ */
+const PI_IMPLAUSIBLE_CAP_BPS = 500;
+
 /** Reconciliation residual tolerance (bps): within this → keep high confidence. */
 const RECON_TOL_BPS = 5;
 
@@ -516,6 +523,15 @@ export async function decomposeRoute(
 
 			// Price impact = total cost − fee tier (LP fee is the "expected" cost)
 			lwl.priceImpactBps = legTotalCostBps - lwl.feeTierBps;
+
+			// Clamp implausible per-leg price-impact (stale-mid guard)
+			if (Math.abs(lwl.priceImpactBps) > PI_IMPLAUSIBLE_CAP_BPS) {
+				routeFlags.push(
+					`PI_IMPLAUSIBLE: leg ${leg.venue.slice(0, 10)} pi=${lwl.priceImpactBps.toFixed(1)} exceeds cap ${PI_IMPLAUSIBLE_CAP_BPS}`,
+				);
+				lwl.priceImpactBps = null;
+				hasNullMid = true;
+			}
 		}
 
 		// Step 10: Reconciliation residual

@@ -223,6 +223,95 @@ describe('decomposeRoute', () => {
     });
   });
 
+  describe('PI_IMPLAUSIBLE clamp (stale-mid guard)', () => {
+    // Synthetic 2-hop linear: trader → poolA (USDC→VIRTUAL) → poolB (VIRTUAL→WETH) → trader
+    // poolB returns a deliberately stale mid so its priceImpactBps exceeds 500 bps.
+    const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+    const poolA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`;
+
+    const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67' as `0x${string}`;
+
+    function swapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`, `0x${string}`, `0x${string}`] } {
+      return {
+        address: pool,
+        data: '0x' + '00'.repeat(160) as `0x${string}`,
+        topics: [UNI_V3_SWAP_TOPIC, '0x' + '00'.repeat(32) as `0x${string}`, '0x' + '00'.repeat(32) as `0x${string}`],
+      };
+    }
+
+    const syntheticTrace = {
+      from: syntheticTrader,
+      to: '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`,
+      input: '0x' as `0x${string}`,
+      logs: [
+        swapLog(poolA),
+        swapLog(poolB),
+        // Leg 0: trader → poolA (USDC), poolA → poolB (VIRTUAL)
+        transferLog(USDC as `0x${string}`, syntheticTrader, poolA, 1_000000n),       // 1 USDC
+        transferLog(VIRTUAL as `0x${string}`, poolA, poolB, 3_000000000000000000n),    // 3 VIRTUAL
+        // Leg 1: poolB → trader (WETH)
+        transferLog(WETH as `0x${string}`, poolB, syntheticTrader, 500000000000000n),  // 0.0005 WETH
+      ],
+      calls: [],
+    };
+
+    const input: DecomposeTradeInput = {
+      trace: syntheticTrace as any,
+      txHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+      trader: syntheticTrader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: -5.0,
+      notionalUsdc: 1.0,
+      realizedPrice: 1800,
+      gasCostUsd: 0.001,
+      aggregator: 'Unknown',
+      blockNumber: 100n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+    };
+
+    it('nulls priceImpactBps and reconResidualBps when a leg exceeds PI_IMPLAUSIBLE_CAP_BPS', async () => {
+      // Leg 0 mid is reasonable; leg 1 mid is deliberately stale so PI > 500 bps.
+      // Leg 1 realized: (0.0005 WETH / 3 VIRTUAL) = 0.000166667 WETH/VIRTUAL
+      // Stale mid: 0.001 WETH/VIRTUAL → legTotalCost = (0.001 - 0.000166667)/0.001 * 10000 ≈ 8333 bps
+      // priceImpactBps = 8333 - 5 (feeTier) ≈ 8328 bps → well above 500 cap
+      const stubMids: Record<string, number> = {
+        [`${USDC}:${VIRTUAL}`]: 3.0,    // reasonable: 3 VIRTUAL per USDC
+        [`${VIRTUAL}:${WETH}`]: 0.001,  // STALE: real is ~0.000167, 6x off
+      };
+
+      const result = await decomposeRoute(input, {
+        trace: syntheticTrace as any,
+        feeReader: async () => ({ bps: 5, defaulted: false }),
+        midReader: async (leg) => {
+          const key = `${leg.tokenIn}:${leg.tokenOut}`;
+          const price = stubMids[key];
+          if (price === undefined) return null;
+          return { price, poolAddress: 'stub', poolKind: 'stub' };
+        },
+      });
+
+      // Leg 0 should have a valid priceImpactBps (well under cap)
+      expect(result.legs[0]!.priceImpactBps).not.toBeNull();
+
+      // Leg 1 should be clamped to null
+      expect(result.legs[1]!.priceImpactBps).toBeNull();
+
+      // Flags should include PI_IMPLAUSIBLE
+      expect(result.flags.some(f => f.startsWith('PI_IMPLAUSIBLE'))).toBe(true);
+
+      // reconResidualBps should be null (hasNullMid cascades)
+      expect(result.reconResidualBps).toBeNull();
+
+      // Confidence downgraded from high (partial pricing: some legs have mids but not all)
+      expect(result.confidence).not.toBe('high');
+    });
+  });
+
   describe('clean parallel split (Fix 2 — direct-pair decomposition)', () => {
     // Synthetic trace: trader fans out USDC to two V3 pools, each returns WETH.
     // Pool A: 5 bps fee tier, pool B: 30 bps fee tier. Equal notional split.
