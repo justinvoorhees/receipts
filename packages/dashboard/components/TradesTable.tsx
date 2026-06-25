@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import type { RouterTradeRow, TradesSort, TradesSortColumn } from '../lib/queries';
+import type { TradeRow, TradesSort, TradesSortColumn, RouteLeg } from '../lib/queries';
 import {
 	formatAccuracy,
 	formatContribution,
@@ -10,8 +10,10 @@ import {
 	formatProvider,
 	shortTxHash,
 } from '../lib/formatters';
+import { RouteLegs } from './RouteLegs';
+import { ChevronDown } from './ChevronDown';
 
-const ACCESSORS: Record<TradesSortColumn, (r: RouterTradeRow) => string | number> = {
+const ACCESSORS: Record<TradesSortColumn, (r: TradeRow) => string | number> = {
 	block: (r) => r.blockNumber,
 	aggregator: (r) => r.aggregator.toLowerCase(),
 	side: (r) => r.direction,
@@ -27,7 +29,7 @@ export function TradesTable({
 	rows,
 	initialSort,
 }: {
-	rows: RouterTradeRow[];
+	rows: TradeRow[];
 	initialSort: TradesSort;
 }) {
 	const [sort, setSort] = useState<TradesSort>(initialSort);
@@ -142,7 +144,23 @@ function SortHeader({
 	);
 }
 
-function DataRow({ row }: { row: RouterTradeRow }) {
+/** Format route shape for the hop badge label. */
+function hopBadgeLabel(row: TradeRow): string | null {
+	const hops = row.hopCount;
+	if (hops == null || hops <= 1) return null;
+	if (row.routeShape === 'split') return 'split';
+	if (row.routeShape === 'complex') return 'complex';
+	return `${hops}-hop`;
+}
+
+/** Whether the decomposition confidence warrants a low-confidence marker. */
+function isLowConfidence(row: TradeRow): boolean {
+	return row.decompConfidence === 'low' || row.decompConfidence === 'medium';
+}
+
+function DataRow({ row }: { row: TradeRow }) {
+	const [expanded, setExpanded] = useState(false);
+
 	const costBps = Number(row.allInCostBps);
 	const accuracy = -costBps;
 	const accuracyColor = accuracy > 0.05 ? '#117d45' : accuracy < -0.05 ? '#fa0b54' : undefined;
@@ -151,50 +169,89 @@ function DataRow({ row }: { row: RouterTradeRow }) {
 	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
 	const slip = formatContribution(row.slippageBps != null ? Number(row.slippageBps) : null);
 
+	const badge = hopBadgeLabel(row);
+	const lowConf = isLowConfidence(row);
+	const legs = row.routeLegs as RouteLeg[] | null | undefined;
+	const expandable = legs != null && legs.length > 0;
+
 	return (
-		<div
-			className="flex items-baseline justify-between gap-[40px] text-[var(--color-primary)]"
-			style={{ fontFeatureSettings: '"calt" 0' }}
-		>
-			<div className="flex items-baseline gap-[16px]">
-				<span className="w-[72px] text-[var(--color-secondary)] whitespace-nowrap">
-					{row.blockNumber.toLocaleString()}
-				</span>
-				<a
-					href={`https://basescan.org/tx/${row.txHash}`}
-					target="_blank"
-					rel="noreferrer"
-					className="w-[80px] text-right underline decoration-dotted underline-offset-[2px] hover:decoration-solid whitespace-nowrap"
-				>
-					{shortTxHash(row.txHash)}
-				</a>
-				<span className="w-[72px] text-right whitespace-nowrap">
-					{formatProvider(row.aggregator.toLowerCase())}
-				</span>
-				<span className="w-[64px] text-right whitespace-nowrap">
-					{formatDirection(row.direction)}
-				</span>
-				<span className="w-[72px] text-right whitespace-nowrap">
-					{formatNotional(Number(row.usdcAmount))}
-				</span>
+		<div>
+			<div
+				className="flex items-baseline justify-between gap-[40px] text-[var(--color-primary)]"
+				style={{ fontFeatureSettings: '"calt" 0' }}
+			>
+				<div className="flex items-baseline gap-[16px]">
+					<span className="w-[72px] text-[var(--color-secondary)] whitespace-nowrap">
+						{row.blockNumber.toLocaleString()}
+					</span>
+					<a
+						href={`https://basescan.org/tx/${row.txHash}`}
+						target="_blank"
+						rel="noreferrer"
+						className="w-[80px] text-right underline decoration-dotted underline-offset-[2px] hover:decoration-solid whitespace-nowrap"
+					>
+						{shortTxHash(row.txHash)}
+					</a>
+					<span className="w-[72px] text-right whitespace-nowrap">
+						{formatProvider(row.aggregator.toLowerCase())}
+					</span>
+					<span className="w-[64px] text-right whitespace-nowrap">
+						{formatDirection(row.direction)}
+					</span>
+					<span className="w-[72px] text-right whitespace-nowrap">
+						{formatNotional(Number(row.usdcAmount))}
+					</span>
+					{badge != null && (
+						<button
+							type="button"
+							onClick={() => expandable && setExpanded((v) => !v)}
+							className={`flex items-center gap-[2px] text-[10px] leading-[14px] px-[4px] py-[1px] rounded-[2px] border whitespace-nowrap ${
+								lowConf
+									? 'border-[var(--color-secondary)] text-[var(--color-secondary)] opacity-50'
+									: 'border-[var(--color-secondary)] text-[var(--color-secondary)]'
+							} ${expandable ? 'cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]' : 'cursor-default'}`}
+						>
+							{badge}{lowConf ? '*' : ''}
+							{expandable && (
+								<span
+									className={`inline-flex transition-transform duration-150 ${expanded ? 'rotate-180' : ''}`}
+									style={{ width: 14, height: 14 }}
+								>
+									<ChevronDown className="!size-[14px]" />
+								</span>
+							)}
+						</button>
+					)}
+					{badge == null && lowConf && row.routeShape != null && (
+						<span
+							className="text-[10px] leading-[14px] text-[var(--color-secondary)] opacity-50 whitespace-nowrap"
+							title="Low decomposition confidence"
+						>
+							*
+						</span>
+					)}
+				</div>
+				<div className="flex items-baseline justify-end gap-[24px] text-right">
+					<span className="w-[72px]" style={accuracyColor ? { color: accuracyColor } : undefined}>
+						{formatAccuracy(costBps)}
+					</span>
+					<span className="w-[72px]" style={lp.color ? { color: lp.color } : undefined}>
+						{lp.text}
+					</span>
+					<span className="w-[72px]" style={agg.color ? { color: agg.color } : undefined}>
+						{agg.text}
+					</span>
+					<span className="w-[72px]" style={slip.color ? { color: slip.color } : undefined}>
+						{slip.text}
+					</span>
+					<span className="w-[64px]">
+						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
+					</span>
+				</div>
 			</div>
-			<div className="flex items-baseline justify-end gap-[24px] text-right">
-				<span className="w-[72px]" style={accuracyColor ? { color: accuracyColor } : undefined}>
-					{formatAccuracy(costBps)}
-				</span>
-				<span className="w-[72px]" style={lp.color ? { color: lp.color } : undefined}>
-					{lp.text}
-				</span>
-				<span className="w-[72px]" style={agg.color ? { color: agg.color } : undefined}>
-					{agg.text}
-				</span>
-				<span className="w-[72px]" style={slip.color ? { color: slip.color } : undefined}>
-					{slip.text}
-				</span>
-				<span className="w-[64px]">
-					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
-				</span>
-			</div>
+			{expanded && legs && (
+				<RouteLegs legs={legs} reconResidualBps={row.reconResidualBps} />
+			)}
 		</div>
 	);
 }

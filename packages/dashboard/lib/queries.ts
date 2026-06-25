@@ -7,6 +7,30 @@ export type SwapRow = typeof schema.swaps.$inferSelect;
 export type RouterTradeRow = typeof schema.routerTradesGated.$inferSelect;
 export type HeartbeatRow = typeof schema.ingestHeartbeats.$inferSelect;
 
+/** Per-leg shape persisted in smoke_trades.route_legs jsonb. */
+export interface RouteLeg {
+	venue: string;
+	type: string;
+	tokenIn: string;
+	tokenOut: string;
+	feeTierBps: number;
+	notionalUsdc: number;
+	lpFeeBps: number;
+	priceImpactBps: number | null;
+}
+
+/**
+ * Widened trade row that includes the optional multi-hop decomposition
+ * columns present only on smoke datasets. Funnel rows leave these undefined.
+ */
+export type TradeRow = RouterTradeRow &
+	Partial<
+		Pick<
+			typeof schema.smokeTrades.$inferSelect,
+			'routeShape' | 'hopCount' | 'routeLegs' | 'reconResidualBps' | 'decompConfidence'
+		>
+	>;
+
 export async function getHeartbeats(): Promise<HeartbeatRow[]> {
 	const db = getDb();
 	return db.select().from(schema.ingestHeartbeats);
@@ -102,7 +126,7 @@ export async function getRecentTrades(
 	sort: TradesSort = { column: 'block', direction: 'desc' },
 	limit = 500,
 	dataset: Dataset = DEFAULT_DATASET,
-): Promise<RouterTradeRow[]> {
+): Promise<TradeRow[]> {
 	const db = getDb();
 	const table = DATASET_TABLE[dataset];
 	const column = (table as typeof schema.routerTradesGated)[TRADES_SORT_COLUMN_KEYS[sort.column]];
@@ -110,7 +134,7 @@ export async function getRecentTrades(
 	const batch = DATASET_BATCH[dataset];
 	const q = db.select().from(table);
 	const filtered = batch ? q.where(eq(schema.smokeTrades.batch, batch)) : q;
-	return filtered.orderBy(orderFn(column)).limit(limit) as unknown as Promise<RouterTradeRow[]>;
+	return filtered.orderBy(orderFn(column)).limit(limit) as unknown as Promise<TradeRow[]>;
 }
 
 /**
