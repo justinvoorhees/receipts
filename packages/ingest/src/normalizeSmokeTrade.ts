@@ -202,6 +202,7 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 			feeTierBps: l.feeTierBps,
 			notionalUsdc: l.notionalUsdc,
 			lpFeeBps: l.lpFeeBps,
+			priceImpactBps: l.priceImpactBps,
 		}));
 
 		return buildSmokeRow({

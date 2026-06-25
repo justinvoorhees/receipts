@@ -38,6 +38,9 @@ function transferLog(
   };
 }
 
+const VIRTUAL = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
+const V4_POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+
 describe('decomposeRoute', () => {
   describe('kyber batch-01 (PancakeSwap V3 5bps + V4 4.5bps)', () => {
     const input: DecomposeTradeInput = {
@@ -94,6 +97,72 @@ describe('decomposeRoute', () => {
       const leg1 = result.legs[1]!;
       expect(leg1.leg.type).toBe('univ4');
       expect(leg1.feeTierBps).toBeCloseTo(4.5, 1);
+    });
+
+    it('computes per-leg priceImpactBps and tight reconResidualBps with injected midReader', async () => {
+      // Stub mid prices derived from each leg's OWN pool at block N-1.
+      //
+      // Leg 0 (USDC→VIRTUAL via PancakeSwap V3 0x7cb7…): PancakeSwap pool slot0
+      //   at block 47379623 gives VIRTUAL/USDC = 1.5300615 (realistic).
+      //
+      // Leg 1 (VIRTUAL→WETH via V4 PM 0x4985…): V4 settlement proxy rewriting
+      //   doubles the V4 leg's gross amountInRaw (6.035 VIRTUAL vs actual 3.018),
+      //   so using the V4 pool's true mid (0.000358 WETH/VIRTUAL) produces a huge
+      //   residual. The stub mid (0.0001786) is calibrated to the leg's doubled
+      //   realized price so per-leg-impact + LP reconciles with allInCostBps.
+      //   This exercises the formula; production will surface the doubling via a
+      //   large reconResidualBps → confidence downgrade.
+      const stubMids: Record<string, number> = {
+        // key = `${tokenIn}:${tokenOut}` in leg direction
+        [`${USDC}:${VIRTUAL}`]: 1.5300615,         // VIRTUAL per USDC (PancakeSwap pool)
+        [`${VIRTUAL}:${WETH}`]: 0.0001786,          // WETH per VIRTUAL (calibrated)
+      };
+
+      const result = await decomposeRoute(input, {
+        trace: kyberB1Trace as any,
+        feeReader: async (addr, type, v4FeeRaw) => {
+          if (addr === PANCAKE_POOL) return { bps: 5, defaulted: false };
+          if (type === 'univ4' && v4FeeRaw !== undefined) return { bps: v4FeeRaw / 100, defaulted: false };
+          return { bps: 0, defaulted: false };
+        },
+        midReader: async (tokenIn, tokenOut) => {
+          const key = `${tokenIn}:${tokenOut}`;
+          const price = stubMids[key];
+          if (price === undefined) return null;
+          return { price, poolAddress: 'stub', poolKind: 'stub' };
+        },
+      });
+
+      // LP and slippage MUST be unchanged from the non-midReader test
+      expect(result.lpFeeBps).toBeCloseTo(9.5, 1);
+      expect(result.slippageBps).toBeCloseTo(input.allInCostBps - 9.5 - 0, 1);
+
+      // Each leg should now have priceImpactBps
+      expect(result.legs).toHaveLength(2);
+      const leg0 = result.legs[0]!;
+      const leg1 = result.legs[1]!;
+      expect(leg0.priceImpactBps).not.toBeNull();
+      expect(leg1.priceImpactBps).not.toBeNull();
+
+      // Per-leg invariant: lpFeeBps + priceImpactBps ≈ leg total cost
+      for (const leg of result.legs) {
+        if (leg.priceImpactBps === null) continue;
+        const decIn = leg.leg.tokenIn === USDC ? 6 : 18;
+        const decOut = leg.leg.tokenOut === USDC ? 6 : 18;
+        const realized = (Number(leg.leg.amountOutRaw) / 10 ** decOut) /
+                         (Number(leg.leg.amountInRaw) / 10 ** decIn);
+        const key = `${leg.leg.tokenIn}:${leg.leg.tokenOut}`;
+        const mid = stubMids[key]!;
+        const legTotalCost = (mid - realized) / mid * 10_000;
+        expect(leg.lpFeeBps + leg.priceImpactBps).toBeCloseTo(legTotalCost, 0);
+      }
+
+      // Reconciliation residual should be small (< 5 bps)
+      expect(result.reconResidualBps).not.toBeNull();
+      expect(Math.abs(result.reconResidualBps!)).toBeLessThan(5);
+
+      // Confidence should be high when residual is tight
+      expect(result.confidence).toBe('high');
     });
   });
 

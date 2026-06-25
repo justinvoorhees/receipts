@@ -20,6 +20,7 @@ import {
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput, type LpRollup } from './legFees.js';
 import { decomposeTrade, type DecomposeTradeInput, type DecomposeResult } from './decompose-trade.js';
+import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
 
 // ─── Constants ───
 
@@ -40,6 +41,12 @@ const UNISWAP_V4_POOL_MANAGER =
 	'0x498581ff718922c3f8e6a244956af099b2652b2b';
 
 const LEG_FEE_CAP_BPS = 300;
+
+/** Reconciliation residual tolerance (bps): within this → keep high confidence. */
+const RECON_TOL_BPS = 5;
+
+/** Large reconciliation threshold (bps): above this → force low confidence. */
+const RECON_LOW_BPS = 25;
 
 // ─── Interfaces ───
 
@@ -72,8 +79,8 @@ export interface RouteDecomposeResult {
 	gasBps: number;
 	routeShape: RouteShape;
 	hopCount: number;
-	legs: (LegFeeInput & { lpFeeBps: number })[];
-	reconResidualBps: number | null; // Phase 2
+	legs: (LegFeeInput & { lpFeeBps: number; priceImpactBps: number | null })[];
+	reconResidualBps: number | null;
 	confidence: 'high' | 'medium' | 'low';
 	flags: string[];
 }
@@ -84,6 +91,8 @@ export interface DecomposeRouteDeps {
 	trace?: TraceNode;
 	/** Custom fee-tier reader. Signature: (poolAddr, venueType, v4FeeRaw?) → { bps, defaulted }. */
 	feeReader?: (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
+	/** Custom mid-price reader. Signature: (tokenIn, tokenOut, venue, blockNumber) → PairMidResult | null. */
+	midReader?: (tokenIn: string, tokenOut: string, venue: string, blockNumber: bigint) => Promise<PairMidResult | null> | PairMidResult | null;
 }
 
 // ─── Helpers ───
@@ -219,6 +228,37 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 			case 'unknown':
 			default:
 				return { bps: 0, defaulted: true };
+		}
+	};
+}
+
+// ─── Default mid reader (live RPC) ───
+
+function createDefaultMidReader(
+	rpcUrl: string,
+	blockNumber: bigint,
+): (tokenIn: string, tokenOut: string, venue: string, atBlock: bigint) => Promise<PairMidResult | null> {
+	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const decCache = makeRpcDecimalsCache(rpc as never);
+
+	return async (
+		tokenIn: string,
+		tokenOut: string,
+		venue: string,
+		atBlock: bigint,
+	): Promise<PairMidResult | null> => {
+		try {
+			return await getPairMidAtBlock(
+				rpc as never,
+				tokenIn,
+				tokenOut,
+				atBlock,
+				decCache,
+				venue as `0x${string}`,
+			);
+		} catch {
+			// RPC failure (e.g. invalid URL in test) — treat as no mid available
+			return null;
 		}
 	};
 }
@@ -409,11 +449,13 @@ export async function decomposeRoute(
 	// Step 6: Roll up LP fee
 	const rollup = rollupLpFee(legFeeInputs, input.notionalUsdc);
 
-	// Step 7: Build per-leg LP contributions
-	const legsWithLp = legFeeInputs.map((lfi) => ({
-		...lfi,
-		lpFeeBps: (lfi.feeTierBps * lfi.notionalUsdc) / input.notionalUsdc,
-	}));
+	// Step 7: Build per-leg LP contributions (priceImpactBps populated in Step 9)
+	const legsWithLp: (LegFeeInput & { lpFeeBps: number; priceImpactBps: number | null })[] =
+		legFeeInputs.map((lfi) => ({
+			...lfi,
+			lpFeeBps: (lfi.feeTierBps * lfi.notionalUsdc) / input.notionalUsdc,
+			priceImpactBps: null,
+		}));
 
 	// Step 8: Branch on reconstruction (Design Decision 7)
 	const gasBps = input.notionalUsdc > 0
@@ -423,6 +465,51 @@ export async function decomposeRoute(
 	if (graph.reconstructed && (graph.shape === 'single' || graph.shape === 'linear' || graph.shape === 'split')) {
 		const lpFeeBps = rollup.lpFeeBps;
 		const slippageBps = input.allInCostBps - lpFeeBps - base.aggFeeBps;
+
+		// Step 9: Per-leg price-impact attribution
+		// Uses injected midReader (test stubs or production callers create one).
+		// When no midReader is provided, per-leg pricing is skipped (all null),
+		// reconResidualBps stays null, and confidence is unchanged.
+		const midReader = deps?.midReader ?? null;
+		let hasNullMid = !midReader; // no reader → treat as all-null (skip loop body)
+
+		for (const lwl of legsWithLp) {
+			if (!midReader) continue;
+			const leg = lwl.leg;
+			const decIn = decimalsOf(leg.tokenIn);
+			const decOut = decimalsOf(leg.tokenOut);
+
+			// Realized price: tokenOut per tokenIn in human units
+			const realizedPrice = (Number(leg.amountOutRaw) / 10 ** decOut) /
+				(Number(leg.amountInRaw) / 10 ** decIn);
+
+			// Reference mid at block N-1 from the leg's own pool
+			const midResult = await midReader(leg.tokenIn, leg.tokenOut, leg.venue, input.blockNumber - 1n);
+
+			if (midResult === null || midResult.price <= 0) {
+				lwl.priceImpactBps = null;
+				hasNullMid = true;
+				routeFlags.push(`MID_NULL: leg ${leg.venue.slice(0, 10)} has no reference mid for ${leg.tokenIn.slice(0, 10)}→${leg.tokenOut.slice(0, 10)}`);
+				continue;
+			}
+
+			// Leg total cost bps = (mid − realized) / mid × 10000
+			// Positive = cost (less output than expected); negative = improvement.
+			const legTotalCostBps = (midResult.price - realizedPrice) / midResult.price * 10_000;
+
+			// Price impact = total cost − fee tier (LP fee is the "expected" cost)
+			lwl.priceImpactBps = legTotalCostBps - lwl.feeTierBps;
+		}
+
+		// Step 10: Reconciliation residual
+		// reconResidualBps = allIn − (Σ legLpFeeBps + Σ legPriceImpactBps + aggFeeBps)
+		// Only computed when all legs have valid mids.
+		let reconResidualBps: number | null = null;
+		if (!hasNullMid && legsWithLp.some((l) => l.priceImpactBps !== null)) {
+			const sumLp = legsWithLp.reduce((s, l) => s + l.lpFeeBps, 0);
+			const sumImpact = legsWithLp.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0);
+			reconResidualBps = input.allInCostBps - (sumLp + sumImpact + base.aggFeeBps);
+		}
 
 		// Confidence assessment
 		let confidence: 'high' | 'medium' | 'low' = 'high';
@@ -444,6 +531,22 @@ export async function decomposeRoute(
 			}
 		}
 
+		// Reconciliation-based confidence downgrade (only when mid reader was
+		// injected or returned data — all-null means no pricing data available,
+		// which doesn't itself warrant a downgrade since LP/slippage are still valid)
+		const hasSomeMid = legsWithLp.some((l) => l.priceImpactBps !== null);
+		if (hasNullMid && hasSomeMid) {
+			// Partial pricing: some legs have mids but not all → incomplete recon
+			confidence = 'low';
+		} else if (reconResidualBps !== null) {
+			const absResidual = Math.abs(reconResidualBps);
+			if (absResidual > RECON_LOW_BPS) {
+				confidence = 'low';
+			} else if (absResidual > RECON_TOL_BPS && confidence === 'high') {
+				confidence = 'medium';
+			}
+		}
+
 		// hopCount: for a parallel split the legs are concurrent (one token-step
 		// across N pools), so hopCount = 1; for single/linear it equals leg count.
 		const hopCount = graph.shape === 'split' ? 1 : graph.legs.length;
@@ -457,7 +560,7 @@ export async function decomposeRoute(
 			routeShape: graph.shape,
 			hopCount,
 			legs: legsWithLp,
-			reconResidualBps: null, // Phase 2
+			reconResidualBps,
 			confidence,
 			flags: [...base.flags, ...routeFlags],
 		};
@@ -477,7 +580,7 @@ export async function decomposeRoute(
 		routeShape: graph.shape,
 		hopCount: graph.legs.length,
 		legs: legsWithLp,
-		reconResidualBps: null, // Phase 2
+		reconResidualBps: null,
 		confidence: 'low',
 		flags: [...base.flags, ...routeFlags],
 	};
