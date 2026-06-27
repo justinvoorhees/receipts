@@ -17,6 +17,8 @@
 - Constants (verbatim): `DIVERGENCE_TOL_BPS = 15`, `MANIPULATION_TOL_BPS = 50`, `MIN_VALID_POOLS = 2`.
 - Tests run from repo root: `npx vitest run <path>`. Implementation imports use the `.js` extension (NodeNext).
 - New DB columns land on `router_trades_gated` only.
+- **Env loading:** credentials live in the gitignored repo-root `.env` (`TCA_RPC_URL`, `TCA_DATABASE_URL`). Any standalone script (`tsx`) MUST `import 'dotenv/config';` as its first line AND be run with **cwd = repo root** (dotenv reads `./.env` from cwd). The DB env var is **`TCA_DATABASE_URL`** (NOT `DATABASE_URL`).
+- **No `psql`** in this environment: apply and verify migrations via a `postgres`-package `tsx` script, not `psql`.
 - Commit after every task.
 
 ---
@@ -34,6 +36,7 @@
 Create `packages/ingest/src/resolve-benchmark-addrs.ts`:
 
 ```ts
+import 'dotenv/config';
 import { createPublicClient, http, parseAbi } from 'viem';
 import { base } from 'viem/chains';
 
@@ -66,7 +69,7 @@ main();
 
 - [ ] **Step 2: Run it and record the output**
 
-Run: `TCA_RPC_URL=$TCA_RPC_URL npx tsx packages/ingest/src/resolve-benchmark-addrs.ts`
+Run from repo root: `npx tsx packages/ingest/src/resolve-benchmark-addrs.ts`
 Expected: three non-zero addresses and a plausible ETH/USD price (e.g. ~2000–4000), `chainlink decimals: 8`. Record the `univ3_30bps` and `aero_cl` addresses — they are pasted into Task 2's `BENCHMARK_POOLS`. Confirm the Chainlink feed answers and is 8-decimal.
 
 - [ ] **Step 3: Delete the throwaway script**
@@ -305,12 +308,14 @@ Expected: PASS (all 9 assertions).
 Create a throwaway `packages/ingest/src/spotcheck-benchmark.ts`:
 
 ```ts
+import 'dotenv/config';
 import { getBenchmarkMid } from './benchmarkPrice.js';
 const block = BigInt(process.env.BLOCK!);
 getBenchmarkMid({ rpcUrl: process.env.TCA_RPC_URL!, blockNumber: block }).then((r) => console.log(JSON.stringify(r, null, 2)));
 ```
 
-Run: `TCA_RPC_URL=$TCA_RPC_URL BLOCK=<a known gated trade block> npx tsx packages/ingest/src/spotcheck-benchmark.ts`
+Pick a real gated block: `npx tsx -e "import('dotenv/config').then(async()=>{const p=(await import('postgres')).default;const s=p(process.env.TCA_DATABASE_URL);console.log((await s\`SELECT block_number FROM router_trades_gated LIMIT 1\`)[0]);await s.end()})"` (run from repo root).
+Run from repo root: `BLOCK=<that block> npx tsx packages/ingest/src/spotcheck-benchmark.ts`
 Expected: a `marketMid` near the trade's known price, ≥2 non-null `perPool` prices, a `chainlinkPrice` close to `marketMid`, small `poolDivergenceBps`/`chainlinkDevBps`, empty or benign `flags`. Then delete it: `rm packages/ingest/src/spotcheck-benchmark.ts`.
 
 - [ ] **Step 6: Commit**
@@ -354,15 +359,32 @@ ALTER TABLE "router_trades_gated" ADD COLUMN "pool_divergence_bps" numeric;--> s
 ALTER TABLE "router_trades_gated" ADD COLUMN "manipulation_flag" boolean;
 ```
 
-- [ ] **Step 3: Apply the migration**
+- [ ] **Step 3: Apply the migration (via postgres-package script, no psql)**
 
-Run: `psql "$DATABASE_URL" -f packages/db/drizzle/0008_benchmark_validation.sql`
-Expected: four `ALTER TABLE` lines, no errors.
+Create a throwaway `packages/ingest/src/_apply-0008.ts`:
+
+```ts
+import 'dotenv/config';
+import { readFileSync } from 'fs';
+import postgres from 'postgres';
+const sql = postgres(process.env.TCA_DATABASE_URL!);
+const ddl = readFileSync('packages/db/drizzle/0008_benchmark_validation.sql', 'utf8')
+  .split('--> statement-breakpoint').map((s) => s.trim()).filter(Boolean);
+for (const stmt of ddl) await sql.unsafe(stmt);
+console.log(`applied ${ddl.length} statements`);
+await sql.end();
+```
+
+Run from repo root: `npx tsx packages/ingest/src/_apply-0008.ts`
+Expected: `applied 4 statements`, no errors. Then delete it: `rm packages/ingest/src/_apply-0008.ts`
 
 - [ ] **Step 4: Verify the columns exist**
 
-Run: `psql "$DATABASE_URL" -c "\d router_trades_gated" | grep -E "chainlink_price|chainlink_dev_bps|pool_divergence_bps|manipulation_flag"`
-Expected: all four rows printed, types `numeric` / `boolean`.
+Run from repo root:
+```bash
+npx tsx -e "import('dotenv/config').then(async()=>{const p=(await import('postgres')).default;const s=p(process.env.TCA_DATABASE_URL);const r=await s\`SELECT column_name,data_type FROM information_schema.columns WHERE table_name='router_trades_gated' AND column_name IN ('chainlink_price','chainlink_dev_bps','pool_divergence_bps','manipulation_flag') ORDER BY column_name\`;console.table(r);await s.end()})"
+```
+Expected: four rows — `chainlink_dev_bps` (numeric), `chainlink_price` (numeric), `manipulation_flag` (boolean), `pool_divergence_bps` (numeric).
 
 - [ ] **Step 5: Build the db package to confirm the schema typechecks**
 
@@ -534,12 +556,13 @@ The existing ~165 `router_trades_gated` rows have NULL validation columns. This 
 Create `packages/ingest/src/backfill-benchmark-validation.ts`:
 
 ```ts
+import 'dotenv/config';
 import postgres from 'postgres';
 import { getBenchmarkMid } from './benchmarkPrice.js';
 
 async function main() {
   const rpcUrl = process.env.TCA_RPC_URL!;
-  const sql = postgres(process.env.DATABASE_URL!);
+  const sql = postgres(process.env.TCA_DATABASE_URL!);
   const rows = await sql<{ tx_hash: string; block_number: number }[]>`
     SELECT tx_hash, block_number FROM router_trades_gated WHERE manipulation_flag IS NULL
   `;
@@ -566,12 +589,15 @@ main();
 
 - [ ] **Step 2: Run the backfill**
 
-Run: `TCA_RPC_URL=$TCA_RPC_URL DATABASE_URL=$DATABASE_URL npx tsx packages/ingest/src/backfill-benchmark-validation.ts`
-Expected: `Backfilling <N> rows...` then `Done. <N> rows updated.`
+Run from repo root: `npx tsx packages/ingest/src/backfill-benchmark-validation.ts`
+Expected: `Backfilling <N> rows...` then `Done. <N> rows updated.` (N ≈ 165)
 
 - [ ] **Step 3: Verify no NULLs remain and inspect flagged trades**
 
-Run: `psql "$DATABASE_URL" -c "SELECT count(*) FILTER (WHERE manipulation_flag IS NULL) AS unfilled, count(*) FILTER (WHERE manipulation_flag) AS flagged, count(*) AS total FROM router_trades_gated;"`
+Run from repo root:
+```bash
+npx tsx -e "import('dotenv/config').then(async()=>{const p=(await import('postgres')).default;const s=p(process.env.TCA_DATABASE_URL);const r=await s\`SELECT count(*) FILTER (WHERE manipulation_flag IS NULL) AS unfilled, count(*) FILTER (WHERE manipulation_flag) AS flagged, count(*) AS total FROM router_trades_gated\`;console.log(r[0]);await s.end()})"
+```
 Expected: `unfilled = 0`; `flagged` is a small number (the legitimately-suspect blocks); `total` ≈ 165.
 
 - [ ] **Step 4: Commit**
