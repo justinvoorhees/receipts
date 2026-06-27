@@ -80,6 +80,10 @@ async function main(): Promise<void> {
 				v1RealizedAmountUsd: row.v1RealizedAmountUsd == null ? null : String(row.v1RealizedAmountUsd),
 				settlementEventName: row.settlementEventName, settlementEventTopic0: row.settlementEventTopic0,
 				settlementEventSeen: row.settlementEventSeen, normalizeFlags: row.normalizeFlags,
+				chainlinkPrice: row.chainlinkPrice == null ? null : String(row.chainlinkPrice),
+				chainlinkDevBps: row.chainlinkDevBps == null ? null : String(row.chainlinkDevBps),
+				poolDivergenceBps: row.poolDivergenceBps == null ? null : String(row.poolDivergenceBps),
+				manipulationFlag: row.manipulationFlag,
 				batch: BATCH,
 			}).onConflictDoUpdate({
 				target: schema.smokeTrades.txHash,
@@ -93,6 +97,11 @@ async function main(): Promise<void> {
 					routeLegs: row.routeLegs != null ? JSON.stringify(row.routeLegs) : null,
 					reconResidualBps: row.reconResidualBps == null ? null : String(row.reconResidualBps),
 					decompConfidence: row.decompConfidence,
+					marketMid: String(row.marketMid),
+					chainlinkPrice: row.chainlinkPrice == null ? null : String(row.chainlinkPrice),
+					chainlinkDevBps: row.chainlinkDevBps == null ? null : String(row.chainlinkDevBps),
+					poolDivergenceBps: row.poolDivergenceBps == null ? null : String(row.poolDivergenceBps),
+					manipulationFlag: row.manipulationFlag,
 					settlementEventSeen: row.settlementEventSeen, normalizeFlags: row.normalizeFlags,
 				},
 			});

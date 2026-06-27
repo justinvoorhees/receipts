@@ -45,4 +45,34 @@ describe('buildSmokeRow', () => {
 		expect(r.row.settledIn).toBe('WETH');
 		expect(r.row.gasCostUsd).toBeGreaterThan(0);
 	});
+
+	it('forces decompConfidence to low and merges bench flags when benchLowConfidence is set', () => {
+		const r = buildSmokeRow({
+			candidate: {
+				txHash: '0xdef', aggregator: 'odos', trader,
+				experimentSlug: 'smoke-9', runId: 'run-1', v1Status: 'success',
+				v1QuoteAmountUsd: 2, v1RealizedAmountUsd: 1.99,
+			},
+			trace,
+			receiptLogs: trace.logs,
+			gasUsed: 200000n,
+			effectiveGasPriceWei: 50000000n,
+			marketMid: 2100,
+			blockNumber: 12345,
+			decomposition: { lpFeeBps: 5, aggFeeBps: 0, slippageBps: 1, executionBps: 6, gasBps: 0, flags: [] },
+			decompConfidence: 'high',
+			benchLowConfidence: true,
+			benchFlags: ['MANIPULATION_SUSPECT'],
+			manipulationFlag: true,
+			chainlinkDevBps: 80,
+			poolDivergenceBps: 4,
+			chainlinkPrice: 2080,
+		});
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.row.decompConfidence).toBe('low');
+		expect(r.row.normalizeFlags).toContain('MANIPULATION_SUSPECT');
+		expect(r.row.manipulationFlag).toBe(true);
+		expect(r.row.chainlinkDevBps).toBe(80);
+	});
 });

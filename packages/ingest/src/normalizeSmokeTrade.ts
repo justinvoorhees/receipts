@@ -38,6 +38,8 @@ export interface SmokeTradeRow {
 	v1QuoteAmountUsd: number | null; v1RealizedAmountUsd: number | null;
 	settlementEventName: string | null; settlementEventTopic0: string | null;
 	settlementEventSeen: boolean; normalizeFlags: string[];
+	chainlinkPrice: number | null; chainlinkDevBps: number | null;
+	poolDivergenceBps: number | null; manipulationFlag: boolean;
 }
 
 /** Subset of decomposition fields that buildSmokeRow actually reads. */
@@ -82,6 +84,12 @@ export function buildSmokeRow(args: {
 	routeLegs?: unknown[] | null;
 	reconResidualBps?: number | null;
 	decompConfidence?: string | null;
+	chainlinkPrice?: number | null;
+	chainlinkDevBps?: number | null;
+	poolDivergenceBps?: number | null;
+	manipulationFlag?: boolean;
+	benchFlags?: string[];
+	benchLowConfidence?: boolean;
 }): NormalizeResult {
 	const { candidate: c } = args;
 	const trader = c.trader.toLowerCase();
@@ -118,9 +126,11 @@ export function buildSmokeRow(args: {
 	const settlementEventSeen = sig ? settlementEventPresent(args.receiptLogs, sig) : false;
 
 	const d = args.decomposition;
-	const flags = [...d.flags];
+	const flags = [...d.flags, ...(args.benchFlags ?? [])];
 	if (!sig) flags.push(`NO_SIGNATURE: unknown aggregator '${c.aggregator}'`);
 	if (sig && !settlementEventSeen) flags.push(`SETTLEMENT_EVENT_MISSING: no distinctive event from ${sig.settlementContract}`);
+
+	const decompConfidence = args.benchLowConfidence ? 'low' : (args.decompConfidence ?? null);
 
 	return {
 		ok: true,
@@ -135,12 +145,16 @@ export function buildSmokeRow(args: {
 			hopCount: args.hopCount ?? null,
 			routeLegs: args.routeLegs ?? null,
 			reconResidualBps: args.reconResidualBps ?? null,
-			decompConfidence: args.decompConfidence ?? null,
+			decompConfidence,
 			experimentSlug: c.experimentSlug, runId: c.runId, v1Status: c.v1Status,
 			v1QuoteAmountUsd: c.v1QuoteAmountUsd, v1RealizedAmountUsd: c.v1RealizedAmountUsd,
 			settlementEventName: sig?.eventName ?? null,
 			settlementEventTopic0: sig?.eventTopic0 ?? null,
 			settlementEventSeen, normalizeFlags: flags,
+			chainlinkPrice: args.chainlinkPrice ?? null,
+			chainlinkDevBps: args.chainlinkDevBps ?? null,
+			poolDivergenceBps: args.poolDivergenceBps ?? null,
+			manipulationFlag: args.manipulationFlag ?? false,
 		},
 	};
 }
@@ -161,7 +175,8 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 		const blockNumber = Number(receipt.blockNumber);
 		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics }));
 
-		const { marketMid } = await getBenchmarkMid({ rpcUrl, blockNumber: receipt.blockNumber });
+		const bench = await getBenchmarkMid({ rpcUrl, blockNumber: receipt.blockNumber });
+		const marketMid = bench.marketMid;
 
 		// Derive trader deltas first to feed decomposeRoute's required inputs.
 		const probe = buildSmokeRow({
@@ -218,6 +233,12 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 			routeLegs: compactLegs,
 			reconResidualBps: routeResult.reconResidualBps,
 			decompConfidence: routeResult.confidence,
+			chainlinkPrice: bench.chainlinkPrice,
+			chainlinkDevBps: bench.chainlinkDevBps,
+			poolDivergenceBps: bench.poolDivergenceBps,
+			manipulationFlag: bench.manipulationSuspect,
+			benchFlags: bench.flags,
+			benchLowConfidence: bench.lowConfidence,
 		});
 	} catch (e) {
 		return { ok: false, aggregator: c.aggregator, txHash: c.txHash, reason: e instanceof Error ? e.message : String(e) };
