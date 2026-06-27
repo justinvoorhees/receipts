@@ -25,13 +25,12 @@ import {
 } from './tradeEndpoints.js';
 import { applySelectionGate } from './selectionGate.js';
 import type { GateDirection } from './selectionGate.js';
-import { getReferencePrice } from './referencePrice.js';
+import { getBenchmarkMid } from './benchmarkPrice.js';
 import { signedDeviationBps } from './priceMath.js';
 import type { Direction } from './decoder.js';
 
 // ─── Constants ───
 
-const POOL_5BPS = '0xd0b53D9277642d899DF5C87A3966A349A798F224' as `0x${string}`;
 const MIN_NOTIONAL = 1000;
 const MAX_PLAUSIBLE_BPS = 100;
 const CONCURRENCY = 6;
@@ -198,6 +197,10 @@ interface GatedRow {
 	all_in_cost_bps: number;
 	block_number: number;
 	gate_reason: string;
+	chainlink_price: number | null;
+	chainlink_dev_bps: number | null;
+	pool_divergence_bps: number;
+	manipulation_flag: boolean;
 }
 
 // ─── Processing one tx ───
@@ -315,12 +318,9 @@ async function processOne(
 		}
 		const realizedPrice = usdcAmount / wethAmount;
 
-		// ── Market mid ──
-		const marketMid = await getReferencePrice({
-			rpcUrl,
-			poolAddress: POOL_5BPS,
-			blockNumber: BigInt(blockNumber),
-		});
+		// ── Market mid (robust median + oracle validation) ──
+		const bench = await getBenchmarkMid({ rpcUrl, blockNumber: BigInt(blockNumber) });
+		const marketMid = bench.marketMid;
 
 		// ── all_in_cost_bps ──
 		const allInCostBps = signedDeviationBps(
@@ -351,6 +351,10 @@ async function processOne(
 			all_in_cost_bps: allInCostBps,
 			block_number: blockNumber,
 			gate_reason: 'ok',
+			chainlink_price: bench.chainlinkPrice,
+			chainlink_dev_bps: bench.chainlinkDevBps,
+			pool_divergence_bps: bench.poolDivergenceBps,
+			manipulation_flag: bench.manipulationSuspect,
 		};
 
 		return { status: 'inserted', aggregator, row };
@@ -390,9 +394,13 @@ async function main(): Promise<void> {
 			realized_price  numeric NOT NULL,
 			market_mid      numeric NOT NULL,
 			all_in_cost_bps numeric NOT NULL,
-			block_number    integer NOT NULL,
-			gate_reason     text NOT NULL DEFAULT 'ok',
-			loaded_at       timestamptz NOT NULL DEFAULT now()
+			block_number        integer NOT NULL,
+			gate_reason         text NOT NULL DEFAULT 'ok',
+			chainlink_price     numeric,
+			chainlink_dev_bps   numeric,
+			pool_divergence_bps numeric,
+			manipulation_flag   boolean,
+			loaded_at           timestamptz NOT NULL DEFAULT now()
 		)
 	`;
 	// Clear any previous run data upfront so the output is a clean regeneration
@@ -476,13 +484,16 @@ async function main(): Promise<void> {
 			INSERT INTO router_trades_gated (
 				tx_hash, aggregator, trader, original_trader, re_anchored,
 				direction, settled_in, usdc_amount, weth_amount, realized_price,
-				market_mid, all_in_cost_bps, block_number, gate_reason
+				market_mid, all_in_cost_bps, block_number, gate_reason,
+				chainlink_price, chainlink_dev_bps, pool_divergence_bps, manipulation_flag
 			) VALUES (
 				${row.tx_hash}, ${row.aggregator}, ${row.trader}, ${row.original_trader},
 				${row.re_anchored}, ${row.direction}, ${row.settled_in},
 				${row.usdc_amount}, ${row.weth_amount}, ${row.realized_price},
 				${row.market_mid}, ${row.all_in_cost_bps}, ${row.block_number},
-				${row.gate_reason}
+				${row.gate_reason},
+				${row.chainlink_price}, ${row.chainlink_dev_bps},
+				${row.pool_divergence_bps}, ${row.manipulation_flag}
 			)
 			ON CONFLICT (tx_hash) DO NOTHING
 		`;
