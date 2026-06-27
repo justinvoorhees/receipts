@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { extractTradeEndpointsFromReceipt } from './tradeEndpoints.js';
-import { getReferencePrice } from './referencePrice.js';
+import { getBenchmarkMid } from './benchmarkPrice.js';
 import { signedDeviationBps } from './priceMath.js';
 
 /**
@@ -13,7 +13,6 @@ import { signedDeviationBps } from './priceMath.js';
  * Cost guard: set MAX_CANDIDATES env to cap a trial run.
  */
 
-const POOL_5BPS = '0xd0b53D9277642d899DF5C87A3966A349A798F224' as `0x${string}`;
 const IN_PATH = '/tmp/router_candidates.json';
 const OUT_CSV = '/tmp/router_trades.csv';
 const CONCURRENCY = 8;
@@ -61,7 +60,7 @@ async function processOne(rpcUrl: string, c: Candidate): Promise<
 		const usdcAmount = Math.abs(Number(r.usdcAmountRaw)) / 1e6;
 		// Apply the notional floor BEFORE pricing — saves the market-mid call on dust.
 		if (usdcAmount < MIN_NOTIONAL) return { status: 'below_floor', aggregator: c.aggregator };
-		const marketMid = await getReferencePrice({ rpcUrl, poolAddress: POOL_5BPS, blockNumber: r.blockNumber });
+		const { marketMid } = await getBenchmarkMid({ rpcUrl, blockNumber: r.blockNumber });
 		const allInCostBps = signedDeviationBps(r.direction!, marketMid, r.realizedPrice!);
 		// Non-physical magnitude ⇒ extraction artifact (mostly ETH wrap-net proxy errors).
 		if (Math.abs(allInCostBps) > MAX_PLAUSIBLE_BPS) return { status: 'implausible', aggregator: c.aggregator };

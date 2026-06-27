@@ -13,11 +13,10 @@ import {
 	type Direction,
 } from './tradeEndpoints.js';
 import { decomposeRoute, createDefaultMidReader, type RouteDecomposeResult } from './decomposeRoute.js';
-import { getReferencePrice } from './referencePrice.js';
+import { getBenchmarkMid } from './benchmarkPrice.js';
 import { signedDeviationBps } from './priceMath.js';
 import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSignatures.js';
 
-const POOL_5BPS = '0xd0b53D9277642d899DF5C87A3966A349A798F224' as `0x${string}`;
 const WETH_DUST_RAW = 10_000_000_000n;
 
 export interface SmokeCandidate {
@@ -162,7 +161,7 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 		const blockNumber = Number(receipt.blockNumber);
 		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, data: l.data, topics: l.topics }));
 
-		const marketMid = await getReferencePrice({ rpcUrl, poolAddress: POOL_5BPS, blockNumber: receipt.blockNumber });
+		const { marketMid } = await getBenchmarkMid({ rpcUrl, blockNumber: receipt.blockNumber });
 
 		// Derive trader deltas first to feed decomposeRoute's required inputs.
 		const probe = buildSmokeRow({
