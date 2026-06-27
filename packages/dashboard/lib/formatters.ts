@@ -20,13 +20,8 @@ export function formatContribution(
 	// Show a leading '+' only for strictly-positive values; an exact 0.0 (and
 	// any value that rounds to it, incl. -0.0) renders as a bare "0.0bps".
 	const rounded = Number(flipped.toFixed(1));
-	const text = rounded === 0 ? '0.0bps' : `${rounded > 0 ? '+' : ''}${rounded.toFixed(1)}bps`;
-	const color =
-		flipped > 0.05
-			? '#117d45'   // green — surplus
-			: flipped < -0.05
-				? '#fa0b54' // red — cost to user
-				: undefined; // near zero — neutral
+	const text = rounded === 0 ? '0.0bps' : `${rounded.toFixed(1)}bps`;
+	const color = flipped > 0.05 ? '#117d45' : undefined;
 	return { text, color };
 }
 

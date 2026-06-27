@@ -21,6 +21,7 @@ const PANCAKE_POOL = '0x7cb770d0513c30e0cb45e4899e4a2cbeed6f9830';
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH = '0x4200000000000000000000000000000000000006';
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 
 /** Build a minimal ERC-20 Transfer log entry for a synthetic trace. */
 function transferLog(
@@ -38,10 +39,137 @@ function transferLog(
   };
 }
 
+function v3SwapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`, `0x${string}`, `0x${string}`] } {
+  const zeroTopic = ('0x' + '0'.repeat(64)) as `0x${string}`;
+  return {
+    address: pool,
+    data: '0x',
+    topics: [UNI_V3_SWAP_TOPIC as `0x${string}`, zeroTopic, zeroTopic],
+  };
+}
+
 const VIRTUAL = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
 const V4_POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
 
 describe('decomposeRoute', () => {
+  it('refines v3-shaped route venues by pool factory', async () => {
+    const trader = '0x00000000000000000000000000000000000000d0';
+    const sushiPool = '0x482fe995c4a52bc79271ab29a53591363ee30a89' as const;
+    const trace = {
+      logs: [
+        transferLog(USDC as `0x${string}`, trader as `0x${string}`, sushiPool, 1_000000n),
+        transferLog(WETH as `0x${string}`, sushiPool, trader as `0x${string}`, 500_000000000000n),
+        v3SwapLog(sushiPool),
+      ],
+    };
+    const input: DecomposeTradeInput = {
+      trace: trace as any,
+      txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      trader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: -1,
+      notionalUsdc: 1,
+      realizedPrice: 2000,
+      gasCostUsd: 0,
+      aggregator: 'Fabric',
+      blockNumber: 47379575n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+      recognizeV3Forks: true,
+      impureOnVenueThirdToken: true,
+    };
+
+    const result = await decomposeRoute(input, {
+      trace: trace as any,
+      v3FactoryReader: async () => '0xc35DADB65012eC5796536bD9864eD8773aBc74C4',
+      feeReader: async () => ({ bps: 1, defaulted: false }),
+    });
+
+    expect(result.legs).toHaveLength(1);
+    expect(result.legs[0]!.leg.type).toBe('sushiv3');
+  });
+
+  it('tags known Curve StableNG pools instead of treating them as RFQ', async () => {
+    const trader = '0x00000000000000000000000000000000000000d0';
+    const curvePool = '0x4545410f7601b34a779edcebc641e529f465eeaa' as const;
+    const trace = {
+      logs: [
+        transferLog(USDC as `0x${string}`, trader as `0x${string}`, curvePool, 1_000000n),
+        transferLog(WETH as `0x${string}`, curvePool, trader as `0x${string}`, 500_000000000000n),
+      ],
+    };
+    const input: DecomposeTradeInput = {
+      trace: trace as any,
+      txHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      trader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: -1,
+      notionalUsdc: 1,
+      realizedPrice: 2000,
+      gasCostUsd: 0,
+      aggregator: 'Velora',
+      blockNumber: 47380988n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+      recognizeV3Forks: true,
+      impureOnVenueThirdToken: true,
+    };
+
+    const result = await decomposeRoute(input, {
+      trace: trace as any,
+      feeReader: async (_addr, type) => ({ bps: type === 'curve_stableng' ? 10 : 0, defaulted: false }),
+    });
+
+    expect(result.legs).toHaveLength(1);
+    expect(result.legs[0]!.leg.type).toBe('curve_stableng');
+    expect(result.legs[0]!.feeTierBps).toBe(10);
+  });
+
+  it('tags known Maverick v2 pools instead of treating them as RFQ', async () => {
+    const trader = '0x00000000000000000000000000000000000000d0';
+    const maverickPool = '0xdf033790907c60c9b81ae355f76f74f52f92114a' as const;
+    const trace = {
+      logs: [
+        transferLog(USDC as `0x${string}`, trader as `0x${string}`, maverickPool, 1_000000n),
+        transferLog(WETH as `0x${string}`, maverickPool, trader as `0x${string}`, 500_000000000000n),
+      ],
+    };
+    const input: DecomposeTradeInput = {
+      trace: trace as any,
+      txHash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      trader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: -1,
+      notionalUsdc: 1,
+      realizedPrice: 2000,
+      gasCostUsd: 0,
+      aggregator: 'Velora',
+      blockNumber: 47380991n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+      recognizeV3Forks: true,
+      impureOnVenueThirdToken: true,
+    };
+
+    const result = await decomposeRoute(input, {
+      trace: trace as any,
+      feeReader: async (_addr, type) => ({ bps: type === 'maverickv2' ? 1 : 0, defaulted: false }),
+    });
+
+    expect(result.legs).toHaveLength(1);
+    expect(result.legs[0]!.leg.type).toBe('maverickv2');
+    expect(result.legs[0]!.feeTierBps).toBe(1);
+  });
+
   describe('kyber batch-01 (PancakeSwap V3 5bps + V4 4.5bps)', () => {
     const input: DecomposeTradeInput = {
       trace: kyberB1Trace as any,
@@ -457,4 +585,5 @@ describe('decomposeRoute', () => {
       expect(result.routeShape).toBe('complex');
     });
   });
+
 });

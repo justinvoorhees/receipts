@@ -21,6 +21,7 @@ import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './ro
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput, type LpRollup } from './legFees.js';
 import { decomposeTrade, type DecomposeTradeInput, type DecomposeResult } from './decompose-trade.js';
 import { getLegMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
+import { classifyKnownVenueAddress, classifyV3Factory } from './venueClassification.js';
 
 // ─── Constants ───
 
@@ -36,6 +37,8 @@ const V2_SWAP_TOPIC =
 	'0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
 const AERODROME_SWAP_TOPIC =
 	'0xb3e2773606abfd36b5bd91394b3a54d1398336c65005baf7bf7a05efeffaf75b';
+const MAVERICK_V2_SWAP_TOPIC =
+	'0x103ed084e94a44c8f5f6ba8e3011507c41063177e29949083c439777d8d63f60';
 
 const UNISWAP_V4_POOL_MANAGER =
 	'0x498581ff718922c3f8e6a244956af099b2652b2b';
@@ -98,6 +101,8 @@ export interface DecomposeRouteDeps {
 	trace?: TraceNode;
 	/** Custom fee-tier reader. Signature: (poolAddr, venueType, v4FeeRaw?) → { bps, defaulted }. */
 	feeReader?: (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
+	/** Custom V3-style factory reader. Signature: (poolAddr) → factory address. */
+	v3FactoryReader?: (addr: string) => Promise<string | null> | string | null;
 	/** Custom mid-price reader. Signature: (leg, blockNumber) → PairMidResult | null. */
 	midReader?: (leg: Leg, blockNumber: bigint) => Promise<PairMidResult | null> | PairMidResult | null;
 	/** Custom decimals reader (for realized-price computation). Falls back to inline USDC=6/else=18. */
@@ -196,9 +201,64 @@ function scanVenues(logs: readonly LogLike[], recognizeForks: boolean): Map<stri
 				venues.set(addr, { type: 'aerodrome' });
 			}
 		}
+
+		// Maverick V2 PoolSwap
+		if (topic0 === MAVERICK_V2_SWAP_TOPIC) {
+			if (!venues.has(addr)) {
+				venues.set(addr, { type: 'maverickv2' });
+			}
+		}
 	}
 
 	return venues;
+}
+
+function addKnownVenuesFromTransfers(
+	venues: Map<string, VenueInfo>,
+	transfers: { from: string; to: string }[],
+): void {
+	for (const transfer of transfers) {
+		for (const addr of [transfer.from, transfer.to]) {
+			const venueType = classifyKnownVenueAddress(addr);
+			if (venueType != null && !venues.has(addr.toLowerCase())) {
+				venues.set(addr.toLowerCase(), { type: venueType });
+			}
+		}
+	}
+}
+
+async function addKnownFactoryVenuesFromTransfers(
+	venues: Map<string, VenueInfo>,
+	transfers: { from: string; to: string }[],
+	factoryReader: (addr: string) => Promise<string | null> | string | null,
+): Promise<void> {
+	const candidates = new Set<string>();
+	for (const transfer of transfers) {
+		candidates.add(transfer.from.toLowerCase());
+		candidates.add(transfer.to.toLowerCase());
+	}
+	for (const addr of candidates) {
+		if (venues.has(addr)) continue;
+		const factory = await factoryReader(addr);
+		const venueType = classifyV3Factory(factory);
+		if (venueType !== 'univ3') {
+			venues.set(addr, { type: venueType });
+		}
+	}
+}
+
+async function refineV3VenueTypes(
+	venues: Map<string, VenueInfo>,
+	factoryReader: (addr: string) => Promise<string | null> | string | null,
+): Promise<void> {
+	for (const [addr, info] of venues) {
+		if (info.type !== 'univ3') continue;
+		const factory = await factoryReader(addr);
+		const refinedType = classifyV3Factory(factory);
+		if (refinedType !== info.type) {
+			venues.set(addr, { ...info, type: refinedType });
+		}
+	}
 }
 
 // ─── Default fee reader (live RPC) ───
@@ -209,6 +269,8 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 	return async (addr: string, type: VenueType, v4FeeRaw?: number): Promise<{ bps: number; defaulted: boolean }> => {
 		switch (type) {
 			case 'univ3':
+			case 'sushiv3':
+			case 'baseswapv3':
 			case 'pancakev3': {
 				try {
 					const fee = await rpc.readContract({
@@ -220,6 +282,46 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 					return { bps: Number(fee) / 100, defaulted: false };
 				} catch {
 					return { bps: 0, defaulted: false };
+				}
+			}
+			case 'aerodrome_cl': {
+				try {
+					const fee = await rpc.readContract({
+						address: addr as `0x${string}`,
+						abi: [parseAbiItem('function fee() view returns (uint24)')],
+						functionName: 'fee',
+						blockNumber,
+					});
+					return { bps: Number(fee) / 100, defaulted: false };
+				} catch {
+					return { bps: 0, defaulted: true };
+				}
+			}
+			case 'curve_stableng': {
+				try {
+					const fee = await rpc.readContract({
+						address: addr as `0x${string}`,
+						abi: [parseAbiItem('function fee() view returns (uint256)')],
+						functionName: 'fee',
+						blockNumber,
+					});
+					return { bps: Number(fee) / 1_000_000, defaulted: false };
+				} catch {
+					return { bps: 0, defaulted: true };
+				}
+			}
+			case 'maverickv2': {
+				try {
+					const fee = await rpc.readContract({
+						address: addr as `0x${string}`,
+						abi: [parseAbiItem('function fee(bool tokenAIn) view returns (uint256)')],
+						functionName: 'fee',
+						args: [true],
+						blockNumber,
+					});
+					return { bps: Number(fee) / 100_000_000_000_000, defaulted: false };
+				} catch {
+					return { bps: 0, defaulted: true };
 				}
 			}
 			case 'univ4':
@@ -237,6 +339,27 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 			case 'unknown':
 			default:
 				return { bps: 0, defaulted: true };
+		}
+	};
+}
+
+function createDefaultV3FactoryReader(rpcUrl: string, blockNumber: bigint): (addr: string) => Promise<string | null> {
+	if (rpcUrl === 'unused') {
+		return async () => null;
+	}
+	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+
+	return async (addr: string): Promise<string | null> => {
+		try {
+			const factory = await rpc.readContract({
+				address: addr as `0x${string}`,
+				abi: [parseAbiItem('function factory() view returns (address)')],
+				functionName: 'factory',
+				blockNumber,
+			});
+			return String(factory);
+		} catch {
+			return null;
 		}
 	};
 }
@@ -412,6 +535,13 @@ export async function decomposeRoute(
 	const logs = collectTraceLogs(trace);
 	const rawTransfers = decodeTransferLogs(logs as any);
 	const venues = scanVenues(logs, input.recognizeV3Forks ?? false);
+	addKnownVenuesFromTransfers(venues, rawTransfers);
+	const v3FactoryReader = deps?.v3FactoryReader ?? createDefaultV3FactoryReader(input.rpcUrl, input.blockNumber);
+	await addKnownFactoryVenuesFromTransfers(venues, rawTransfers, v3FactoryReader);
+	await refineV3VenueTypes(
+		venues,
+		v3FactoryReader,
+	);
 
 	// Step 3b: Resolve V4 settlement proxies — rewrite transfers so V4 PM
 	// appears as the source of outgoing tokens instead of the executor

@@ -331,7 +331,7 @@ export async function getLegMidAtBlock(
   const type = leg.type;
 
   // V3-style pools: read slot0 from the pool address
-  if (type === 'univ3' || type === 'pancakev3') {
+  if (type === 'univ3' || type === 'sushiv3' || type === 'baseswapv3' || type === 'pancakev3' || type === 'aerodrome_cl') {
     const sqrtPriceX96 = await readSlot0(client, leg.venue as `0x${string}`, blockNumber);
     if (sqrtPriceX96 === null) return null;
     const rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1);
@@ -390,7 +390,7 @@ export async function getLegMidAtBlock(
   }
 
   // RFQ / unknown: no own pool -- use factory discovery
-  if (type === 'rfq' || type === 'unknown') {
+  if (type === 'rfq' || type === 'unknown' || type === 'maverickv2') {
     return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
   }
 

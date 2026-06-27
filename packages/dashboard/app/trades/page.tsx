@@ -25,7 +25,7 @@ export default async function TradesPage({
 	const rows = await getRecentTrades(sort, 500, dataset);
 
 	return (
-		<div className="pb-10">
+		<div className="pb-5">
 			<div className="flex items-end justify-between mt-[40px]">
 				<h1
 					className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"

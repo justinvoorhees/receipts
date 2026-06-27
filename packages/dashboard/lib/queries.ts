@@ -27,7 +27,12 @@ export type TradeRow = RouterTradeRow &
 	Partial<
 		Pick<
 			typeof schema.smokeTrades.$inferSelect,
-			'routeShape' | 'hopCount' | 'routeLegs' | 'reconResidualBps' | 'decompConfidence'
+			| 'routeShape'
+			| 'hopCount'
+			| 'routeLegs'
+			| 'reconResidualBps'
+			| 'decompConfidence'
+			| 'normalizeFlags'
 		>
 	>;
 
@@ -43,7 +48,7 @@ export async function getHeartbeats(): Promise<HeartbeatRow[]> {
 export const TRADES_SORT_COLUMN_KEYS = {
 	block: 'blockNumber', aggregator: 'aggregator', side: 'direction',
 	size: 'usdcAmount', accuracy: 'allInCostBps', lpFee: 'lpFeeBps',
-	aggFee: 'aggFeeBps', slippage: 'slippageBps', gas: 'gasCostUsd',
+	aggFee: 'aggFeeBps', impact: 'slippageBps', slippage: 'slippageBps', gas: 'gasCostUsd',
 } as const;
 export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMN_KEYS;
 // Keep TRADES_SORT_COLUMNS as an alias for the trades page's VALID_SORT_COLUMNS check:
