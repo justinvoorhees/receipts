@@ -226,6 +226,11 @@ export const smokeTrades = pgTable('smoke_trades', {
 	settlementEventTopic0: text('settlement_event_topic0'),
 	settlementEventSeen: boolean('settlement_event_seen').notNull().default(false),
 	normalizeFlags: jsonb('normalize_flags'),
+	// v2.2 benchmark validation (nullable)
+	chainlinkPrice: numeric('chainlink_price'),
+	chainlinkDevBps: numeric('chainlink_dev_bps'),
+	poolDivergenceBps: numeric('pool_divergence_bps'),
+	manipulationFlag: boolean('manipulation_flag'),
 	loadedAt: timestamp('loaded_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
 	byAggregator: index('smoke_trades_aggregator_idx').on(t.aggregator),
