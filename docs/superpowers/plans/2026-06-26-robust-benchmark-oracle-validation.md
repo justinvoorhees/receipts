@@ -541,82 +541,295 @@ git commit -m "refactor(ingest): route remaining benchmark call sites through ge
 
 ---
 
-### Task 6: Backfill the existing gated rows
+
+### Task 6: Migration — validation columns on `smoke_trades`
+
+> **Pivot note:** The plan now targets the 15-row `smoke_trades` set, NOT the 165-row `router_trades_gated` (left untouched; its Task-3 columns stay, nullable/harmless). `smoke_trades` bypasses the notional floor and ±100bps gate by design, so there is no gate handling here.
 
 **Files:**
-- Create: `packages/ingest/src/backfill-benchmark-validation.ts`
+- Modify: `packages/db/src/schema.ts` (the `smokeTrades` table — after `normalizeFlags`, before `loadedAt`)
+- Create: `packages/db/drizzle/0009_smoke_benchmark_validation.sql`
 
-**Interfaces:**
-- Consumes: `getBenchmarkMid` from `./benchmarkPrice.js`; `postgres` client via `DATABASE_URL`.
+- [ ] **Step 1: Add the columns to the Drizzle schema**
 
-The existing ~165 `router_trades_gated` rows have NULL validation columns. This populates them (and refreshes `market_mid` to the median) without re-running the full extraction.
+In `packages/db/src/schema.ts`, inside the `smokeTrades` table, immediately after `normalizeFlags: jsonb('normalize_flags'),` add:
 
-- [ ] **Step 1: Write the backfill script**
+```ts
+	// v2.2 benchmark validation (nullable)
+	chainlinkPrice: numeric('chainlink_price'),
+	chainlinkDevBps: numeric('chainlink_dev_bps'),
+	poolDivergenceBps: numeric('pool_divergence_bps'),
+	manipulationFlag: boolean('manipulation_flag'),
+```
 
-Create `packages/ingest/src/backfill-benchmark-validation.ts`:
+(`numeric` and `boolean` are already imported in this file.)
+
+- [ ] **Step 2: Write the migration SQL**
+
+Create `packages/db/drizzle/0009_smoke_benchmark_validation.sql`:
+
+```sql
+ALTER TABLE "smoke_trades" ADD COLUMN "chainlink_price" numeric;--> statement-breakpoint
+ALTER TABLE "smoke_trades" ADD COLUMN "chainlink_dev_bps" numeric;--> statement-breakpoint
+ALTER TABLE "smoke_trades" ADD COLUMN "pool_divergence_bps" numeric;--> statement-breakpoint
+ALTER TABLE "smoke_trades" ADD COLUMN "manipulation_flag" boolean;
+```
+
+- [ ] **Step 3: Apply the migration (postgres-package script, no psql)**
+
+Create throwaway `packages/ingest/src/_apply-0009.ts`:
 
 ```ts
 import 'dotenv/config';
+import { readFileSync } from 'fs';
 import postgres from 'postgres';
-import { getBenchmarkMid } from './benchmarkPrice.js';
-
-async function main() {
-  const rpcUrl = process.env.TCA_RPC_URL!;
-  const sql = postgres(process.env.TCA_DATABASE_URL!);
-  const rows = await sql<{ tx_hash: string; block_number: number }[]>`
-    SELECT tx_hash, block_number FROM router_trades_gated WHERE manipulation_flag IS NULL
-  `;
-  console.log(`Backfilling ${rows.length} rows...`);
-  let n = 0;
-  for (const row of rows) {
-    const b = await getBenchmarkMid({ rpcUrl, blockNumber: BigInt(row.block_number) });
-    await sql`
-      UPDATE router_trades_gated SET
-        market_mid = ${b.marketMid},
-        chainlink_price = ${b.chainlinkPrice},
-        chainlink_dev_bps = ${b.chainlinkDevBps},
-        pool_divergence_bps = ${b.poolDivergenceBps},
-        manipulation_flag = ${b.manipulationSuspect}
-      WHERE tx_hash = ${row.tx_hash}
-    `;
-    if (++n % 25 === 0) console.log(`  ${n}/${rows.length}`);
-  }
-  console.log(`Done. ${n} rows updated.`);
-  await sql.end();
-}
-main();
+const sql = postgres(process.env.TCA_DATABASE_URL!);
+const ddl = readFileSync('packages/db/drizzle/0009_smoke_benchmark_validation.sql', 'utf8')
+  .split('--> statement-breakpoint').map((s) => s.trim()).filter(Boolean);
+for (const stmt of ddl) await sql.unsafe(stmt);
+console.log(`applied ${ddl.length} statements`);
+await sql.end();
 ```
 
-- [ ] **Step 2: Run the backfill**
+Run from repo root: `npx tsx packages/ingest/src/_apply-0009.ts` → expect `applied 4 statements`. Then `rm packages/ingest/src/_apply-0009.ts`.
 
-Run from repo root: `npx tsx packages/ingest/src/backfill-benchmark-validation.ts`
-Expected: `Backfilling <N> rows...` then `Done. <N> rows updated.` (N ≈ 165)
-
-- [ ] **Step 3: Verify no NULLs remain and inspect flagged trades**
+- [ ] **Step 4: Verify columns exist**
 
 Run from repo root:
 ```bash
-npx tsx -e "import('dotenv/config').then(async()=>{const p=(await import('postgres')).default;const s=p(process.env.TCA_DATABASE_URL);const r=await s\`SELECT count(*) FILTER (WHERE manipulation_flag IS NULL) AS unfilled, count(*) FILTER (WHERE manipulation_flag) AS flagged, count(*) AS total FROM router_trades_gated\`;console.log(r[0]);await s.end()})"
+npx tsx -e "import('dotenv/config').then(async()=>{const p=(await import('postgres')).default;const s=p(process.env.TCA_DATABASE_URL);console.table(await s\`SELECT column_name,data_type FROM information_schema.columns WHERE table_name='smoke_trades' AND column_name IN ('chainlink_price','chainlink_dev_bps','pool_divergence_bps','manipulation_flag') ORDER BY column_name\`);await s.end()})"
 ```
-Expected: `unfilled = 0`; `flagged` is a small number (the legitimately-suspect blocks); `total` ≈ 165.
+Expected: four rows — `chainlink_dev_bps`/`chainlink_price`/`pool_divergence_bps` (numeric), `manipulation_flag` (boolean).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Build the db package**
+
+Run: `npm run build --workspace packages/db` → expect exit 0.
+
+- [ ] **Step 6: Commit** (stage exactly these two files; do NOT `git add -A`)
 
 ```bash
-git add packages/ingest/src/backfill-benchmark-validation.ts
-git commit -m "feat(ingest): backfill benchmark validation columns for gated set"
+git add packages/db/src/schema.ts packages/db/drizzle/0009_smoke_benchmark_validation.sql
+git commit -m "feat(db): benchmark validation columns on smoke_trades"
 ```
 
 ---
 
-### Task 7: Dashboard — surface oracle deviation + manipulation badge
+### Task 7: Persist benchmark validation through the smoke loader
 
 **Files:**
-- Modify: `packages/dashboard/components/TradesTable.tsx:292-294` (the "Market Price" `DetailRow`)
-- Modify: `packages/dashboard/components/TradesTable.test.tsx` (add a rendering test)
+- Modify: `packages/ingest/src/normalizeSmokeTrade.ts` (`SmokeTradeRow` interface; `buildSmokeRow` args/body/return; the async `normalizeSmokeTrade` wrapper)
+- Modify: `packages/ingest/src/load-smoke-trades.ts` (the Drizzle `.values({})` and `.onConflictDoUpdate({ set })`)
+- Test: `packages/ingest/src/normalizeSmokeTrade.test.ts`
 
-**Interfaces:**
-- Consumes: `row.chainlinkDevBps`, `row.manipulationFlag`, `row.poolDivergenceBps` — auto-present on `RouterTradeRow` after Task 3. Drizzle numerics deserialize as `string | null`; the boolean as `boolean | null`.
+**Interfaces consumed:** `getBenchmarkMid(...) → BenchmarkResult` with `marketMid`, `chainlinkPrice`, `chainlinkDevBps`, `poolDivergenceBps`, `manipulationSuspect`, `flags: string[]`, `lowConfidence: boolean`.
+
+- [ ] **Step 1: Write the failing test**
+
+In `packages/ingest/src/normalizeSmokeTrade.test.ts`, add a second case inside the existing `describe('buildSmokeRow', …)` (reuse the `trace`/`trader` fixtures already defined at top of file):
+
+```ts
+	it('forces decompConfidence to low and merges bench flags when benchLowConfidence is set', () => {
+		const r = buildSmokeRow({
+			candidate: {
+				txHash: '0xdef', aggregator: 'odos', trader,
+				experimentSlug: 'smoke-9', runId: 'run-1', v1Status: 'success',
+				v1QuoteAmountUsd: 2, v1RealizedAmountUsd: 1.99,
+			},
+			trace,
+			receiptLogs: trace.logs,
+			gasUsed: 200000n,
+			effectiveGasPriceWei: 50000000n,
+			marketMid: 2100,
+			blockNumber: 12345,
+			decomposition: { lpFeeBps: 5, aggFeeBps: 0, slippageBps: 1, executionBps: 6, gasBps: 0, flags: [] },
+			decompConfidence: 'high',
+			benchLowConfidence: true,
+			benchFlags: ['MANIPULATION_SUSPECT'],
+			manipulationFlag: true,
+			chainlinkDevBps: 80,
+			poolDivergenceBps: 4,
+			chainlinkPrice: 2080,
+		});
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.row.decompConfidence).toBe('low');
+		expect(r.row.normalizeFlags).toContain('MANIPULATION_SUSPECT');
+		expect(r.row.manipulationFlag).toBe(true);
+		expect(r.row.chainlinkDevBps).toBe(80);
+	});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `npx vitest run packages/ingest/src/normalizeSmokeTrade.test.ts`
+Expected: FAIL — `benchLowConfidence`/`benchFlags`/`manipulationFlag`/`chainlinkDevBps` are not valid `buildSmokeRow` args yet (type error / undefined fields).
+
+- [ ] **Step 3: Extend the `SmokeTradeRow` interface**
+
+In `normalizeSmokeTrade.ts`, in the `SmokeTradeRow` interface, immediately after `settlementEventSeen: boolean; normalizeFlags: string[];` add:
+
+```ts
+	chainlinkPrice: number | null; chainlinkDevBps: number | null;
+	poolDivergenceBps: number | null; manipulationFlag: boolean;
+```
+
+- [ ] **Step 4: Extend `buildSmokeRow` args**
+
+In the `buildSmokeRow` args object type, after `decompConfidence?: string | null;` add:
+
+```ts
+	chainlinkPrice?: number | null;
+	chainlinkDevBps?: number | null;
+	poolDivergenceBps?: number | null;
+	manipulationFlag?: boolean;
+	benchFlags?: string[];
+	benchLowConfidence?: boolean;
+```
+
+- [ ] **Step 5: Merge bench flags + downgrade confidence in `buildSmokeRow` body**
+
+Change the flags initialization from `const flags = [...d.flags];` to:
+
+```ts
+		const flags = [...d.flags, ...(args.benchFlags ?? [])];
+```
+
+Then, just before the `return { ok: true, row: { … } }`, add:
+
+```ts
+		const decompConfidence = args.benchLowConfidence ? 'low' : (args.decompConfidence ?? null);
+```
+
+In the returned `row`, replace `decompConfidence: args.decompConfidence ?? null,` with `decompConfidence,` and, after `settlementEventSeen, normalizeFlags: flags,`, add:
+
+```ts
+				chainlinkPrice: args.chainlinkPrice ?? null,
+				chainlinkDevBps: args.chainlinkDevBps ?? null,
+				poolDivergenceBps: args.poolDivergenceBps ?? null,
+				manipulationFlag: args.manipulationFlag ?? false,
+```
+
+- [ ] **Step 6: Capture the full bench result in the async wrapper**
+
+In `normalizeSmokeTrade`, replace `const { marketMid } = await getBenchmarkMid({ rpcUrl, blockNumber: receipt.blockNumber });` with:
+
+```ts
+		const bench = await getBenchmarkMid({ rpcUrl, blockNumber: receipt.blockNumber });
+		const marketMid = bench.marketMid;
+```
+
+(The `probe` call to `buildSmokeRow` keeps using `marketMid` unchanged.) In the FINAL `buildSmokeRow` call (the one with `decomposition: routeResult`), after `decompConfidence: routeResult.confidence,` add:
+
+```ts
+				chainlinkPrice: bench.chainlinkPrice,
+				chainlinkDevBps: bench.chainlinkDevBps,
+				poolDivergenceBps: bench.poolDivergenceBps,
+				manipulationFlag: bench.manipulationSuspect,
+				benchFlags: bench.flags,
+				benchLowConfidence: bench.lowConfidence,
+```
+
+- [ ] **Step 7: Persist the four columns in the loader (values + upsert set)**
+
+In `packages/ingest/src/load-smoke-trades.ts`, in the `.values({ … })` object, after `settlementEventSeen: row.settlementEventSeen, normalizeFlags: row.normalizeFlags,` add:
+
+```ts
+				chainlinkPrice: row.chainlinkPrice == null ? null : String(row.chainlinkPrice),
+				chainlinkDevBps: row.chainlinkDevBps == null ? null : String(row.chainlinkDevBps),
+				poolDivergenceBps: row.poolDivergenceBps == null ? null : String(row.poolDivergenceBps),
+				manipulationFlag: row.manipulationFlag,
+```
+
+In the `.onConflictDoUpdate({ target: …, set: { … } })` `set` object, after `decompConfidence: row.decompConfidence,` add `marketMid` (currently MISSING from the update set, so re-runs never refresh the median) AND the four new columns:
+
+```ts
+					marketMid: String(row.marketMid),
+					chainlinkPrice: row.chainlinkPrice == null ? null : String(row.chainlinkPrice),
+					chainlinkDevBps: row.chainlinkDevBps == null ? null : String(row.chainlinkDevBps),
+					poolDivergenceBps: row.poolDivergenceBps == null ? null : String(row.poolDivergenceBps),
+					manipulationFlag: row.manipulationFlag,
+```
+
+- [ ] **Step 8: Run the test green**
+
+Run: `npx vitest run packages/ingest/src/normalizeSmokeTrade.test.ts`
+Expected: PASS (existing case + the new downgrade case).
+
+- [ ] **Step 9: Typecheck**
+
+Run: `npm run build --workspace packages/ingest 2>&1 | grep -E "normalizeSmokeTrade|load-smoke-trades" || echo "CLEAN: neither file has errors"`
+Expected: `CLEAN: neither file has errors` (the package exits 1 from 6 PRE-EXISTING unrelated errors — not these files).
+
+- [ ] **Step 10: Commit** (stage exactly these three files; do NOT `git add -A`)
+
+```bash
+git add packages/ingest/src/normalizeSmokeTrade.ts packages/ingest/src/load-smoke-trades.ts packages/ingest/src/normalizeSmokeTrade.test.ts
+git commit -m "feat(ingest): persist benchmark validation through smoke loader"
+```
+
+---
+
+### Task 8: Repopulate the 15 smoke rows
+
+**Files:** none committed (throwaway dump script + a live loader run).
+
+The transient `/tmp/smoke_candidates.json` may be gone, so regenerate a candidate file from the 15 stored rows and feed it back through the existing loader (reuses its upsert — now updating `market_mid` + the validation columns). `smoke_trades` bypasses the ±100 gate, so no rows are dropped.
+
+- [ ] **Step 1: Dump current smoke rows to a candidate file**
+
+Create throwaway `packages/ingest/src/_dump-smoke-candidates.ts`:
+
+```ts
+import 'dotenv/config';
+import { writeFileSync } from 'fs';
+import postgres from 'postgres';
+const sql = postgres(process.env.TCA_DATABASE_URL!);
+const rows = await sql`
+  SELECT tx_hash, aggregator, trader, experiment_slug, run_id, v1_status,
+         v1_quote_amount_usd, v1_realized_amount_usd FROM smoke_trades`;
+const candidates = rows.map((r: any) => ({
+  txHash: r.tx_hash, aggregator: r.aggregator, trader: r.trader,
+  experimentSlug: r.experiment_slug, runId: r.run_id, v1Status: r.v1_status,
+  v1QuoteAmountUsd: r.v1_quote_amount_usd == null ? null : Number(r.v1_quote_amount_usd),
+  v1RealizedAmountUsd: r.v1_realized_amount_usd == null ? null : Number(r.v1_realized_amount_usd),
+}));
+writeFileSync('/tmp/smoke_candidates_backfill.json', JSON.stringify(candidates, null, 2));
+console.log(`dumped ${candidates.length} candidates`);
+await sql.end();
+```
+
+Run from repo root: `npx tsx packages/ingest/src/_dump-smoke-candidates.ts` → expect `dumped 15 candidates`. Then `rm packages/ingest/src/_dump-smoke-candidates.ts`.
+
+- [ ] **Step 2: Re-run the loader over all 15 (upsert updates them)**
+
+`load-smoke-trades.ts` reads env directly (no dotenv), so source `.env`. `PER_AGG_LIMIT` high so nothing is capped; `ONLY_SUCCESS=0` so none are filtered; `SKIP_LOADED` unset so existing rows are updated:
+
+```bash
+set -a && source .env && set +a && \
+IN_PATH=/tmp/smoke_candidates_backfill.json PER_AGG_LIMIT=99 ONLY_SUCCESS=0 \
+npx tsx packages/ingest/src/load-smoke-trades.ts
+```
+Expected: a per-aggregator load report and `smoke_trades now holds 15 rows.` (count unchanged — upserts, not inserts).
+
+- [ ] **Step 3: Verify the 15 rows are populated; report flagged trades**
+
+Run from repo root:
+```bash
+npx tsx -e "import('dotenv/config').then(async()=>{const p=(await import('postgres')).default;const s=p(process.env.TCA_DATABASE_URL);const r=await s\`SELECT count(*) AS total, count(*) FILTER (WHERE pool_divergence_bps IS NULL) AS unfilled, count(*) FILTER (WHERE manipulation_flag) AS manip, count(*) FILTER (WHERE decomp_confidence='low') AS low_conf FROM smoke_trades\`;console.log(r[0]);const f=await s\`SELECT tx_hash, chainlink_dev_bps, pool_divergence_bps, manipulation_flag, decomp_confidence FROM smoke_trades WHERE manipulation_flag OR pool_divergence_bps > 15 ORDER BY chainlink_dev_bps DESC NULLS LAST\`;console.table(f);await s.end()})"
+```
+Expected: `total = 15`, `unfilled = 0`. `manip`/`low_conf`/the flagged table are informational — note them in the report for review. Then `rm -f /tmp/smoke_candidates_backfill.json`.
+
+- [ ] **Step 4: Commit** — nothing to commit (no tracked files changed). Record the verification numbers in the task report instead.
+
+---
+
+### Task 9: Dashboard — surface Chainlink Δ + manipulation badge
+
+**Files:**
+- Modify: `packages/dashboard/components/TradesTable.tsx` (the "Market Price" `DetailRow`)
+- Modify: `packages/dashboard/components/TradesTable.test.tsx`
+
+The dialog renders for `smoke_trades` rows (and `router_trades_gated`); both now carry the validation columns via `$inferSelect`. The `decomp_confidence` downgrade already renders through the existing `confidenceLabel(row.decompConfidence)`, so this task only adds the Chainlink deviation row + the manipulation badge.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -639,7 +852,7 @@ In `packages/dashboard/components/TradesTable.test.tsx`, add a test mirroring th
 						marketMid: '3000',
 						allInCostBps: '-1',
 						lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', gasCostUsd: '0.001',
-						hopCount: 1, routeShape: 'single', decompConfidence: 'high', routeLegs: [],
+						hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [],
 						chainlinkPrice: '2970', chainlinkDevBps: '101', poolDivergenceBps: '3', manipulationFlag: true,
 					} as never,
 				]}
@@ -652,11 +865,19 @@ In `packages/dashboard/components/TradesTable.test.tsx`, add a test mirroring th
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run packages/dashboard/components/TradesTable.test.tsx`
-Expected: FAIL — `'Possible manipulation'` not found in markup.
+Expected: FAIL — `'Possible manipulation'` not in markup.
 
 - [ ] **Step 3: Render the deviation row + badge**
 
-In `packages/dashboard/components/TradesTable.tsx`, replace the existing Market Price `DetailRow` (lines 292-294) with:
+In `packages/dashboard/components/TradesTable.tsx`, replace the existing Market Price `DetailRow` block:
+
+```tsx
+					<DetailRow label="Market Price" underscored>
+						{formatExecutionPrice(row.marketMid)}
+					</DetailRow>
+```
+
+with:
 
 ```tsx
 					<DetailRow label="Market Price" underscored>
@@ -674,7 +895,7 @@ In `packages/dashboard/components/TradesTable.tsx`, replace the existing Market 
 					) : null}
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: Run the test green**
 
 Run: `npx vitest run packages/dashboard/components/TradesTable.test.tsx`
 Expected: PASS (new test + existing tests).
@@ -682,9 +903,9 @@ Expected: PASS (new test + existing tests).
 - [ ] **Step 5: Typecheck the dashboard**
 
 Run: `npm run build --workspace packages/dashboard`
-Expected: exit 0 (`row.manipulationFlag` / `row.chainlinkDevBps` resolve on `RouterTradeRow`).
+Expected: exit 0 (`row.manipulationFlag` / `row.chainlinkDevBps` resolve on the row type).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Commit** (stage exactly these two files; do NOT `git add -A`)
 
 ```bash
 git add packages/dashboard/components/TradesTable.tsx packages/dashboard/components/TradesTable.test.tsx
@@ -695,11 +916,13 @@ git commit -m "feat(dashboard): surface Chainlink deviation + manipulation warni
 
 ## Final verification
 
-- [ ] Run the whole test suite from root: `npx vitest run`
-  Expected: all pass, including `benchmarkPrice.test.ts` and `TradesTable.test.tsx`.
+- [ ] Run the test suite from root: `npx vitest run` — all pass, including `benchmarkPrice.test.ts`, `normalizeSmokeTrade.test.ts`, `TradesTable.test.tsx`.
 - [ ] `grep -rn "POOL_5BPS" packages/ingest/src` → no matches.
-- [ ] Spot-open the dashboard trade dialog on a flagged trade and confirm the badge + Chainlink Δ row render.
+- [ ] Confirm `smoke_trades` has all 15 rows with non-null `pool_divergence_bps` (Task 8 Step 3).
+- [ ] Spot-open the dashboard trade dialog on a flagged smoke trade (if any) and confirm the badge + Chainlink Δ row render; confidence shows "low" for flagged rows.
 
 ## Earmarked follow-up (NOT in this plan)
 
 TWAP-based manipulation detector — a short (2–5 min) Uniswap V3 `observe()` TWAP compared against the `slot0` median as a second, oracle-independent manipulation signal. Adds a signal; does not change the benchmark value. Tracked in the design spec's "Future upgrade" section.
+
+> **Deferred:** Applying this benchmark + validation to the 165-row `router_trades_gated` set is intentionally out of scope — fresh data will be gathered later (per 2026-06-27 decision).
