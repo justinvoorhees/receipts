@@ -175,6 +175,11 @@ export const routerTradesGated = pgTable(
 		executionBps: numeric('execution_bps'),
 		gasCostUsd: numeric('gas_cost_usd'),
 		routePure: boolean('route_pure'),
+		// v2.2 benchmark validation (nullable — backfilled)
+		chainlinkPrice: numeric('chainlink_price'),
+		chainlinkDevBps: numeric('chainlink_dev_bps'),
+		poolDivergenceBps: numeric('pool_divergence_bps'),
+		manipulationFlag: boolean('manipulation_flag'),
 	},
 );
 
