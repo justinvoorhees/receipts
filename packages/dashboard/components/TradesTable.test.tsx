@@ -232,4 +232,24 @@ describe('TradesTable', () => {
 		expect(getFlagLabel({ decompConfidence: 'medium', normalizeFlags: [] })).toBe('None');
 		expect(getFlagLabel({ decompConfidence: 'low' })).toBe('None');
 	});
+
+	it('dialog shows manipulation badge and Chainlink Δ row when flagged', async () => {
+		const { TransactionDetailsDialog } = await import('./TradesTable');
+		const row = {
+			txHash: '0x1234567890abcdef1234567890abcdef12345678',
+			blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
+			usdcAmount: '1000.00', wethAmount: '0.33', realizedPrice: '3000',
+			marketMid: '3000', allInCostBps: '-1',
+			lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
+			hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
+			reconResidualBps: null, settledIn: 'WETH',
+			chainlinkPrice: '2970', chainlinkDevBps: '101', poolDivergenceBps: '3', manipulationFlag: true,
+		};
+		const html = renderToStaticMarkup(
+			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
+		);
+		expect(html).toContain('Possible manipulation');
+		expect(html).toContain('Chainlink Δ');
+		expect(html).toContain('101.0 bps'); // chainlinkDevBps 101 -> Number(101).toFixed(1)
+	});
 });

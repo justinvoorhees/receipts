@@ -215,7 +215,7 @@ function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => vo
 	);
 }
 
-function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onClose: () => void }) {
+export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onClose: () => void }) {
 	const legs = (row.routeLegs as RouteLeg[] | null | undefined) ?? [];
 	const costBps = Number(row.allInCostBps);
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(-costBps);
@@ -311,7 +311,17 @@ function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onClose: ()
 					</DetailRow>
 					<DetailRow label="Market Price" underscored>
 						{formatExecutionPrice(row.marketMid)}
+						{row.manipulationFlag ? (
+							<span className="ml-2 text-[var(--color-warning)]" title="Median pool mid deviates from Chainlink ETH/USD by more than 0.5% at N-1">
+								⚠ Possible manipulation
+							</span>
+						) : null}
 					</DetailRow>
+					{row.chainlinkDevBps != null ? (
+						<DetailRow label="Chainlink Δ">
+							{`${Number(row.chainlinkDevBps).toFixed(1)} bps`}
+						</DetailRow>
+					) : null}
 					<DetailRow label="Gas Cost">
 						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 					</DetailRow>
