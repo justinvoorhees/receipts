@@ -194,8 +194,17 @@ export async function getPairMidAtBlock(
   blockNumber: bigint,
   decimalsOf: (address: string) => Promise<number>,
   fallbackPool?: `0x${string}`,
+  precomputedWethUsd?: number,
 ): Promise<PairMidResult | null> {
   const { token0, token1, inverted } = sortTokens(tokenA, tokenB);
+
+  // Caller-supplied WETH/USD (e.g. the validated benchmark mid) wins over a pool read.
+  if (precomputedWethUsd != null) {
+    const aIsWeth = tokenA.toLowerCase() === WETH && tokenB.toLowerCase() === USDC;
+    const bIsWeth = tokenB.toLowerCase() === WETH && tokenA.toLowerCase() === USDC;
+    if (aIsWeth) return { price: precomputedWethUsd, poolAddress: 'precomputed', poolKind: 'precomputed' };
+    if (bIsWeth) return { price: precomputedWethUsd > 0 ? 1 / precomputedWethUsd : 0, poolAddress: 'precomputed', poolKind: 'precomputed' };
+  }
 
   const [dec0, dec1] = await Promise.all([
     decimalsOf(token0),
@@ -255,6 +264,7 @@ export async function getTokenUsdcValue(
   amountRaw: bigint,
   blockNumber: bigint,
   decimalsOf: (address: string) => Promise<number>,
+  precomputedWethUsd?: number,
 ): Promise<number | null> {
   const tokenLc = token.toLowerCase();
 
@@ -268,6 +278,7 @@ export async function getTokenUsdcValue(
 
   // Direct WETH → USDC
   if (tokenLc === WETH) {
+    if (precomputedWethUsd != null) return humanAmount * precomputedWethUsd;
     const mid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
     if (mid === null) return null;
     return humanAmount * mid.price;

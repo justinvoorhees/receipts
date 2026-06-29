@@ -5,8 +5,9 @@
  * and decimals-cache behavior. RPC-dependent integration (getPairMidAtBlock,
  * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
  */
-import { describe, expect, it } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getLegMidAtBlock } from './tokenPricing.js';
+import { describe, expect, it, vi } from 'vitest';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getLegMidAtBlock, getTokenUsdcValue } from './tokenPricing.js';
+import { type PublicClient } from 'viem';
 import type { Leg } from './routeGraph.js';
 
 // ── sqrtPriceX96ToPrice ─────────────────────────────────────────────────────
@@ -140,6 +141,20 @@ describe('makeDecimalsCache', () => {
     const dec = await cache('0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
     expect(dec).toBe(12);
     expect(rpcCalls).toBe(1); // only one RPC call despite different casing
+  });
+});
+
+// ── getTokenUsdcValue — precomputedWethUsd override ─────────────────────────
+
+describe('getTokenUsdcValue', () => {
+  it('uses precomputedWethUsd for WETH without any pool read', async () => {
+    const client = { readContract: vi.fn() } as unknown as PublicClient; // throws if used
+    const decimalsOf = async () => 18;
+    const WETH = '0x4200000000000000000000000000000000000006';
+    const oneWeth = 10n ** 18n;
+    const val = await getTokenUsdcValue(client, WETH, oneWeth, 100n, decimalsOf, 3000);
+    expect(val).toBeCloseTo(3000, 6);
+    expect((client.readContract as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 });
 
