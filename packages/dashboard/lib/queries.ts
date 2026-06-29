@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql } from 'drizzle-orm';
+import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
 import { DEFAULT_DATASET, DATASET_TABLE, DATASET_TABLE_NAME, DATASET_BATCH, type Dataset } from './datasets';
@@ -158,5 +158,98 @@ export async function getCostByAggregator(dataset: Dataset = DEFAULT_DATASET): P
 	return rows.map((r) => ({
 		aggregator: r.aggregator,
 		costBps: Number(r.allInCostBps),
+	}));
+}
+
+// ─── Curated 25-trade set ────────────────────────────────────────────────────
+// 15 from smoke-01/02/03 (1 per agg each) + first 2 per agg from smoke-04.
+
+/**
+ * Returns exactly the curated 25 trades: all from smoke-01/02/03 plus the
+ * first 2 per aggregator from smoke-04 (ordered by loaded_at).
+ */
+export async function getCuratedTrades(): Promise<TradeRow[]> {
+	const db = getDb();
+	const base = await db
+		.select()
+		.from(schema.smokeTrades)
+		.where(inArray(schema.smokeTrades.batch, ['smoke-01', 'smoke-02', 'smoke-03']))
+		.orderBy(desc(schema.smokeTrades.blockNumber));
+
+	const smoke04 = await db
+		.select()
+		.from(schema.smokeTrades)
+		.where(eq(schema.smokeTrades.batch, 'smoke-04'))
+		.orderBy(asc(schema.smokeTrades.loadedAt));
+
+	const seen = new Map<string, number>();
+	const top2: typeof smoke04 = [];
+	for (const row of smoke04) {
+		const n = seen.get(row.aggregator) ?? 0;
+		if (n < 2) { top2.push(row); seen.set(row.aggregator, n + 1); }
+	}
+
+	return [...base, ...top2] as unknown as TradeRow[];
+}
+
+/** Cost samples for the curated 25 trades. Feeds the trust-matrix. */
+export async function getCuratedCostByAggregator(): Promise<{ aggregator: string; costBps: number }[]> {
+	const rows = await getCuratedTrades();
+	return rows.map((r) => ({ aggregator: r.aggregator, costBps: Number(r.allInCostBps) }));
+}
+
+/** Per-aggregator rollup over the curated 25 trades, computed in Postgres. */
+export async function getCuratedAggregatorSummary(): Promise<AggregatorSummaryRow[]> {
+	const db = getDb();
+	const rows = await db.execute<{
+		aggregator: string;
+		trade_count: string;
+		median_cost_bps: string | null;
+		stdev_cost_bps: string | null;
+		median_lp_fee_bps: string | null;
+		median_agg_fee_bps: string | null;
+		median_slippage_bps: string | null;
+		median_gas_usd: string | null;
+		weth_count: string;
+		eth_count: string;
+	}>(sql`
+		WITH smoke04_top2 AS (
+			SELECT tx_hash FROM (
+				SELECT tx_hash, ROW_NUMBER() OVER (PARTITION BY aggregator ORDER BY loaded_at ASC) AS rn
+				FROM smoke_trades WHERE batch = 'smoke-04'
+			) ranked WHERE rn <= 2
+		),
+		curated AS (
+			SELECT * FROM smoke_trades WHERE batch IN ('smoke-01', 'smoke-02', 'smoke-03')
+			UNION ALL
+			SELECT st.* FROM smoke_trades st
+			INNER JOIN smoke04_top2 t2 ON t2.tx_hash = st.tx_hash
+		)
+		SELECT
+			aggregator,
+			COUNT(*) AS trade_count,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY all_in_cost_bps::numeric) AS median_cost_bps,
+			STDDEV_POP(all_in_cost_bps::numeric) AS stdev_cost_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY lp_fee_bps::numeric) AS median_lp_fee_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY agg_fee_bps::numeric) AS median_agg_fee_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY slippage_bps::numeric) AS median_slippage_bps,
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY gas_cost_usd::numeric) AS median_gas_usd,
+			SUM((settled_in = 'WETH')::int) AS weth_count,
+			SUM((settled_in = 'ETH')::int) AS eth_count
+		FROM curated
+		GROUP BY aggregator
+		ORDER BY trade_count DESC
+	`);
+	return rows.map((r) => ({
+		aggregator: r.aggregator,
+		tradeCount: Number(r.trade_count),
+		medianCostBps: Number(r.median_cost_bps ?? 0),
+		stdevCostBps: Number(r.stdev_cost_bps ?? 0),
+		medianLpFeeBps: Number(r.median_lp_fee_bps ?? 0),
+		medianAggFeeBps: Number(r.median_agg_fee_bps ?? 0),
+		medianSlippageBps: Number(r.median_slippage_bps ?? 0),
+		medianGasUsd: Number(r.median_gas_usd ?? 0),
+		wethCount: Number(r.weth_count ?? 0),
+		ethCount: Number(r.eth_count ?? 0),
 	}));
 }

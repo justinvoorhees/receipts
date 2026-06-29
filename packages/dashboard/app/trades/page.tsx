@@ -1,13 +1,11 @@
 import {
-	getRecentTrades,
+	getCuratedTrades,
 	TRADES_SORT_COLUMNS,
 	type SortDirection,
 	type TradesSort,
 	type TradesSortColumn,
 } from '../../lib/queries';
 import { TradesTable } from '../../components/TradesTable';
-import { DatasetToggle } from '../../components/DatasetToggle';
-import { parseDataset } from '../../lib/datasets';
 
 export const revalidate = 30;
 
@@ -17,12 +15,11 @@ const DEFAULT_SORT: TradesSort = { column: 'block', direction: 'desc' };
 export default async function TradesPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ sort?: string; dir?: string; ds?: string }>;
+	searchParams: Promise<{ sort?: string; dir?: string }>;
 }) {
 	const sp = await searchParams;
 	const sort = parseSort(sp);
-	const dataset = parseDataset(sp.ds);
-	const rows = await getRecentTrades(sort, 500, dataset);
+	const rows = await getCuratedTrades();
 
 	return (
 		<div className="pb-5">
@@ -38,8 +35,6 @@ export default async function TradesPage({
 					style={{ fontFeatureSettings: '"calt" 0' }}
 				>
 					<span>{rows.length.toLocaleString()} trades</span>
-					<span aria-hidden="true">•</span>
-					<DatasetToggle dataset={dataset} />
 				</div>
 			</div>
 

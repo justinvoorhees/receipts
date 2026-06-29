@@ -93,29 +93,18 @@ export function TrustMatrix({ points, metric }: TrustMatrixProps) {
 
 	return (
 		<div className="relative w-full" style={{ paddingLeft: 28, paddingBottom: 28 }}>
-			{/* Y axis — "High" at top, "Severity" centered, rotated */}
+			{/* Y axis — "High" endpoint at top, "Severity" axis name centered, both at same left */}
 			<div
-				className="absolute font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)] whitespace-nowrap"
-				style={{
-					left: 0,
-					top: 0,
-					transform: 'rotate(-90deg) translateX(-100%)',
-					transformOrigin: '0 0',
-					fontFeatureSettings: '"calt" 0',
-				}}
+				className="absolute flex items-center justify-center font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)]"
+				style={{ left: 0, top: 0, width: 12, height: 28, fontFeatureSettings: '"calt" 0' }}
 			>
-				High
+				<span className="whitespace-nowrap" style={{ transform: 'rotate(-90deg)' }}>High</span>
 			</div>
 			<div
-				className="absolute font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)] whitespace-nowrap"
-				style={{
-					left: 6,
-					top: '50%',
-					transform: 'translateY(-50%) rotate(-90deg)',
-					fontFeatureSettings: '"calt" 0',
-				}}
+				className="absolute flex items-center justify-center font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)]"
+				style={{ left: 0, top: '50%', transform: 'translateY(-50%)', width: 12, height: 56, fontFeatureSettings: '"calt" 0' }}
 			>
-				Severity
+				<span className="whitespace-nowrap" style={{ transform: 'rotate(-90deg)' }}>Severity</span>
 			</div>
 
 			{/* Plot square — no border, quadrant fills define edges */}
@@ -138,34 +127,6 @@ export function TrustMatrix({ points, metric }: TrustMatrixProps) {
 					style={{ left: '50%', top: '50%', width: '50%', height: '50%' }}
 				/>
 
-				{/* Y axis arrow — left edge of plot, pointing up */}
-				<div className="absolute" style={{ left: 0, top: 0, bottom: 0, width: 8 }}>
-					<svg
-						className="block h-full"
-						width="8"
-						preserveAspectRatio="none"
-						viewBox="0 0 8 100"
-						aria-hidden="true"
-					>
-						<line x1="0.5" y1="100" x2="0.5" y2="2" stroke="var(--color-tertiary)" strokeWidth="0.5" strokeOpacity="0.4" />
-						<polygon points="0.5,0 -2,6 3,6" fill="var(--color-tertiary)" fillOpacity="0.4" />
-					</svg>
-				</div>
-
-				{/* X axis arrow — bottom edge of plot, pointing right */}
-				<div className="absolute" style={{ left: 0, right: 0, bottom: 0, height: 8 }}>
-					<svg
-						className="block w-full"
-						height="8"
-						preserveAspectRatio="none"
-						viewBox="0 0 100 8"
-						aria-hidden="true"
-					>
-						<line x1="0" y1="7.5" x2="98" y2="7.5" stroke="var(--color-tertiary)" strokeWidth="0.5" strokeOpacity="0.4" />
-						<polygon points="100,7.5 94,5 94,10" fill="var(--color-tertiary)" fillOpacity="0.4" />
-					</svg>
-				</div>
-
 				{/* Quadrant labels at center of each region */}
 				<QuadrantLabel left={leftC} top={topC} text="Volatile" />
 				<QuadrantLabel left={rightC} top={topC} text="Untrustworthy" />
@@ -178,14 +139,14 @@ export function TrustMatrix({ points, metric }: TrustMatrixProps) {
 				))}
 			</div>
 
-			{/* X axis — "Low" left, "Frequency" center, "High" right */}
+			{/* X axis — "Low" aligned with Y axis labels at left:0, "Frequency" center, "High" right */}
 			<div
-				className="flex items-baseline justify-between mt-[8px] font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)]"
+				className="relative mt-[20px] h-[12px] font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-tertiary)]"
 				style={{ fontFeatureSettings: '"calt" 0' }}
 			>
-				<span>Low</span>
-				<span>Frequency</span>
-				<span>High</span>
+				<span className="absolute" style={{ left: -28 }}>Low</span>
+				<span className="absolute left-1/2 -translate-x-1/2">Frequency</span>
+				<span className="absolute right-0">High</span>
 			</div>
 
 			{/* sr-only axis description for accessibility */}

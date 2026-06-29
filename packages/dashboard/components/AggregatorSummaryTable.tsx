@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { formatAccuracy, formatContribution, formatGasUsd, formatProvider, formatVariability } from '../lib/formatters';
 import type { AggregatorSummaryRow } from '../lib/queries';
 
-type SortColumn = 'aggregator' | 'accuracy' | 'lpFee' | 'aggFee' | 'slippage' | 'gas' | 'variability' | 'trades';
+type SortColumn = 'aggregator' | 'accuracy' | 'lpFee' | 'aggFee' | 'slippage' | 'gas' | 'variability';
 type SortDirection = 'asc' | 'desc';
 interface Sort { column: SortColumn; direction: SortDirection }
 
@@ -15,7 +15,6 @@ const ACCESSORS: Record<SortColumn, (r: AggregatorSummaryRow) => string | number
 	slippage: (r) => -r.medianSlippageBps, // sign-flipped: sort matches display
 	gas: (r) => r.medianGasUsd,
 	variability: (r) => r.stdevCostBps,
-	trades: (r) => r.tradeCount,
 };
 
 const DEFAULT_SORT: Sort = { column: 'accuracy', direction: 'desc' };
@@ -83,9 +82,6 @@ function HeaderRow({ sort, onSort }: { sort: Sort; onSort: (col: SortColumn) => 
 				<SortHeader col="variability" sort={sort} onSort={onSort} className="w-[80px] text-right">
 					Variability
 				</SortHeader>
-				<SortHeader col="trades" sort={sort} onSort={onSort} className="w-[58px] text-right">
-					Trades
-				</SortHeader>
 			</div>
 		</div>
 	);
@@ -150,7 +146,6 @@ function DataRow({ row }: { row: AggregatorSummaryRow }) {
 				</span>
 				<span className="w-[64px]">{formatGasUsd(row.medianGasUsd)}</span>
 				<span className="w-[80px]">{formatVariability(row.stdevCostBps)}</span>
-				<span className="w-[58px]">{row.tradeCount}</span>
 			</div>
 		</div>
 	);

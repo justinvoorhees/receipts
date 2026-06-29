@@ -304,12 +304,12 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 							</span>
 						)}
 					</DetailRow>
-					<DetailRow label="Token In">{formatTokenIn(row)}</DetailRow>
-					<DetailRow label="Token Out">{formatTokenOut(row)}</DetailRow>
-					<DetailRow label="Realized Execution Price">
+					<DetailRow label="Token In" subvalue={formatSubvalueUsd(Number(row.usdcAmount))}>{formatTokenIn(row)}</DetailRow>
+					<DetailRow label="Token Out" subvalue={formatSubvalueUsd(Number(row.wethAmount) * Number(row.realizedPrice))}>{formatTokenOut(row)}</DetailRow>
+					<DetailRow label="Realized Execution Price" subvalue={formatSubvalueUsd(Number(row.realizedPrice))}>
 						{formatExecutionPrice(row.realizedPrice)}
 					</DetailRow>
-					<DetailRow label="Market Price" underscored>
+					<DetailRow label="Market Price" underscored subvalue={formatSubvalueUsd(Number(row.marketMid))}>
 						{formatExecutionPrice(row.marketMid)}
 						{row.manipulationFlag ? (
 							<span className="ml-2 text-[var(--color-warning)]" title="Median pool mid deviates from Chainlink ETH/USD by more than 0.5% at N-1">
@@ -317,11 +317,6 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 							</span>
 						) : null}
 					</DetailRow>
-					{row.chainlinkDevBps != null ? (
-						<DetailRow label="Chainlink Δ">
-							{`${Number(row.chainlinkDevBps).toFixed(1)} bps`}
-						</DetailRow>
-					) : null}
 					<DetailRow label="Gas Cost">
 						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 					</DetailRow>
@@ -413,10 +408,12 @@ function DetailRow({
 	label,
 	children,
 	underscored = false,
+	subvalue,
 }: {
 	label: string;
 	children: React.ReactNode;
 	underscored?: boolean;
+	subvalue?: string;
 }) {
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
@@ -425,9 +422,21 @@ function DetailRow({
 			>
 				{label}
 			</span>
-			<span className="min-w-0 text-right">{children}</span>
+			{subvalue != null ? (
+				<div className="flex flex-col gap-[5px] items-end min-w-0">
+					<span>{children}</span>
+					<span className="text-[var(--color-secondary)]">{subvalue}</span>
+				</div>
+			) : (
+				<span className="min-w-0 text-right">{children}</span>
+			)}
 		</div>
 	);
+}
+
+function formatSubvalueUsd(value: number): string {
+	if (!Number.isFinite(value) || value === 0) return '–';
+	return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function BreakdownHeading({
@@ -446,7 +455,7 @@ function BreakdownHeading({
 	return (
 		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
 			{tooltip ? (
-				<span className="group relative cursor-pointer underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+				<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 					{label}
 					<div
 						role="tooltip"

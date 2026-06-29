@@ -9,6 +9,8 @@ const OPTIONS: { value: Dataset; label: string }[] = [
 	{ value: 'smoke', label: 'Smoke 01' },
 	{ value: 'smoke02', label: 'Smoke 02' },
 	{ value: 'smoke03', label: 'Smoke 03' },
+	{ value: 'smoke04', label: 'Smoke 04' },
+	{ value: 'smoke05', label: 'Smoke 05' },
 ];
 
 export function DatasetToggle({ dataset }: { dataset: Dataset }) {
