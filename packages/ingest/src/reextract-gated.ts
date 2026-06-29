@@ -201,6 +201,9 @@ interface GatedRow {
 	chainlink_dev_bps: number | null;
 	pool_divergence_bps: number;
 	manipulation_flag: boolean;
+	offchain_price: number | null;
+	offchain_dev_bps: number | null;
+	chainlink_staleness_secs: number | null;
 }
 
 // ─── Processing one tx ───
@@ -355,6 +358,9 @@ async function processOne(
 			chainlink_dev_bps: bench.chainlinkDevBps,
 			pool_divergence_bps: bench.poolDivergenceBps,
 			manipulation_flag: bench.manipulationSuspect,
+			offchain_price: bench.offchainPrice,
+			offchain_dev_bps: bench.offchainDevBps,
+			chainlink_staleness_secs: bench.chainlinkStalenessSecs,
 		};
 
 		return { status: 'inserted', aggregator, row };
@@ -400,6 +406,9 @@ async function main(): Promise<void> {
 			chainlink_dev_bps   numeric,
 			pool_divergence_bps numeric,
 			manipulation_flag   boolean,
+			offchain_price        numeric,
+			offchain_dev_bps      numeric,
+			chainlink_staleness_secs numeric,
 			loaded_at           timestamptz NOT NULL DEFAULT now()
 		)
 	`;
@@ -485,7 +494,8 @@ async function main(): Promise<void> {
 				tx_hash, aggregator, trader, original_trader, re_anchored,
 				direction, settled_in, usdc_amount, weth_amount, realized_price,
 				market_mid, all_in_cost_bps, block_number, gate_reason,
-				chainlink_price, chainlink_dev_bps, pool_divergence_bps, manipulation_flag
+				chainlink_price, chainlink_dev_bps, pool_divergence_bps, manipulation_flag,
+				offchain_price, offchain_dev_bps, chainlink_staleness_secs
 			) VALUES (
 				${row.tx_hash}, ${row.aggregator}, ${row.trader}, ${row.original_trader},
 				${row.re_anchored}, ${row.direction}, ${row.settled_in},
@@ -493,7 +503,8 @@ async function main(): Promise<void> {
 				${row.market_mid}, ${row.all_in_cost_bps}, ${row.block_number},
 				${row.gate_reason},
 				${row.chainlink_price}, ${row.chainlink_dev_bps},
-				${row.pool_divergence_bps}, ${row.manipulation_flag}
+				${row.pool_divergence_bps}, ${row.manipulation_flag},
+				${row.offchain_price}, ${row.offchain_dev_bps}, ${row.chainlink_staleness_secs}
 			)
 			ON CONFLICT (tx_hash) DO NOTHING
 		`;
