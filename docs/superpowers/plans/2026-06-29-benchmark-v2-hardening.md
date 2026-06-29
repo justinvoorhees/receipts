@@ -11,6 +11,7 @@
 ## Global Constraints
 
 - All intra-package imports use `.js` specifiers (ESM). Copy this convention verbatim.
+- Tests run from the repo root via `npx vitest run <filename-substring>` (e.g. `npx vitest run benchmarkPrice`). `packages/ingest` has **no** `test` script — do NOT use `npm run test --workspace packages/ingest`.
 - The benchmark **value** never changes: `marketMid = median(validPoolPrices)` from `slot0` at block N−1. This work only touches flags/confidence and valuation references.
 - `DIVERGENCE_TOL_BPS = 15`, `MANIPULATION_TOL_BPS = 50`, `MIN_VALID_POOLS = 2` keep their current numeric values.
 - New columns are **nullable**; no backfill of existing rows.
@@ -81,7 +82,7 @@ Add inside `describe('computeBenchmark', ...)`:
 
 - [ ] **Step 3: Run the tests to verify the new expectations fail**
 
-Run: `npm run test --workspace packages/ingest -- benchmarkPrice`
+Run: `npx vitest run benchmarkPrice`
 Expected: FAIL — `poolDivergenceBps` is still the old `(max−min)/median` value (6.67 and 19.9), not the new median-relative value.
 
 - [ ] **Step 4: Change the divergence formula**
@@ -105,7 +106,7 @@ Change its comment to: `// Max single-pool deviation from the median (NOT full s
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `npm run test --workspace packages/ingest -- benchmarkPrice`
+Run: `npx vitest run benchmarkPrice`
 Expected: PASS (all cases).
 
 - [ ] **Step 7: Commit**
@@ -197,7 +198,7 @@ Also update the pool-only tests from Task 1 to pass `{ chainlink: OK(<n>), offCh
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm run test --workspace packages/ingest -- benchmarkPrice`
+Run: `npx vitest run benchmarkPrice`
 Expected: FAIL — `computeBenchmark` still takes `(perPool, chainlinkPrice: number | null)`; new signature/flags don't exist.
 
 - [ ] **Step 3: Extend `BenchmarkResult` and add the `OracleInput` type**
@@ -299,7 +300,7 @@ export function computeBenchmark(
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm run test --workspace packages/ingest -- benchmarkPrice`
+Run: `npx vitest run benchmarkPrice`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -360,7 +361,7 @@ describe('makeDuneEthUsdOracle', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `npm run test --workspace packages/ingest -- duneOracle`
+Run: `npx vitest run duneOracle`
 Expected: FAIL — module `./duneOracle.js` does not exist.
 
 - [ ] **Step 3: Implement the Dune adapter**
@@ -414,7 +415,7 @@ Note for the implementer: `DUNE_ETH_USD_QUERY_ID` must be set to the real saved-
 
 - [ ] **Step 4: Run the adapter tests to verify they pass**
 
-Run: `npm run test --workspace packages/ingest -- duneOracle`
+Run: `npx vitest run duneOracle`
 Expected: PASS.
 
 - [ ] **Step 5: Wire staleness + Dune into `getBenchmarkMid`**
@@ -482,7 +483,7 @@ Add `import { makeDuneEthUsdOracle, type OffChainOracle } from './duneOracle.js'
 
 - [ ] **Step 6: Run the full ingest test suite to verify nothing regressed**
 
-Run: `npm run test --workspace packages/ingest -- benchmarkPrice duneOracle`
+Run: `npx vitest run benchmarkPrice duneOracle`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -542,7 +543,7 @@ Thread these through `buildSmokeRow`'s args/row object the same way the existing
 
 - [ ] **Step 4: Build the DB + ingest packages to typecheck the new columns**
 
-Run: `npm run build --workspace packages/db && npm run test --workspace packages/ingest -- normalizeSmokeTrade`
+Run: `npm run build --workspace packages/db && npx vitest run normalizeSmokeTrade`
 Expected: db build clean; normalizeSmokeTrade tests PASS (pre-existing unrelated tsc errors in other ingest scripts, per follow-up #7, are not introduced by this task).
 
 - [ ] **Step 5: Commit**
@@ -580,7 +581,7 @@ In `normalizeSmokeTrade.test.ts`, add a case to whichever `describe` exercises `
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `npm run test --workspace packages/ingest -- normalizeSmokeTrade`
+Run: `npx vitest run normalizeSmokeTrade`
 Expected: FAIL — `gasCostUsd` currently equals `gasCostEth × realizedPrice`.
 
 - [ ] **Step 3: Change the smoke-path gas valuation**
@@ -598,7 +599,7 @@ In `decompose-gated.ts` line ~92, replace `const gasCostUsd = gasCostEth * reali
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm run test --workspace packages/ingest -- normalizeSmokeTrade`
+Run: `npx vitest run normalizeSmokeTrade`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -639,7 +640,7 @@ In `tokenPricing.test.ts`, add:
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `npm run test --workspace packages/ingest -- tokenPricing`
+Run: `npx vitest run tokenPricing`
 Expected: FAIL — `getTokenUsdcValue` has no 6th parameter; the WETH branch calls `getPairMidAtBlock` (a pool read).
 
 - [ ] **Step 3: Add the override to `getPairMidAtBlock`**
@@ -671,7 +672,7 @@ Add `precomputedWethUsd?: number,` to its signature (after `decimalsOf`). In the
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm run test --workspace packages/ingest -- tokenPricing`
+Run: `npx vitest run tokenPricing`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
