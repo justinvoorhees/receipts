@@ -9,12 +9,15 @@
 import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 import { sqrtPriceX96ToUsdcPerWeth } from './referencePrice.js';
+import { makeDuneEthUsdOracle, type OffChainOracle } from './duneOracle.js';
 
 // Tolerances (see design spec 2026-06-26-robust-benchmark-oracle-validation).
 // Max single-pool deviation from the median (NOT full spread). ~half the old metric.
 export const DIVERGENCE_TOL_BPS = 15;
 export const MANIPULATION_TOL_BPS = 50;
 export const MIN_VALID_POOLS = 2;
+export const MAX_CHAINLINK_STALENESS_SECS = 1200; // 20 min
+export const MAX_OFFCHAIN_STALENESS_SECS = 1200;  // 20 min
 
 /** Three deepest WETH/USDC pools on Base. token0 = WETH for all (10^12 adjust). */
 export const BENCHMARK_POOLS: { label: string; address: `0x${string}` }[] = [
@@ -79,6 +82,7 @@ export interface BenchmarkResult {
   manipulationSuspect: boolean;
   flags: string[];
   lowConfidence: boolean;
+  chainlinkStalenessSecs: number | null;
 }
 
 export function median(xs: number[]): number {
@@ -159,36 +163,54 @@ export function computeBenchmark(
     chainlinkPrice, chainlinkDevBps,
     offchainPrice, offchainDevBps,
     manipulationSuspect, flags, lowConfidence,
+    chainlinkStalenessSecs: null,
   };
 }
 
-export async function getBenchmarkMid(args: { rpcUrl: string; blockNumber: bigint }): Promise<BenchmarkResult> {
+export async function getBenchmarkMid(args: {
+  rpcUrl: string;
+  blockNumber: bigint;
+  offChainOracle?: OffChainOracle;
+}): Promise<BenchmarkResult> {
   const client = createPublicClient({ chain: base, transport: http(args.rpcUrl) });
   const at = args.blockNumber - 1n;
 
-  const perPool = await Promise.all(
-    BENCHMARK_POOLS.map(async (pool) => {
-      const sqrtPriceX96 = await readSlot0Sqrt(client as never, pool.address, at);
-      return { label: pool.label, price: sqrtPriceX96 === null ? null : sqrtPriceX96ToUsdcPerWeth(sqrtPriceX96) };
-    }),
-  );
+  const offChainOracle: OffChainOracle = args.offChainOracle
+    ?? (process.env.DUNE_API_KEY ? makeDuneEthUsdOracle(process.env.DUNE_API_KEY) : async () => null);
 
-  let chainlinkPrice: number | null = null;
+  const [perPool, block] = await Promise.all([
+    Promise.all(
+      BENCHMARK_POOLS.map(async (pool) => {
+        const sqrtPriceX96 = await readSlot0Sqrt(client as PublicClient, pool.address, at);
+        return { label: pool.label, price: sqrtPriceX96 === null ? null : sqrtPriceX96ToUsdcPerWeth(sqrtPriceX96) };
+      }),
+    ),
+    client.getBlock({ blockNumber: at }),
+  ]);
+  const blockTs = Number(block.timestamp);
+
+  // Chainlink
+  let chainlink: OracleInput | null = null;
+  let chainlinkStalenessSecs: number | null = null;
   try {
     const round = await client.readContract({
-      address: CHAINLINK_ETH_USD,
-      abi: CHAINLINK_ABI,
-      functionName: 'latestRoundData',
-      blockNumber: at,
+      address: CHAINLINK_ETH_USD, abi: CHAINLINK_ABI, functionName: 'latestRoundData', blockNumber: at,
     });
-    chainlinkPrice = Number(round[1]) / 1e8; // 8 decimals
+    const price = Number(round[1]) / 1e8;
+    chainlinkStalenessSecs = blockTs - Number(round[3]); // updatedAt is field index 3
+    chainlink = { price, stale: chainlinkStalenessSecs > MAX_CHAINLINK_STALENESS_SECS };
   } catch {
-    chainlinkPrice = null;
+    chainlink = null;
   }
 
-  // Bridge: Task 3 will wire the full OracleInput; for now supply chainlink only.
-  return computeBenchmark(perPool, {
-    chainlink: chainlinkPrice == null ? null : { price: chainlinkPrice, stale: false },
-    offChain: null,
-  });
+  // Off-chain (Dune)
+  let offChain: OracleInput | null = null;
+  try {
+    const off = await offChainOracle(blockTs);
+    if (off) offChain = { price: off.price, stale: blockTs - off.asOfSecs > MAX_OFFCHAIN_STALENESS_SECS };
+  } catch {
+    offChain = null;
+  }
+
+  return { ...computeBenchmark(perPool, { chainlink, offChain }), chainlinkStalenessSecs };
 }
