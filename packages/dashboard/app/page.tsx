@@ -1,18 +1,22 @@
 import { TrustMatrix } from '../components/TrustMatrix';
 import { AggregatorSummaryTable } from '../components/AggregatorSummaryTable';
-import { FilterRow } from '../components/FilterRow';
-import { getAggregatorSummary, getSlippageByAggregator } from '../lib/queries';
+import { DatasetToggle } from '../components/DatasetToggle';
+import { getAggregatorSummary, getCostByAggregator } from '../lib/queries';
+import { parseDataset } from '../lib/datasets';
 import { DEFAULT_STRATEGY, computeAggregatorPoints } from '../lib/trustMatrix';
 
 export const revalidate = 30;
 
-export default async function DashboardIndex() {
-	const [slippage, summary] = await Promise.all([
-		getSlippageByAggregator(),
-		getAggregatorSummary(),
+export default async function DashboardIndex({ searchParams }: { searchParams: Promise<{ ds?: string }> }) {
+	const dataset = parseDataset((await searchParams).ds);
+	const [costSamples, summary] = await Promise.all([
+		getCostByAggregator(dataset),
+		getAggregatorSummary(dataset),
 	]);
-	const points = computeAggregatorPoints(slippage, DEFAULT_STRATEGY);
+	const points = computeAggregatorPoints(costSamples, DEFAULT_STRATEGY);
 	const totalTrades = summary.reduce((sum, r) => sum + r.tradeCount, 0);
+	// Only aggregators with ≥5 trades are plotted on the matrix.
+	const plottedCount = points.filter((p) => p.sampleCount >= 5).length;
 
 	return (
 		<div className="pb-10">
@@ -28,27 +32,20 @@ export default async function DashboardIndex() {
 					style={{ fontFeatureSettings: '"calt" 0' }}
 				>
 					<span>
-						{points.length} {points.length === 1 ? 'Aggregator' : 'Aggregators'}
+						{plottedCount} {plottedCount === 1 ? 'Aggregator' : 'Aggregators'}
 					</span>
 					<span aria-hidden="true">•</span>
 					<span>{totalTrades.toLocaleString()} trades</span>
+					<span aria-hidden="true">•</span>
+					<DatasetToggle dataset={dataset} />
 				</div>
 			</div>
-
-			<FilterRow />
 
 			<div className="mt-[40px]">
 				<TrustMatrix points={points} metric={DEFAULT_STRATEGY} />
 			</div>
 
-			<p
-				className="font-['Sohne_Mono'] text-[12px] leading-[20px] text-[var(--color-secondary)] mt-[40px]"
-				style={{ fontFeatureSettings: '"calt" 0' }}
-			>
-				Metrics based on accuracy and variability over time.
-			</p>
-
-			<div className="mt-[20px]">
+			<div className="mt-[40px]">
 				<AggregatorSummaryTable rows={summary} />
 			</div>
 		</div>

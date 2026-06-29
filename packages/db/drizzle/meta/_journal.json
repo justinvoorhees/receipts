@@ -22,6 +22,41 @@
       "when": 1781659640292,
       "tag": "0002_bumpy_ultimatum",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781820338990,
+      "tag": "0003_chunky_deathbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781824990628,
+      "tag": "0004_cute_juggernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782240934184,
+      "tag": "0005_exotic_maximus",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782321538818,
+      "tag": "0006_flippant_peter_quill",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782342579578,
+      "tag": "0007_slow_leo",
+      "breakpoints": true
     }
   ]
 }

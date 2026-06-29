@@ -1,7 +1,5 @@
-import { Suspense } from 'react';
 import { NavTabs } from './NavTabs';
 import { ThemePicker } from './ThemePicker';
-import { IngestStatus } from './IngestStatus';
 
 // Native aspect ratio of the wordmark SVG is 512:139 (~3.683).
 // At 40px tall the rendered width is 40 * 512/139 ≈ 147.4px.
@@ -34,9 +32,6 @@ export function Header() {
 				/>
 			</a>
 			<div className="ml-auto flex items-center gap-[40px]">
-				<Suspense fallback={null}>
-					<IngestStatus />
-				</Suspense>
 				<NavTabs />
 				<ThemePicker />
 			</div>

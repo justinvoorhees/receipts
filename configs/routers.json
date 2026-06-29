@@ -9,7 +9,8 @@
 			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
-			"_verified": "eth_getCode: contract (14.7KB bytecode)."
+			"_comment": "deferred: also add Odos V3 0x0D05a7D3448512B78fa8A9e46c4872C88C4a0D05 (live on Base) for fuller coverage",
+			"_verified": "OdosRouterV2 on Base."
 		},
 		{
 			"name": "0x",
@@ -86,11 +87,11 @@
 		{
 			"name": "Relay",
 			"address": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
-			"version": "v1",
+			"version": "RelayApprovalProxyV3",
 			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
-			"_verified": "Confirmed as deployed contract via live execution in v1."
+			"_verified": "Verified via Blockscout: RelayApprovalProxyV3 contract (7746 bytes) on Base. All Relay trades in dataset route through this contract."
 		}
 	]
 }

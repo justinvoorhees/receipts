@@ -1,27 +1,31 @@
 import {
-	getRecentSwaps,
+	getRecentTrades,
 	TRADES_SORT_COLUMNS,
 	type SortDirection,
 	type TradesSort,
 	type TradesSortColumn,
 } from '../../lib/queries';
 import { TradesTable } from '../../components/TradesTable';
+import { DatasetToggle } from '../../components/DatasetToggle';
+import { parseDataset } from '../../lib/datasets';
 
 export const revalidate = 30;
 
 const VALID_SORT_COLUMNS = new Set(Object.keys(TRADES_SORT_COLUMNS) as TradesSortColumn[]);
-const DEFAULT_SORT: TradesSort = { column: 'time', direction: 'desc' };
+const DEFAULT_SORT: TradesSort = { column: 'block', direction: 'desc' };
 
 export default async function TradesPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ sort?: string; dir?: string }>;
+	searchParams: Promise<{ sort?: string; dir?: string; ds?: string }>;
 }) {
-	const sort = parseSort(await searchParams);
-	const rows = await getRecentSwaps(sort);
+	const sp = await searchParams;
+	const sort = parseSort(sp);
+	const dataset = parseDataset(sp.ds);
+	const rows = await getRecentTrades(sort, 500, dataset);
 
 	return (
-		<div className="pb-10">
+		<div className="pb-5">
 			<div className="flex items-end justify-between mt-[40px]">
 				<h1
 					className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
@@ -34,6 +38,8 @@ export default async function TradesPage({
 					style={{ fontFeatureSettings: '"calt" 0' }}
 				>
 					<span>{rows.length.toLocaleString()} trades</span>
+					<span aria-hidden="true">•</span>
+					<DatasetToggle dataset={dataset} />
 				</div>
 			</div>
 
@@ -56,9 +62,7 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 function EmptyState() {
 	return (
 		<p className="font-['Sohne_Mono'] text-[12px] leading-[20px] text-[var(--color-secondary)] mt-[40px] max-w-[640px]">
-			No promoted swaps yet. Run <code>tca-ingest poll</code> and{' '}
-			<code>tca-ingest promote</code> against an archive RPC; rows appear here as the
-			pipeline completes them.
+			No trades yet — the table populates from the <code>smoke_trades</code> dataset.
 		</p>
 	);
 }
