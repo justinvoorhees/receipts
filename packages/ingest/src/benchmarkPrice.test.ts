@@ -13,7 +13,8 @@ describe('computeBenchmark', () => {
   it('3 agreeing pools + close oracle → high confidence, no flags', () => {
     const r = computeBenchmark([P('a', 3000), P('b', 3001), P('c', 2999)], 3000);
     expect(r.marketMid).toBe(3000);
-    expect(r.poolDivergenceBps).toBeCloseTo(6.67, 1);
+    // median-relative: max(|3001-3000|,|2999-3000|)/3000 × 1e4 = 3.33
+    expect(r.poolDivergenceBps).toBeCloseTo(3.33, 1);
     expect(r.manipulationSuspect).toBe(false);
     expect(r.lowConfidence).toBe(false);
     expect(r.flags).toEqual([]);
@@ -39,6 +40,15 @@ describe('computeBenchmark', () => {
     expect(r.poolDivergenceBps).toBe(0);
     expect(r.flags).toContain('LOW_POOL_COVERAGE');
     expect(r.lowConfidence).toBe(true);
+  });
+
+  it('exactly 2 valid pools → half-spread divergence, no LOW_POOL_COVERAGE', () => {
+    // median([3000,3030]) = 3015; |3000-3015|/3015 × 1e4 = 49.75
+    const r = computeBenchmark([P('a', 3000), P('b', 3030), P('c', null)], 3015);
+    expect(r.marketMid).toBe(3015);
+    expect(r.poolDivergenceBps).toBeCloseTo(49.75, 1);
+    expect(r.flags).not.toContain('LOW_POOL_COVERAGE');
+    expect(r.flags).toContain('POOL_DIVERGENCE');
   });
 
   it('0 valid pools → throws', () => {

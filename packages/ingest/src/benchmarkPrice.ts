@@ -11,6 +11,7 @@ import { base } from 'viem/chains';
 import { sqrtPriceX96ToUsdcPerWeth } from './referencePrice.js';
 
 // Tolerances (see design spec 2026-06-26-robust-benchmark-oracle-validation).
+// Max single-pool deviation from the median (NOT full spread). ~half the old metric.
 export const DIVERGENCE_TOL_BPS = 15;
 export const MANIPULATION_TOL_BPS = 50;
 export const MIN_VALID_POOLS = 2;
@@ -101,7 +102,8 @@ export function computeBenchmark(
     flags.push('LOW_POOL_COVERAGE');
     lowConfidence = true;
   } else {
-    poolDivergenceBps = ((Math.max(...prices) - Math.min(...prices)) / marketMid) * 10_000;
+    const maxDevFromMedian = Math.max(...prices.map((p) => Math.abs(p - marketMid)));
+    poolDivergenceBps = (maxDevFromMedian / marketMid) * 10_000;
     if (poolDivergenceBps > DIVERGENCE_TOL_BPS) {
       flags.push('POOL_DIVERGENCE');
       lowConfidence = true;
