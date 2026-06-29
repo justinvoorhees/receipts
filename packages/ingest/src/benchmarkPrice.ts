@@ -66,12 +66,16 @@ async function readSlot0Sqrt(
   }
 }
 
+export interface OracleInput { price: number; stale: boolean }
+
 export interface BenchmarkResult {
   marketMid: number;
   perPool: { label: string; price: number | null }[];
   poolDivergenceBps: number;
   chainlinkPrice: number | null;
   chainlinkDevBps: number | null;
+  offchainPrice: number | null;
+  offchainDevBps: number | null;
   manipulationSuspect: boolean;
   flags: string[];
   lowConfidence: boolean;
@@ -86,7 +90,7 @@ export function median(xs: number[]): number {
 
 export function computeBenchmark(
   perPool: { label: string; price: number | null }[],
-  chainlinkPrice: number | null,
+  oracles: { chainlink: OracleInput | null; offChain: OracleInput | null },
 ): BenchmarkResult {
   const flags: string[] = [];
   let lowConfidence = false;
@@ -110,22 +114,52 @@ export function computeBenchmark(
     }
   }
 
-  let chainlinkDevBps: number | null = null;
+  const devBps = (oracle: number) => (Math.abs(marketMid - oracle) / oracle) * 10_000;
+
+  // Record raw deviations (vs. each oracle's own price) for audit, regardless of usability.
+  const chainlinkPrice = oracles.chainlink?.price ?? null;
+  const offchainPrice = oracles.offChain?.price ?? null;
+  const chainlinkDevBps = chainlinkPrice != null ? devBps(chainlinkPrice) : null;
+  const offchainDevBps = offchainPrice != null ? devBps(offchainPrice) : null;
+
+  // Availability flags.
+  if (oracles.chainlink == null) flags.push('CHAINLINK_UNAVAILABLE');
+  if (oracles.offChain == null) flags.push('OFFCHAIN_UNAVAILABLE');
+
+  // Staleness flags (oracle present but stale → downgrade, not usable for manipulation).
+  if (oracles.chainlink?.stale) { flags.push('CHAINLINK_STALE'); lowConfidence = true; }
+  if (oracles.offChain?.stale) { flags.push('OFFCHAIN_STALE'); lowConfidence = true; }
+
+  const usable: number[] = [];
+  if (oracles.chainlink && !oracles.chainlink.stale) usable.push(oracles.chainlink.price);
+  if (oracles.offChain && !oracles.offChain.stale) usable.push(oracles.offChain.price);
+
   let manipulationSuspect = false;
-  if (chainlinkPrice == null) {
-    flags.push('CHAINLINK_UNAVAILABLE');
+  if (usable.length === 0) {
+    flags.push('ORACLE_UNAVAILABLE'); // cannot assert manipulation
+  } else if (usable.length === 1) {
+    if (devBps(usable[0]!) > MANIPULATION_TOL_BPS) {
+      manipulationSuspect = true; flags.push('MANIPULATION_SUSPECT'); lowConfidence = true;
+    }
   } else {
-    // Chainlink is ETH/USD; mid is USDC/WETH. USDC depeg (<10bps) sits inside the
-    // 50bps tolerance, so the USDC != USD gap does not false-trigger.
-    chainlinkDevBps = (Math.abs(marketMid - chainlinkPrice) / chainlinkPrice) * 10_000;
-    if (chainlinkDevBps > MANIPULATION_TOL_BPS) {
-      manipulationSuspect = true;
-      flags.push('MANIPULATION_SUSPECT');
-      lowConfidence = true;
+    const [c, o] = usable as [number, number];
+    const mutualDevBps = (Math.abs(c - o) / ((c + o) / 2)) * 10_000;
+    if (mutualDevBps > MANIPULATION_TOL_BPS) {
+      flags.push('ORACLE_DISAGREE'); lowConfidence = true; // can't tell which is right
+    } else {
+      const consensus = (c + o) / 2;
+      if ((Math.abs(marketMid - consensus) / consensus) * 10_000 > MANIPULATION_TOL_BPS) {
+        manipulationSuspect = true; flags.push('MANIPULATION_SUSPECT'); lowConfidence = true;
+      }
     }
   }
 
-  return { marketMid, perPool, poolDivergenceBps, chainlinkPrice, chainlinkDevBps, manipulationSuspect, flags, lowConfidence };
+  return {
+    marketMid, perPool, poolDivergenceBps,
+    chainlinkPrice, chainlinkDevBps,
+    offchainPrice, offchainDevBps,
+    manipulationSuspect, flags, lowConfidence,
+  };
 }
 
 export async function getBenchmarkMid(args: { rpcUrl: string; blockNumber: bigint }): Promise<BenchmarkResult> {
@@ -152,5 +186,9 @@ export async function getBenchmarkMid(args: { rpcUrl: string; blockNumber: bigin
     chainlinkPrice = null;
   }
 
-  return computeBenchmark(perPool, chainlinkPrice);
+  // Bridge: Task 3 will wire the full OracleInput; for now supply chainlink only.
+  return computeBenchmark(perPool, {
+    chainlink: chainlinkPrice == null ? null : { price: chainlinkPrice, stale: false },
+    offChain: null,
+  });
 }
