@@ -180,6 +180,9 @@ export const routerTradesGated = pgTable(
 		chainlinkDevBps: numeric('chainlink_dev_bps'),
 		poolDivergenceBps: numeric('pool_divergence_bps'),
 		manipulationFlag: boolean('manipulation_flag'),
+		offchainPrice: numeric('offchain_price'),
+		offchainDevBps: numeric('offchain_dev_bps'),
+		chainlinkStalenessSecs: numeric('chainlink_staleness_secs'),
 	},
 );
 
@@ -231,6 +234,9 @@ export const smokeTrades = pgTable('smoke_trades', {
 	chainlinkDevBps: numeric('chainlink_dev_bps'),
 	poolDivergenceBps: numeric('pool_divergence_bps'),
 	manipulationFlag: boolean('manipulation_flag'),
+	offchainPrice: numeric('offchain_price'),
+	offchainDevBps: numeric('offchain_dev_bps'),
+	chainlinkStalenessSecs: numeric('chainlink_staleness_secs'),
 	loadedAt: timestamp('loaded_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
 	byAggregator: index('smoke_trades_aggregator_idx').on(t.aggregator),

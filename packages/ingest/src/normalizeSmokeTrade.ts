@@ -40,6 +40,8 @@ export interface SmokeTradeRow {
 	settlementEventSeen: boolean; normalizeFlags: string[];
 	chainlinkPrice: number | null; chainlinkDevBps: number | null;
 	poolDivergenceBps: number | null; manipulationFlag: boolean;
+	offchainPrice: number | null; offchainDevBps: number | null;
+	chainlinkStalenessSecs: number | null;
 }
 
 /** Subset of decomposition fields that buildSmokeRow actually reads. */
@@ -88,6 +90,9 @@ export function buildSmokeRow(args: {
 	chainlinkDevBps?: number | null;
 	poolDivergenceBps?: number | null;
 	manipulationFlag?: boolean;
+	offchainPrice?: number | null;
+	offchainDevBps?: number | null;
+	chainlinkStalenessSecs?: number | null;
 	benchFlags?: string[];
 	benchLowConfidence?: boolean;
 }): NormalizeResult {
@@ -155,6 +160,9 @@ export function buildSmokeRow(args: {
 			chainlinkDevBps: args.chainlinkDevBps ?? null,
 			poolDivergenceBps: args.poolDivergenceBps ?? null,
 			manipulationFlag: args.manipulationFlag ?? false,
+			offchainPrice: args.offchainPrice ?? null,
+			offchainDevBps: args.offchainDevBps ?? null,
+			chainlinkStalenessSecs: args.chainlinkStalenessSecs ?? null,
 		},
 	};
 }
@@ -237,6 +245,9 @@ export async function normalizeSmokeTrade(args: { candidate: SmokeCandidate; rpc
 			chainlinkDevBps: bench.chainlinkDevBps,
 			poolDivergenceBps: bench.poolDivergenceBps,
 			manipulationFlag: bench.manipulationSuspect,
+			offchainPrice: bench.offchainPrice,
+			offchainDevBps: bench.offchainDevBps,
+			chainlinkStalenessSecs: bench.chainlinkStalenessSecs,
 			benchFlags: bench.flags,
 			benchLowConfidence: bench.lowConfidence,
 		});

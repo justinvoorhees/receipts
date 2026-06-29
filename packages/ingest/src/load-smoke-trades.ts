@@ -84,6 +84,9 @@ async function main(): Promise<void> {
 				chainlinkDevBps: row.chainlinkDevBps == null ? null : String(row.chainlinkDevBps),
 				poolDivergenceBps: row.poolDivergenceBps == null ? null : String(row.poolDivergenceBps),
 				manipulationFlag: row.manipulationFlag,
+				offchainPrice: row.offchainPrice == null ? null : String(row.offchainPrice),
+				offchainDevBps: row.offchainDevBps == null ? null : String(row.offchainDevBps),
+				chainlinkStalenessSecs: row.chainlinkStalenessSecs == null ? null : String(row.chainlinkStalenessSecs),
 				batch: BATCH,
 			}).onConflictDoUpdate({
 				target: schema.smokeTrades.txHash,
@@ -102,6 +105,9 @@ async function main(): Promise<void> {
 					chainlinkDevBps: row.chainlinkDevBps == null ? null : String(row.chainlinkDevBps),
 					poolDivergenceBps: row.poolDivergenceBps == null ? null : String(row.poolDivergenceBps),
 					manipulationFlag: row.manipulationFlag,
+					offchainPrice: row.offchainPrice == null ? null : String(row.offchainPrice),
+					offchainDevBps: row.offchainDevBps == null ? null : String(row.offchainDevBps),
+					chainlinkStalenessSecs: row.chainlinkStalenessSecs == null ? null : String(row.chainlinkStalenessSecs),
 					settlementEventSeen: row.settlementEventSeen, normalizeFlags: row.normalizeFlags,
 				},
 			});
