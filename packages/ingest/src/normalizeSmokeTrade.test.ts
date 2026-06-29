@@ -46,6 +46,44 @@ describe('buildSmokeRow', () => {
 		expect(r.row.gasCostUsd).toBeGreaterThan(0);
 	});
 
+	it('values gasCostUsd at marketMid, not realizedPrice, when they differ', () => {
+		// Fixture: trader sends 3.015 USDC, receives 0.001 WETH → realizedPrice = 3015
+		// marketMid is set to 3000, so gas must be valued at 3000, not 3015.
+		const traceHighMid = {
+			logs: [
+				{ address: USDC, topics: [TRANSFER, pad(trader), pad('0x0000000000000000000000000000000000aa2222')], data: hex(3_015_000n) },
+				{ address: WETH, topics: [TRANSFER, pad('0x0000000000000000000000000000000000aa2222'), pad(trader)], data: hex(1_000_000_000_000_000n) },
+			],
+			calls: [],
+		};
+		const gasUsed = 200000n;
+		const effectiveGasPriceWei = 5_000_000_000n; // 5 gwei
+		const marketMid = 3000;
+		// realizedPrice will be 3015 (3.015 USDC / 0.001 WETH)
+		const realizedPrice = 3015;
+		const gasCostEth = (Number(gasUsed) * Number(effectiveGasPriceWei)) / 1e18;
+
+		const r = buildSmokeRow({
+			candidate: {
+				txHash: '0xfed', aggregator: 'odos', trader,
+				experimentSlug: 'smoke-9', runId: 'run-1', v1Status: 'success',
+				v1QuoteAmountUsd: 3, v1RealizedAmountUsd: 3.015,
+			},
+			trace: traceHighMid,
+			receiptLogs: traceHighMid.logs,
+			gasUsed,
+			effectiveGasPriceWei,
+			marketMid,
+			blockNumber: 99999,
+			decomposition: { lpFeeBps: 5, aggFeeBps: 0, slippageBps: 1, executionBps: 6, gasBps: 0, flags: [] },
+		});
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		// gasCostUsd must use the benchmark mid, not the trade's realized price
+		expect(r.row.gasCostUsd).toBeCloseTo(gasCostEth * marketMid, 6);
+		expect(r.row.gasCostUsd).not.toBeCloseTo(gasCostEth * realizedPrice, 6);
+	});
+
 	it('forces decompConfidence to low and merges bench flags when benchLowConfidence is set', () => {
 		const r = buildSmokeRow({
 			candidate: {

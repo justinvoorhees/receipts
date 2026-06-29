@@ -125,7 +125,7 @@ export function buildSmokeRow(args: {
 	const allInCostBps = signedDeviationBps(direction, args.marketMid, realizedPrice);
 
 	const gasCostEth = (Number(args.gasUsed) * Number(args.effectiveGasPriceWei)) / 1e18;
-	const gasCostUsd = gasCostEth * realizedPrice;
+	const gasCostUsd = gasCostEth * args.marketMid;
 
 	const sig = AGGREGATOR_SIGNATURES[c.aggregator];
 	const settlementEventSeen = sig ? settlementEventPresent(args.receiptLogs, sig) : false;

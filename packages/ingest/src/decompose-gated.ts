@@ -49,7 +49,7 @@ async function main(): Promise<void> {
 	const rows = await sql`
 		SELECT tx_hash, trader, aggregator, direction, settled_in,
 		       all_in_cost_bps, usdc_amount, weth_amount, realized_price,
-		       block_number
+		       market_mid, block_number
 		FROM router_trades_gated
 		ORDER BY block_number ASC
 	`;
@@ -87,9 +87,10 @@ async function main(): Promise<void> {
 					const gasUsed = Number(receipt.gasUsed);
 					const effectiveGasPrice = Number(receipt.effectiveGasPrice);
 					const gasCostEth = (gasUsed * effectiveGasPrice) / 1e18;
-					// Use realized_price as ETH/USDC proxy
 					const realizedPrice = Number(row.realized_price);
-					const gasCostUsd = gasCostEth * realizedPrice;
+					// Value gas at the benchmark mid (same reference used for allInCostBps)
+					const marketMid = Number(row.market_mid);
+					const gasCostUsd = gasCostEth * marketMid;
 
 					const result = await decomposeTrade({
 						trace: rawTrace as TraceNode,
