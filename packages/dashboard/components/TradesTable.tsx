@@ -644,10 +644,6 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 
 const KNOWN_VENUE_LABELS: Record<string, string> = {
 	'0x77e44581399f96129a8a0041dbb4e1a7569b9969': 'Curve StableNG',
-	'0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76': 'KyberSwap RFQ',
-	'0xb1383dc47d9971fc999c3a9088f79e744b376e97': 'KyberSwap RFQ',
-	'0xbee3211ab312a8d065c4fef0247448e17a8da000': 'KyberSwap RFQ',
-	'0xdcc8a6ba71a6c0053cbb32f935e9b4b64d465ea3': 'KyberSwap RFQ',
 };
 
 const KNOWN_NON_RFQ_VENUES = new Set([
@@ -714,6 +710,7 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	if (leg.type === 'pancakev3') return 'Pancake v3';
 	if (leg.type === 'univ3') return 'Uni v3';
 	if (leg.type === 'univ2') return 'Uni v2';
+	if (leg.type === 'rfq' || leg.type === 'unknown') return 'Unknown Pool';
 	return leg.type.toUpperCase();
 }
 

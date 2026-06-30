@@ -401,7 +401,7 @@ export async function getLegMidAtBlock(
   }
 
   // RFQ / unknown: no own pool -- use factory discovery
-  if (type === 'rfq' || type === 'unknown' || type === 'maverickv2') {
+  if (type === 'rfq' || type === 'unknown' || type === 'maverickv2' || type === 'curve_stableng') {
     return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
   }
 

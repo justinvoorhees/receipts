@@ -192,7 +192,7 @@ function buildLegs(
 
         legs.push({
           venue: addr,
-          type: 'rfq',
+          type: 'unknown',
           tokenIn,
           tokenOut,
           amountInRaw,

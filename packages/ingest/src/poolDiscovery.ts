@@ -54,6 +54,11 @@ const SLOT0_ABI = parseAbi([
   'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
 ]);
 
+// Aerodrome CL and some other V3 forks omit feeProtocol, returning 6 values instead of 7.
+const SLOT0_NO_FEE_PROTOCOL_ABI = parseAbi([
+  'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, bool unlocked)',
+]);
+
 export const V4_STATE_VIEW_ABI = parseAbi([
   'function getSlot0(bytes32 poolId) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)',
 ]);
@@ -151,35 +156,30 @@ async function isPoolInitialized(
   poolAddress: `0x${string}`,
   blockNumber?: bigint,
 ): Promise<boolean> {
-  try {
-    const result = await client.readContract({
-      address: poolAddress,
-      abi: SLOT0_ABI,
-      functionName: 'slot0',
-      ...(blockNumber !== undefined ? { blockNumber } : {}),
-    });
-    return result[0] > 0n;
-  } catch {
-    return false;
-  }
+  const sqrtPriceX96 = await readSlot0(client, poolAddress, blockNumber);
+  return sqrtPriceX96 !== null && sqrtPriceX96 > 0n;
 }
 
 /**
  * Read slot0 from a V3-style pool at a given block.
- * Returns sqrtPriceX96 or null if the call fails.
+ * Tries the standard 7-value ABI first; falls back to the 6-value ABI used by
+ * Aerodrome CL and other forks that omit feeProtocol.
+ * Returns sqrtPriceX96 or null if both calls fail.
  */
 export async function readSlot0(
   client: PublicClient,
   poolAddress: `0x${string}`,
   blockNumber?: bigint,
 ): Promise<bigint | null> {
+  const opts = { address: poolAddress, functionName: 'slot0', ...(blockNumber !== undefined ? { blockNumber } : {})} as const;
   try {
-    const result = await client.readContract({
-      address: poolAddress,
-      abi: SLOT0_ABI,
-      functionName: 'slot0',
-      ...(blockNumber !== undefined ? { blockNumber } : {}),
-    });
+    const result = await client.readContract({ ...opts, abi: SLOT0_ABI });
+    return result[0] > 0n ? result[0] : null;
+  } catch {
+    // Fall back to 6-value ABI (no feeProtocol)
+  }
+  try {
+    const result = await client.readContract({ ...opts, abi: SLOT0_NO_FEE_PROTOCOL_ABI });
     return result[0] > 0n ? result[0] : null;
   } catch {
     return null;

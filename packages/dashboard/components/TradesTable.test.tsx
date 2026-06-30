@@ -213,57 +213,57 @@ describe('TradesTable', () => {
 		});
 	});
 
-	it('labels the smoke-02 Kyber RFQ filler contract specifically', async () => {
+	it('labels unknown-type pools as "Unknown Pool" regardless of address', async () => {
 		const { getPriceImpactRows, getVenueLabel } = await import('./TradesTable');
 
 		expect(getVenueLabel({
 			venue: '0xbee3211ab312a8d065c4fef0247448e17a8da000',
-			type: 'rfq',
-		} as never)).toBe('KyberSwap RFQ');
+			type: 'unknown',
+		} as never)).toBe('Unknown Pool');
 		expect(getVenueLabel({
 			venue: '0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76',
-			type: 'rfq',
-		} as never)).toBe('KyberSwap RFQ');
+			type: 'unknown',
+		} as never)).toBe('Unknown Pool');
 		expect(getVenueLabel({
 			venue: '0xb1383dc47d9971fc999c3a9088f79e744b376e97',
-			type: 'rfq',
-		} as never)).toBe('KyberSwap RFQ');
-		expect(getVenueLabel({ venue: '0xother', type: 'rfq' } as never)).toBe('RFQ');
+			type: 'unknown',
+		} as never)).toBe('Unknown Pool');
+		expect(getVenueLabel({ venue: '0xother', type: 'rfq' } as never)).toBe('Unknown Pool');
 
 		expect(getPriceImpactRows([
 			{
 				venue: '0xbee3211ab312a8d065c4fef0247448e17a8da000',
-				type: 'rfq',
+				type: 'unknown',
 				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
 				tokenOut: '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b',
 				priceImpactBps: null,
 			},
 		] as never)[0]).toMatchObject({
-			label: 'KyberSwap RFQ',
+			label: 'Unknown Pool',
 			context: 'USDC/VIRTUAL',
 			value: 'Null',
-			valueTooltip: 'The discovered RFQ reference mid was implausible or stale, so this leg is excluded from price-impact attribution.',
+			valueTooltip: 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.',
 		});
 	});
 
-	it('labels the smoke-03 Kyber RFQ filler and token pair symbols', async () => {
+	it('labels smoke-03 unknown pool and token pair symbols', async () => {
 		const { getPriceImpactRows, getVenueLabel } = await import('./TradesTable');
 
 		expect(getVenueLabel({
 			venue: '0xdcc8a6ba71a6c0053cbb32f935e9b4b64d465ea3',
-			type: 'rfq',
-		} as never)).toBe('KyberSwap RFQ');
+			type: 'unknown',
+		} as never)).toBe('Unknown Pool');
 
 		expect(getPriceImpactRows([
 			{
 				venue: '0xdcc8a6ba71a6c0053cbb32f935e9b4b64d465ea3',
-				type: 'rfq',
+				type: 'unknown',
 				tokenIn: '0x50c5725949a6f0c72e6c4a641f24049a917db0cb',
 				tokenOut: '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca',
 				priceImpactBps: -0.6653663005707009,
 			},
 		] as never)[0]).toMatchObject({
-			label: 'KyberSwap RFQ',
+			label: 'Unknown Pool',
 			context: 'DAI/USDbC',
 			value: '+0.67bps',
 		});
