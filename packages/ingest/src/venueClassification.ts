@@ -11,6 +11,7 @@ const V3_FACTORY_TYPES: Record<string, VenueType> = {
 
 const KNOWN_VENUE_ADDRESS_TYPES: Record<string, VenueType> = {
 	'0x4545410f7601b34a779edcebc641e529f465eeaa': 'curve_stableng',
+	'0x77e44581399f96129a8a0041dbb4e1a7569b9969': 'curve_stableng',
 	'0xdf033790907c60c9b81ae355f76f74f52f92114a': 'maverickv2',
 };
 

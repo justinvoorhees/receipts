@@ -17,6 +17,7 @@ describe('classifyV3Factory', () => {
 describe('classifyKnownVenueAddress', () => {
 	it('tags manually verified pools that do not emit supported swap events', () => {
 		expect(classifyKnownVenueAddress('0x4545410f7601b34A779EDcEbC641e529f465eeaa')).toBe('curve_stableng');
+		expect(classifyKnownVenueAddress('0x77E44581399F96129a8a0041dBb4E1a7569B9969')).toBe('curve_stableng');
 		expect(classifyKnownVenueAddress('0xdf033790907c60c9B81aE355F76F74f52F92114A')).toBe('maverickv2');
 	});
 });

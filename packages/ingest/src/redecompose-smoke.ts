@@ -59,7 +59,7 @@ async function main(): Promise<void> {
 
 		const r = result.row;
 
-		// UPDATE decomposition columns in place — preserve batch, tx_hash, provenance
+		// UPDATE decomposition + oracle columns in place — preserve batch, tx_hash, provenance
 		await sql`
 			UPDATE smoke_trades SET
 				lp_fee_bps = ${r.lpFeeBps == null ? null : String(r.lpFeeBps)},
@@ -69,15 +69,18 @@ async function main(): Promise<void> {
 				route_pure = ${r.routePure},
 				route_shape = ${r.routeShape},
 				hop_count = ${r.hopCount},
-				route_legs = ${r.routeLegs != null ? JSON.stringify(r.routeLegs) : null},
+				route_legs = ${r.routeLegs != null ? sql.json(r.routeLegs as any) : null},
 				recon_residual_bps = ${r.reconResidualBps == null ? null : String(r.reconResidualBps)},
 				decomp_confidence = ${r.decompConfidence},
 				settlement_event_seen = ${r.settlementEventSeen},
-				normalize_flags = ${JSON.stringify(r.normalizeFlags)},
+				normalize_flags = ${sql.json(r.normalizeFlags)},
 				market_mid = ${String(r.marketMid)},
 				all_in_cost_bps = ${String(r.allInCostBps)},
 				realized_price = ${String(r.realizedPrice)},
-				gas_cost_usd = ${String(r.gasCostUsd)}
+				gas_cost_usd = ${String(r.gasCostUsd)},
+				offchain_price = ${r.offchainPrice == null ? null : String(r.offchainPrice)},
+				offchain_dev_bps = ${r.offchainDevBps == null ? null : String(r.offchainDevBps)},
+				chainlink_staleness_secs = ${r.chainlinkStalenessSecs == null ? null : String(r.chainlinkStalenessSecs)}
 			WHERE tx_hash = ${txHash}
 		`;
 

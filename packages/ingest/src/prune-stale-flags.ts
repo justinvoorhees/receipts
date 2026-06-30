@@ -109,7 +109,7 @@ async function main(): Promise<void> {
 
 		await sql`
 			UPDATE smoke_trades
-			SET normalize_flags = ${JSON.stringify(pruned)}
+			SET normalize_flags = ${sql.json(pruned)}
 			WHERE tx_hash = ${row.tx_hash as string}
 		`;
 
