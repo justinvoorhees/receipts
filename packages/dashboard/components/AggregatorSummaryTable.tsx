@@ -119,7 +119,7 @@ function SortHeader({
 function DataRow({ row }: { row: AggregatorSummaryRow }) {
 	const thin = row.tradeCount < 5;
 	const accuracy = -row.medianCostBps;
-	const accuracyColor = accuracy > 0.05 ? '#117d45' : accuracy < -0.05 ? '#fa0b54' : undefined;
+	const accuracyColor = accuracy > 0.05 ? '#117d45' : undefined;
 
 	const lp = formatContribution(row.medianLpFeeBps);
 	const agg = formatContribution(row.medianAggFeeBps);

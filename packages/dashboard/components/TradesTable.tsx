@@ -640,10 +640,22 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 	'0x0555e30da8f98308edb960aa94c0db47230d2b9c': 'WBTC',
 	'0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 'DAI',
 	'0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': 'USDbC',
+	'0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42': 'EURC',
+	'0xa1f72459dfa10bad200ac160ecd78c6b77a747be': 'CLAWNCH',
+	'0x7d928816cc9c462dd7adef911de41535e444cb07': 'FAIR',
+	'0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07': 'CLAWD',
+	'0x3722264ab15a1dfce5a5af89e6547f7949a8aba3': 'LFI',
+	'0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3': 'GITLAWB',
 };
 
 const KNOWN_VENUE_LABELS: Record<string, string> = {
 	'0x77e44581399f96129a8a0041dbb4e1a7569b9969': 'Curve StableNG',
+	'0x3eb210eaa4026f62d027fafaba1fa5592febb06a': 'Fabric OTC',
+	'0x69e68e18f53889bdc7589e9f2defbf88e2d32de7': 'Fabric OTC',
+	'0x73f0859f844f042cd699f35bb5fe13a120f95c0f': 'Fabric OTC',
+	'0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap V4',
+	'0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38': 'Fabric OTC',
+	'0xb94b22332abf5f89877a14cc88f2abc48c34b3df': 'Fabric OTC',
 };
 
 const KNOWN_NON_RFQ_VENUES = new Set([
