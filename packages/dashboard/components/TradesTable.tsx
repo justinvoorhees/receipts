@@ -440,7 +440,7 @@ function DetailRow({
 	);
 }
 
-function formatSubvalueUsd(value: number): string {
+export function formatSubvalueUsd(value: number): string {
 	if (!Number.isFinite(value) || value === 0) return '–';
 	return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -557,7 +557,7 @@ function BreakdownRow({
 	);
 }
 
-function formatExecutionPrice(value: unknown): string {
+export function formatExecutionPrice(value: unknown): string {
 	const n = value == null ? null : Number(value);
 	if (n == null || Number.isNaN(n)) return '–';
 	return `${trimNumber(n, 12)} = 1 WETH`;
@@ -662,11 +662,11 @@ const KNOWN_NON_RFQ_VENUES = new Set([
 	'0x77e44581399f96129a8a0041dbb4e1a7569b9969',
 ]);
 
-function tokenSymbol(address: string): string {
+export function tokenSymbol(address: string): string {
 	return TOKEN_SYMBOLS[address.toLowerCase()] ?? shortAddress(address);
 }
 
-function normalizeRouteLegs(routeLegs: TradeRow['routeLegs'] | string | null | undefined): RouteLeg[] {
+export function normalizeRouteLegs(routeLegs: TradeRow['routeLegs'] | string | null | undefined): RouteLeg[] {
 	if (Array.isArray(routeLegs)) return routeLegs as RouteLeg[];
 	if (typeof routeLegs !== 'string') return [];
 	try {
@@ -677,7 +677,7 @@ function normalizeRouteLegs(routeLegs: TradeRow['routeLegs'] | string | null | u
 	}
 }
 
-function routePath(legs: RouteLeg[]): string {
+export function routePath(legs: RouteLeg[]): string {
 	if (legs.length === 0) return '–';
 	const tokens = [tokenSymbol(legs[0]!.tokenIn), ...legs.map((leg) => tokenSymbol(leg.tokenOut))];
 	return tokens.join('->');
@@ -701,11 +701,11 @@ export function getFlagLabel(row: Pick<TradeRow, 'normalizeFlags' | 'decompConfi
 	return flags.length > 0 ? flags.join('; ') : 'None';
 }
 
-function formatTokenIn(row: TradeRow): string {
+export function formatTokenIn(row: TradeRow): string {
 	return `${trimNumber(Number(row.usdcAmount), 6)} USDC`;
 }
 
-function formatTokenOut(row: TradeRow): string {
+export function formatTokenOut(row: TradeRow): string {
 	return `${trimNumber(Number(row.wethAmount), 15)} ${row.settledIn ?? 'WETH'}`;
 }
 
