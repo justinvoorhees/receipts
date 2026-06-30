@@ -318,6 +318,11 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 							</span>
 						) : null}
 					</DetailRow>
+					{row.manipulationFlag && row.chainlinkDevBps != null ? (
+						<DetailRow label="Chainlink Δ">
+							{Number(row.chainlinkDevBps).toFixed(1)} bps
+						</DetailRow>
+					) : null}
 					<DetailRow label="Gas Cost">
 						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 					</DetailRow>
