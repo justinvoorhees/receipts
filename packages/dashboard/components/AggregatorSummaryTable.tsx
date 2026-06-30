@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { formatAccuracy, formatContribution, formatGasUsd, formatProvider, formatVariability } from '../lib/formatters';
+import { formatAccuracy, formatContribution, formatGasUsd, formatProvider, formatVariability, providerColor } from '../lib/formatters';
 import type { AggregatorSummaryRow } from '../lib/queries';
 
 type SortColumn = 'aggregator' | 'accuracy' | 'lpFee' | 'aggFee' | 'slippage' | 'gas' | 'variability';
@@ -130,7 +130,7 @@ function DataRow({ row }: { row: AggregatorSummaryRow }) {
 			className="flex items-baseline justify-between text-[var(--color-primary)]"
 			style={{ fontFeatureSettings: '"calt" 0', opacity: thin ? 0.5 : 1 }}
 		>
-			<span className="w-[72px]">{formatProvider(row.aggregator.toLowerCase())}</span>
+			<span className="w-[72px]" style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</span>
 			<div className="flex items-baseline justify-end gap-[24px] text-right">
 				<span className="w-[72px]" style={accuracyColor ? { color: accuracyColor } : undefined}>
 					{formatAccuracy(row.medianCostBps)}

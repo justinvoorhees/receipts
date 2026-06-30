@@ -17,5 +17,8 @@ const config = {
 	// a cross-origin warning and may block HMR / static assets when the host
 	// header is `*.ngrok-free.app` instead of localhost.
 	allowedDevOrigins: ['*.ngrok-free.app', '*.ngrok.app', '*.ngrok.io'],
+	// Next.js 15.5.x has a devtools bug where segment-explorer-node.js#SegmentViewNode
+	// is not found in the React Client Manifest, crashing the webpack module system.
+	devIndicators: false,
 };
 export default config;

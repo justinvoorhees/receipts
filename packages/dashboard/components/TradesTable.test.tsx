@@ -110,6 +110,77 @@ describe('TradesTable', () => {
 		]);
 	});
 
+	it('formats Coinbase Wrapped Staked ETH with its token symbol', async () => {
+		const { getPriceImpactRows } = await import('./TradesTable');
+
+		const rows = getPriceImpactRows([
+			{
+				venue: '0x77e44581399f96129a8a0041dbb4e1a7569b9969',
+				type: 'curve_stableng',
+				tokenIn: '0x2Ae3F1Ec7F1f5012CFEab0185bfc7aa3cf0DEC22',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				priceImpactBps: 1,
+			},
+		] as never);
+
+		expect(rows[0]?.context).toBe('cbETH/WETH');
+	});
+
+	it('renders stringified route legs with Coinbase token symbols in the dialog', async () => {
+		const { TransactionDetailsDialog } = await import('./TradesTable');
+		const row = {
+			txHash: '0x6442772f65f0575be26037beac9c7a168d2543cadc16c4ccdbf80182f7d03f8e',
+			blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
+			usdcAmount: '1.646224', wethAmount: '0.0005', realizedPrice: '3000',
+			marketMid: '3000', allInCostBps: '-1',
+			lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
+			hopCount: 3, routeShape: 'linear', decompConfidence: 'medium',
+			routeLegs: JSON.stringify([
+				{
+					venue: '0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76',
+					type: 'rfq',
+					tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+					tokenOut: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf',
+					feeTierBps: 0,
+					notionalUsdc: 1.646224,
+					lpFeeBps: 0,
+					priceImpactBps: 1,
+				},
+				{
+					venue: '0x498581ff718922c3f8e6a244956af099b2652b2b',
+					type: 'univ4',
+					tokenIn: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf',
+					tokenOut: '0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22',
+					feeTierBps: 0.5,
+					notionalUsdc: 1.646224,
+					lpFeeBps: 0.5,
+					priceImpactBps: 5,
+				},
+				{
+					venue: '0xb1383dc47d9971fc999c3a9088f79e744b376e97',
+					type: 'rfq',
+					tokenIn: '0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22',
+					tokenOut: '0x4200000000000000000000000000000000000006',
+					feeTierBps: 0,
+					notionalUsdc: 1.646224,
+					lpFeeBps: 0,
+					priceImpactBps: 0,
+				},
+			]),
+			routePure: true,
+			reconResidualBps: null, settledIn: 'WETH',
+			manipulationFlag: false,
+		};
+
+		const html = renderToStaticMarkup(
+			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
+		);
+
+		expect(html).toContain('USDC-&gt;cbBTC-&gt;cbETH-&gt;WETH');
+		expect(html).toContain('cbBTC/cbETH');
+		expect(html).toContain('cbETH/WETH');
+	});
+
 	it('formats tagged pool venues for the transaction dialog', async () => {
 		const { getVenueLabel } = await import('./TradesTable');
 
@@ -117,6 +188,29 @@ describe('TradesTable', () => {
 		expect(getVenueLabel({ type: 'baseswapv3' } as never)).toBe('BaseSwap v3');
 		expect(getVenueLabel({ type: 'aerodrome_cl' } as never)).toBe('Aerodrome SlipStream');
 		expect(getVenueLabel({ type: 'curve_stableng' } as never)).toBe('Curve StableNG');
+		expect(getVenueLabel({
+			venue: '0x77E44581399F96129a8a0041dBb4E1a7569B9969',
+			type: 'rfq',
+		} as never)).toBe('Curve StableNG');
+	});
+
+	it('uses generic null impact copy for manually tagged Curve pools even if persisted as RFQ', async () => {
+		const { getPriceImpactRows } = await import('./TradesTable');
+
+		const rows = getPriceImpactRows([
+			{
+				venue: '0x77E44581399F96129a8a0041dBb4E1a7569B9969',
+				type: 'rfq',
+				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				priceImpactBps: null,
+			},
+		] as never);
+
+		expect(rows[0]).toMatchObject({
+			label: 'Curve StableNG',
+			valueTooltip: 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.',
+		});
 	});
 
 	it('labels the smoke-02 Kyber RFQ filler contract specifically', async () => {
@@ -124,6 +218,14 @@ describe('TradesTable', () => {
 
 		expect(getVenueLabel({
 			venue: '0xbee3211ab312a8d065c4fef0247448e17a8da000',
+			type: 'rfq',
+		} as never)).toBe('KyberSwap RFQ');
+		expect(getVenueLabel({
+			venue: '0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76',
+			type: 'rfq',
+		} as never)).toBe('KyberSwap RFQ');
+		expect(getVenueLabel({
+			venue: '0xb1383dc47d9971fc999c3a9088f79e744b376e97',
 			type: 'rfq',
 		} as never)).toBe('KyberSwap RFQ');
 		expect(getVenueLabel({ venue: '0xother', type: 'rfq' } as never)).toBe('RFQ');

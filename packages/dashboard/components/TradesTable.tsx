@@ -7,6 +7,7 @@ import {
 	formatGasUsd,
 	formatNotional,
 	formatProvider,
+	providerColor,
 	shortTxHash,
 } from '../lib/formatters';
 
@@ -22,13 +23,13 @@ const ACCESSORS: Record<TradesSortColumn, (r: TradeRow) => string | number> = {
 	lpFee: (r) => -Number(r.lpFeeBps ?? 0),
 	aggFee: (r) => -Number(r.aggFeeBps ?? 0),
 	impact: (r) => {
-		const legs = (r.routeLegs as RouteLeg[] | null | undefined) ?? [];
+		const legs = normalizeRouteLegs(r.routeLegs);
 		const hasPriceImpact = legs.some((l) => l.priceImpactBps != null);
 		return hasPriceImpact ? -legs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0) : 0;
 	},
 	slippage: (r) => {
 		const slip = r.slippageBps == null ? null : Number(r.slippageBps);
-		const legs = (r.routeLegs as RouteLeg[] | null | undefined) ?? [];
+		const legs = normalizeRouteLegs(r.routeLegs);
 		const hasPriceImpact = legs.some((l) => l.priceImpactBps != null);
 		const impact = hasPriceImpact ? legs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0) : null;
 		const residual = slip != null && impact != null ? slip - impact : slip;
@@ -204,7 +205,7 @@ function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => vo
 			onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(row); } }}
 		>
 			<td className={COL_FIRST}>{row.blockNumber.toLocaleString()}</td>
-			<td className={`${COL} text-right`}>{formatProvider(row.aggregator.toLowerCase())}</td>
+			<td className={`${COL} text-right`} style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</td>
 			<td className={`${COL} text-right`}>{formatNotional(Number(row.usdcAmount))}</td>
 			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{formatAccuracy(costBps)}</td>
 			<td className={`${COL} text-right`} style={lp.color ? { color: lp.color } : undefined}>{lp.text}</td>
@@ -216,7 +217,7 @@ function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => vo
 }
 
 export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onClose: () => void }) {
-	const legs = (row.routeLegs as RouteLeg[] | null | undefined) ?? [];
+	const legs = normalizeRouteLegs(row.routeLegs);
 	const costBps = Number(row.allInCostBps);
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(-costBps);
 	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
@@ -283,7 +284,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					</DetailRow>
 					<DetailRow label="Chain">Base</DetailRow>
 					<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
-					<DetailRow label="Aggregator">{formatProvider(row.aggregator.toLowerCase())}</DetailRow>
+					<DetailRow label="Aggregator"><span style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</span></DetailRow>
 					<DetailRow label="Route">{routePath(legs)}</DetailRow>
 					<DetailRow label="Shape">{shapeLabel(row)}</DetailRow>
 					<DetailRow label="Confidence">{confidenceLabel(row.decompConfidence)}</DetailRow>
@@ -574,7 +575,7 @@ export function getExecutionBreakdown(row: Pick<TradeRow, 'slippageBps' | 'route
 		row.slippageBps == null || !Number.isFinite(Number(row.slippageBps))
 			? null
 			: Number(row.slippageBps);
-	const legs = (row.routeLegs as RouteLeg[] | null | undefined) ?? [];
+	const legs = normalizeRouteLegs(row.routeLegs);
 	const hasPriceImpact = legs.some((leg) => leg.priceImpactBps != null);
 	const priceImpactRaw = hasPriceImpact
 		? legs.reduce((sum, leg) => sum + (leg.priceImpactBps ?? 0), 0)
@@ -615,7 +616,7 @@ export function getPriceImpactRows(legs: Pick<RouteLeg, 'venue' | 'type' | 'toke
 }
 
 function getNullPriceImpactTooltip(leg: Pick<RouteLeg, 'type' | 'venue'>): string {
-	if (leg.type === 'rfq') {
+	if (leg.type === 'rfq' && !KNOWN_NON_RFQ_VENUES.has(leg.venue.toLowerCase())) {
 		return 'The discovered RFQ reference mid was implausible or stale, so this leg is excluded from price-impact attribution.';
 	}
 	return 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.';
@@ -628,6 +629,8 @@ function shortAddress(address: string): string {
 const TOKEN_SYMBOLS: Record<string, string> = {
 	'0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'USDC',
 	'0x4200000000000000000000000000000000000006': 'WETH',
+	'0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22': 'cbETH',
+	'0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf': 'cbBTC',
 	'0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b': 'VIRTUAL',
 	'0x0555e30da8f98308edb960aa94c0db47230d2b9c': 'WBTC',
 	'0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 'DAI',
@@ -635,12 +638,30 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 };
 
 const KNOWN_VENUE_LABELS: Record<string, string> = {
+	'0x77e44581399f96129a8a0041dbb4e1a7569b9969': 'Curve StableNG',
+	'0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76': 'KyberSwap RFQ',
+	'0xb1383dc47d9971fc999c3a9088f79e744b376e97': 'KyberSwap RFQ',
 	'0xbee3211ab312a8d065c4fef0247448e17a8da000': 'KyberSwap RFQ',
 	'0xdcc8a6ba71a6c0053cbb32f935e9b4b64d465ea3': 'KyberSwap RFQ',
 };
 
+const KNOWN_NON_RFQ_VENUES = new Set([
+	'0x77e44581399f96129a8a0041dbb4e1a7569b9969',
+]);
+
 function tokenSymbol(address: string): string {
 	return TOKEN_SYMBOLS[address.toLowerCase()] ?? shortAddress(address);
+}
+
+function normalizeRouteLegs(routeLegs: TradeRow['routeLegs'] | string | null | undefined): RouteLeg[] {
+	if (Array.isArray(routeLegs)) return routeLegs as RouteLeg[];
+	if (typeof routeLegs !== 'string') return [];
+	try {
+		const parsed = JSON.parse(routeLegs);
+		return Array.isArray(parsed) ? parsed as RouteLeg[] : [];
+	} catch {
+		return [];
+	}
 }
 
 function routePath(legs: RouteLeg[]): string {
