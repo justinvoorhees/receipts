@@ -28,7 +28,7 @@ export default async function TradesPage({
 					className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
 					style={{ fontFeatureSettings: '"calt" 0' }}
 				>
-					Trades
+					History
 				</h1>
 				<div
 					className="flex items-center gap-[10px] font-['Sohne_Mono'] font-medium text-[12px] leading-[12px] uppercase text-[var(--color-secondary)] text-center"
