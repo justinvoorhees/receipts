@@ -253,3 +253,12 @@ export async function getCuratedAggregatorSummary(): Promise<AggregatorSummaryRo
 		ethCount: Number(r.eth_count ?? 0),
 	}));
 }
+
+/**
+ * Looks up a single trade from the curated set by its transaction hash.
+ * Returns null if the hash is not in the History dataset.
+ */
+export async function getTradeByHash(hash: string): Promise<TradeRow | null> {
+	const rows = await getCuratedTrades();
+	return rows.find((r) => r.txHash.toLowerCase() === hash.toLowerCase()) ?? null;
+}
