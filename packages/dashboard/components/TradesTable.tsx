@@ -123,7 +123,7 @@ function HeaderRow({
 				<SortHeader col="size" sort={sort} onSort={onSort}>Size</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'The delta between realized execution price and market mid; sum of L.P Fee, Agg Fee, Impact, and Slippage' }}>Accuracy</SortHeader>
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'The delta between realized execution price and market mid; sum of L.P Fee, Agg Fee, Impact, and Slippage' }}>Execution</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="lpFee" sort={sort} onSort={onSort}>L.P. Fee</SortHeader>
@@ -228,6 +228,14 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 		? (row.normalizeFlags as unknown[]).filter((f): f is string => typeof f === 'string' && f.trim().length > 0)
 		: [];
 
+	const title = dialogPairTitle(legs, row);
+
+	useEffect(() => {
+		const prev = document.body.style.overflow;
+		document.body.style.overflow = 'hidden';
+		return () => { document.body.style.overflow = prev; };
+	}, []);
+
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === 'Escape') onClose();
@@ -256,7 +264,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 						id="transaction-details-title"
 						className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium"
 					>
-						Transaction Details
+						{title}
 					</h2>
 					<button
 						type="button"
@@ -323,6 +331,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 							{Number(row.chainlinkDevBps).toFixed(1)} bps
 						</DetailRow>
 					) : null}
+					<DetailRow label="Price Delta">{formatPriceDelta(row.marketMid, row.realizedPrice)}</DetailRow>
 					<DetailRow label="Gas Cost">
 						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 					</DetailRow>
@@ -402,7 +411,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					/>
 
 					<div className="border-t border-[var(--color-border)]" />
-					<BreakdownRow label="Total Accuracy" value={accuracy} color={accuracyColor} plain />
+					<BreakdownRow label="Total Execution Quality" value={accuracy} color={accuracyColor} plain />
 				</div>
 			</section>
 			</div>
@@ -429,7 +438,7 @@ function DetailRow({
 				{label}
 			</span>
 			{subvalue != null ? (
-				<div className="flex flex-col gap-[5px] items-end min-w-0">
+				<div className="flex flex-col gap-[10px] items-end min-w-0">
 					<span>{children}</span>
 					<span className="text-[var(--color-secondary)]">{subvalue}</span>
 				</div>
@@ -762,4 +771,18 @@ export function getAggregatorFeeAttribution(row: Pick<TradeRow, 'aggregator' | '
 
 function trimNumber(value: number, digits: number): string {
 	return value.toFixed(digits).replace(/\.?0+$/, '');
+}
+
+function formatPriceDelta(marketMid: unknown, realizedPrice: unknown): string {
+	const mid = marketMid == null ? null : Number(marketMid);
+	const exec = realizedPrice == null ? null : Number(realizedPrice);
+	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
+	return `$${Math.abs(mid - exec).toFixed(2)}`;
+}
+
+function dialogPairTitle(legs: RouteLeg[], row: TradeRow): string {
+	if (legs.length === 0) return row.settledIn ?? 'WETH';
+	const tokens = [legs[0]!.tokenIn, ...legs.map((l) => l.tokenOut)];
+	const symbols = tokens.map(tokenSymbol);
+	return `${symbols[symbols.length - 1]}→${symbols[0]}`;
 }

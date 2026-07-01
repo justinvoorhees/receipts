@@ -33,7 +33,17 @@ export function Header() {
 			</a>
 			<div className="ml-auto flex items-center gap-[40px]">
 				<NavTabs />
-				<ThemePicker />
+				<div className="flex items-center gap-[40px]">
+					<div className="border border-[var(--color-primary)] flex items-center justify-center p-[8px] rounded-[2px] shrink-0 w-[40px] h-[40px]">
+						<span
+							className="font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-primary)]"
+							style={{ fontFeatureSettings: '"calt" 0' }}
+						>
+							JM
+						</span>
+					</div>
+					<ThemePicker />
+				</div>
 			</div>
 		</header>
 	);

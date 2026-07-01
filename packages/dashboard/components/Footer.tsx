@@ -6,10 +6,6 @@ export function Footer() {
 				<a href="https://withfabric.xyz" className="underline">
 					Fabric
 				</a>
-				. Powered by{' '}
-				<a href="https://spandex.sh" className="underline">
-					spanDEX
-				</a>
 				.
 			</p>
 		</footer>

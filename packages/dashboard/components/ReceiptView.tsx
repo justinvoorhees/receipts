@@ -37,7 +37,7 @@ function receiptPairTitle(legs: RouteLeg[], row: TradeRow): string {
 	return `${symbols[symbols.length - 1]}→${symbols[0]}`;
 }
 
-function Divider({ dashed = false }: { dashed?: boolean }) {
+function Divider({ dashed = false, color }: { dashed?: boolean; color?: string }) {
 	if (dashed) {
 		return (
 			<div
@@ -49,7 +49,7 @@ function Divider({ dashed = false }: { dashed?: boolean }) {
 			/>
 		);
 	}
-	return <div className="h-px w-full shrink-0 bg-[var(--color-primary)]" />;
+	return <div className="h-px w-full shrink-0 bg-[var(--color-primary)]" style={color ? { backgroundColor: `var(--color-${color})` } : undefined} />;
 }
 
 function DetailRow({
@@ -71,7 +71,7 @@ function DetailRow({
 				{label}
 			</span>
 			{subvalue != null ? (
-				<div className="flex flex-col gap-[5px] items-end min-w-0">
+				<div className="flex flex-col gap-[10px] items-end min-w-0">
 					<span>{children}</span>
 					<span className="text-[var(--color-secondary)]">{subvalue}</span>
 				</div>
@@ -87,11 +87,13 @@ function BkdHeading({
 	value,
 	color,
 	tooltip,
+	plain = false,
 }: {
 	label: string;
 	value?: string | undefined;
 	color?: string | undefined;
 	tooltip?: string | undefined;
+	plain?: boolean;
 }) {
 	return (
 		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
@@ -106,7 +108,7 @@ function BkdHeading({
 					</div>
 				</span>
 			) : (
-				<span className="underline decoration-dotted underline-offset-[3px]">{label}</span>
+				<span className={plain ? '' : 'underline decoration-dotted underline-offset-[3px]'}>{label}</span>
 			)}
 			{value != null && (
 				<span className="text-right" style={color ? { color } : undefined}>
@@ -177,7 +179,7 @@ function BkdRow({
 }
 
 export function ReceiptView({ trade, hash }: { trade: TradeRow | null; hash: string }) {
-	const error = trade === null ? 'Transaction not found in History.' : undefined;
+	const error = trade === null ? 'Transaction not found.' : undefined;
 
 	return (
 		<div className="flex flex-col gap-[40px] pb-10">
@@ -273,7 +275,7 @@ function Receipt({ row }: { row: TradeRow }) {
 						</span>
 					) : null}
 				</DetailRow>
-				<DetailRow label="Delta">{formatDelta(row.marketMid, row.realizedPrice)}</DetailRow>
+				<DetailRow label="Price Delta">{formatDelta(row.marketMid, row.realizedPrice)}</DetailRow>
 				<DetailRow label="Gas Cost">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</DetailRow>
@@ -290,7 +292,7 @@ function Receipt({ row }: { row: TradeRow }) {
 
 			{/* Cost breakdown */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
-				<BkdHeading label="LP Fee" />
+				<BkdHeading label="Liquidity Provider Fee" plain />
 				{legs.length > 0 ? (
 					legs.map((leg, index) => {
 						const { text: lpText, color: lpColor } = formatDialogBps(-leg.lpFeeBps);
@@ -314,7 +316,7 @@ function Receipt({ row }: { row: TradeRow }) {
 
 				{hasAggFee ? (
 					<>
-						<BkdHeading label="Aggregator Fee" />
+						<BkdHeading label="Aggregator Fee" plain />
 						<BkdRow
 							label={getAggregatorFeeAttribution(row).label}
 							href={getAggregatorFeeAttribution(row).href}
@@ -324,7 +326,7 @@ function Receipt({ row }: { row: TradeRow }) {
 						/>
 					</>
 				) : (
-					<BkdHeading label="Aggregator Fee" value="0.00bps" />
+					<BkdHeading label="Aggregator Fee" value="0.00bps" plain />
 				)}
 
 				<Divider dashed />
@@ -359,7 +361,7 @@ function Receipt({ row }: { row: TradeRow }) {
 					tooltip="Residual delta between realized execution price and market mid after L.P. fees, aggregator fees, and price impact"
 				/>
 
-				<Divider />
+				<Divider color="border" />
 				<BkdRow label="Total Execution Quality" value={accuracy} color={accuracyColor} plain />
 			</div>
 		</>
