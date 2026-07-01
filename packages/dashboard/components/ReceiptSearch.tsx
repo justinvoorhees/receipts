@@ -13,7 +13,7 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 
 	const submit = () => {
 		const trimmed = value.trim();
-		if (trimmed) router.push(`/receipts?tx=${trimmed}` as Route);
+		if (trimmed) router.push(`/receipts?tx=${encodeURIComponent(trimmed)}` as Route);
 	};
 
 	const hasError = error != null;

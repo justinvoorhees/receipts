@@ -22,8 +22,6 @@ import {
 	getAggregatorFeeAttribution,
 } from './TradesTable';
 
-const DEFAULT_HASH = '0x9703bfa335528a8e01c6b63dd3046ccd6e13a66ba2e6954956aa2df39da269c1';
-
 export function formatDelta(marketMid: unknown, realizedPrice: unknown): string {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
@@ -268,7 +266,7 @@ function Receipt({ row }: { row: TradeRow }) {
 					{row.manipulationFlag ? (
 						<span
 							className="ml-2"
-							style={{ color: 'var(--color-warning)' }}
+							style={{ color: 'var(--color-yellow)' }}
 							title="Median pool mid deviates from Chainlink ETH/USD by more than 0.5% at N-1"
 						>
 							⚠ Possible manipulation
@@ -333,7 +331,7 @@ function Receipt({ row }: { row: TradeRow }) {
 
 				<BkdHeading
 					label="Price Impact"
-					tooltip="Per-venue delta between realized execution price the venue's prior-block mid, excluding L.P. fee"
+					tooltip="Per-venue delta between realized execution price and the venue's prior-block mid, excluding L.P. fee"
 				/>
 				{priceImpactRows.length > 0 ? (
 					priceImpactRows.map((impact, index) => (
