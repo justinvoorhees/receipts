@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RouteLeg, TradeRow, TradesSort, TradesSortColumn } from '../lib/queries';
 import {
-	formatAccuracy,
 	formatContribution,
 	formatGasUsd,
 	formatNotional,
@@ -123,7 +122,7 @@ function HeaderRow({
 				<SortHeader col="size" sort={sort} onSort={onSort}>Size</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'The delta between realized execution price and market mid; sum of L.P Fee, Agg Fee, Impact, and Slippage' }}>Execution</SortHeader>
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'The delta between realized execution price and market mid; sum of L.P Fee, Agg Fee, Impact, and Slippage' }}>EX. QUALITY</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="lpFee" sort={sort} onSort={onSort}>L.P. Fee</SortHeader>
@@ -132,7 +131,7 @@ function HeaderRow({
 				<SortHeader col="aggFee" sort={sort} onSort={onSort}>Agg. Fee</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: "Per-venue execution difference measured against that venue's prior-block mid, excluding L.P. fee." }}>Impact</SortHeader>
+				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: "Per-venue execution difference measured against that venue's prior-block mid, excluding L.P. fee." }}>P. IMPACT</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. fees, aggregator fees, or measured price impact.' }}>Slippage</SortHeader>
@@ -185,6 +184,21 @@ function SortHeader({
 	);
 }
 
+// Strips a leading '-' so table cells show magnitude only; color already
+// conveys cost (uncolored) vs. surplus (green).
+function stripSign(text: string): string {
+	return text.replace(/^-/, '');
+}
+
+// Execution column: magnitude only, but with a leading '+' on positive
+// (surplus) values to distinguish them from costs at a glance.
+function formatAccuracySigned(costBps: number): string {
+	const accuracy = -costBps;
+	const rounded = Number(accuracy.toFixed(1));
+	if (rounded === 0) return '0.0bps';
+	return `${rounded > 0 ? '+' : ''}${Math.abs(rounded).toFixed(1)}bps`;
+}
+
 function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => void }) {
 	const costBps = Number(row.allInCostBps);
 	const accuracy = -costBps;
@@ -207,9 +221,9 @@ function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => vo
 			<td className={COL_FIRST}>{row.blockNumber.toLocaleString()}</td>
 			<td className={`${COL} text-right`} style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</td>
 			<td className={`${COL} text-right`}>{formatNotional(Number(row.usdcAmount))}</td>
-			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{formatAccuracy(costBps)}</td>
-			<td className={`${COL} text-right`} style={lp.color ? { color: lp.color } : undefined}>{lp.text}</td>
-			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{agg.text}</td>
+			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{formatAccuracySigned(costBps)}</td>
+			<td className={`${COL} text-right`} style={lp.color ? { color: lp.color } : undefined}>{stripSign(lp.text)}</td>
+			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
 			<td className={`${COL} text-right`} style={slip.color ? { color: slip.color } : undefined}>{slip.text}</td>
 		</tr>
@@ -405,9 +419,15 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 
 					<BreakdownHeading
 						label="Slippage"
-						value={execution.marketForcesDisplay.text}
-						color={execution.marketForcesDisplay.color}
-						tooltip="Residual delta between realized execution price and market mid after L.P. fees, aggregator fees, and price impact"
+						value={execution.slippageDisplay.text}
+						color={execution.slippageDisplay.color}
+						tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+					/>
+					<BreakdownHeading
+						label="Positive Slippage"
+						value={execution.positiveSlippageDisplay.text}
+						color={execution.positiveSlippageDisplay.color}
+						tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
 					/>
 
 					<div className="border-t border-[var(--color-border)]" />
@@ -575,7 +595,7 @@ export function formatExecutionPrice(value: unknown): string {
 export function formatDialogBps(value: number | null): { text: string; color: string | undefined } {
 	if (value == null || !Number.isFinite(value)) return { text: '–', color: undefined };
 	const rounded = Number(value.toFixed(2));
-	const text = rounded === 0 ? '0.00bps' : `${rounded > 0 ? '+' : ''}${rounded.toFixed(2)}bps`;
+	const text = rounded === 0 ? '0.00bps' : `${rounded > 0 ? '+' : ''}${Math.abs(rounded).toFixed(2)}bps`;
 	const color = rounded > 0 ? '#117d45' : undefined;
 	return { text, color };
 }
@@ -584,6 +604,8 @@ export function getExecutionBreakdown(row: Pick<TradeRow, 'slippageBps' | 'route
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };
 	marketForcesDisplay: { text: string; color: string | undefined };
+	slippageDisplay: { text: string; color: string | undefined };
+	positiveSlippageDisplay: { text: string; color: string | undefined };
 } {
 	const executionRaw =
 		row.slippageBps == null || !Number.isFinite(Number(row.slippageBps))
@@ -597,10 +619,17 @@ export function getExecutionBreakdown(row: Pick<TradeRow, 'slippageBps' | 'route
 	const marketForcesRaw =
 		executionRaw != null && priceImpactRaw != null ? executionRaw - priceImpactRaw : executionRaw;
 
+	// marketForcesRaw > 0 is a cost to the user; < 0 is a benefit. Split so each
+	// row only ever carries one side, with the other pinned to 0.00bps.
+	const slippageCostRaw = marketForcesRaw == null ? null : Math.max(marketForcesRaw, 0);
+	const slippageBenefitRaw = marketForcesRaw == null ? null : Math.min(marketForcesRaw, 0);
+
 	return {
 		executionDisplay: formatDialogBps(executionRaw == null ? null : -executionRaw),
 		priceImpactDisplay: formatDialogBps(priceImpactRaw == null ? null : -priceImpactRaw),
 		marketForcesDisplay: formatDialogBps(marketForcesRaw == null ? null : -marketForcesRaw),
+		slippageDisplay: formatDialogBps(slippageCostRaw == null ? null : -slippageCostRaw),
+		positiveSlippageDisplay: formatDialogBps(slippageBenefitRaw == null ? null : -slippageBenefitRaw),
 	};
 }
 

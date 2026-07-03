@@ -67,8 +67,8 @@ describe('TradesTable', () => {
 			],
 		} as never);
 
-		expect(result.executionDisplay.text).toBe('-10.79bps');
-		expect(result.priceImpactDisplay.text).toBe('-10.96bps');
+		expect(result.executionDisplay.text).toBe('10.79bps');
+		expect(result.priceImpactDisplay.text).toBe('10.96bps');
 		expect(result.marketForcesDisplay.text).toBe('+0.18bps');
 	});
 
@@ -96,7 +96,7 @@ describe('TradesTable', () => {
 				label: 'SushiSwap v3',
 				href: 'https://basescan.org/address/0x482fe995c4a52bc79271ab29a53591363ee30a89',
 				context: 'USDC/WETH',
-				value: '-0.48bps',
+				value: '0.48bps',
 				color: undefined,
 			},
 			{
@@ -321,7 +321,7 @@ describe('TradesTable', () => {
 	it('formats dialog bps values with two decimal places', async () => {
 		const { formatDialogBps } = await import('./TradesTable');
 
-		expect(formatDialogBps(-1).text).toBe('-1.00bps');
+		expect(formatDialogBps(-1).text).toBe('1.00bps');
 		expect(formatDialogBps(0).text).toBe('0.00bps');
 	});
 

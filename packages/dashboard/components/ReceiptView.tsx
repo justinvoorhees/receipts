@@ -356,9 +356,15 @@ function Receipt({ row }: { row: TradeRow }) {
 
 				<BkdHeading
 					label="Slippage"
-					value={execution.marketForcesDisplay.text}
-					color={execution.marketForcesDisplay.color}
-					tooltip="Residual delta between realized execution price and market mid after L.P. fees, aggregator fees, and price impact"
+					value={execution.slippageDisplay.text}
+					color={execution.slippageDisplay.color}
+					tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+				/>
+				<BkdHeading
+					label="Positive Slippage"
+					value={execution.positiveSlippageDisplay.text}
+					color={execution.positiveSlippageDisplay.color}
+					tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
 				/>
 
 				<Divider color="border" />
