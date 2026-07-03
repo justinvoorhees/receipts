@@ -269,7 +269,7 @@ describe('TradesTable', () => {
 		});
 	});
 
-	it('renders tooltip text on Accuracy, Impact, and Slippage column headers', async () => {
+	it('renders tooltip text on all History column headers', async () => {
 		const { TradesTable } = await import('./TradesTable');
 		const html = renderToStaticMarkup(
 			<TradesTable
@@ -278,9 +278,11 @@ describe('TradesTable', () => {
 			/>,
 		);
 
-		expect(html).toContain('The delta between realized execution price and market mid');
-		expect(html).toContain('Per-venue execution difference measured against that venue');
-		expect(html).toContain('Residual execution difference after L.P. fees');
+		expect(html).toContain('Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage');
+		expect(html).toContain('Fees paid to liquidity providers');
+		expect(html).toContain('Fees paid to aggregators');
+		expect(html).toContain('Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee');
+		expect(html).toContain('Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact');
 		expect(html).toContain('role="tooltip"');
 	});
 
@@ -294,9 +296,13 @@ describe('TradesTable', () => {
 		);
 
 		expect(html).toContain('aria-describedby="tooltip-accuracy"');
+		expect(html).toContain('aria-describedby="tooltip-lp-fee"');
+		expect(html).toContain('aria-describedby="tooltip-agg-fee"');
 		expect(html).toContain('aria-describedby="tooltip-impact"');
 		expect(html).toContain('aria-describedby="tooltip-slippage"');
 		expect(html).toContain('id="tooltip-accuracy"');
+		expect(html).toContain('id="tooltip-lp-fee"');
+		expect(html).toContain('id="tooltip-agg-fee"');
 		expect(html).toContain('id="tooltip-impact"');
 		expect(html).toContain('id="tooltip-slippage"');
 	});
@@ -323,6 +329,30 @@ describe('TradesTable', () => {
 
 		expect(formatDialogBps(-1).text).toBe('1.00bps');
 		expect(formatDialogBps(0).text).toBe('0.00bps');
+	});
+
+	it('grades execution quality from Total Execution Quality bps', async () => {
+		const { executionGrade } = await import('./TradesTable');
+
+		expect(executionGrade(-1)).toBe('A+'); // accuracy +1bps, beats market
+		expect(executionGrade(0)).toBe('A+'); // meets market
+		expect(executionGrade(0.5)).toBe('A');
+		expect(executionGrade(2)).toBe('B');
+		expect(executionGrade(5)).toBe('C');
+		expect(executionGrade(10)).toBe('D');
+		expect(executionGrade(20)).toBe('F');
+	});
+
+	it('describes each grade cutoff without a negative sign', async () => {
+		const { executionGradeTooltip } = await import('./TradesTable');
+
+		expect(executionGradeTooltip(-1)).toBe('Total Execution Quality is ≥0bps');
+		expect(executionGradeTooltip(0)).toBe('Total Execution Quality is ≥0bps');
+		expect(executionGradeTooltip(0.5)).toBe('Total Execution Quality is ≤1bps');
+		expect(executionGradeTooltip(2)).toBe('Total Execution Quality is ≤3bps');
+		expect(executionGradeTooltip(5)).toBe('Total Execution Quality is ≤7bps');
+		expect(executionGradeTooltip(10)).toBe('Total Execution Quality is ≤15bps');
+		expect(executionGradeTooltip(20)).toBe('Total Execution Quality is >15bps');
 	});
 
 	it('uses granular normalize flags instead of repeating confidence', async () => {
@@ -353,5 +383,27 @@ describe('TradesTable', () => {
 		expect(html).toContain('Possible manipulation');
 		expect(html).toContain('Chainlink Δ');
 		expect(html).toContain('101.0 bps'); // chainlinkDevBps 101 -> Number(101).toFixed(1)
+	});
+
+	it.each([
+		['3005', '3000', 'Worse'],
+		['2995', '3000', 'Better'],
+		['3000', '3000', 'Market Value'],
+	])('renders Price Delta subvalue "%s" as %s when realized=%s market=%s', async (realizedPrice, marketMid, expected) => {
+		const { TransactionDetailsDialog } = await import('./TradesTable');
+		const row = {
+			txHash: '0x1234567890abcdef1234567890abcdef12345678',
+			blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
+			usdcAmount: '1000.00', wethAmount: '0.33', realizedPrice,
+			marketMid, allInCostBps: '-1',
+			lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
+			hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
+			reconResidualBps: null, settledIn: 'WETH',
+		};
+		const html = renderToStaticMarkup(
+			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
+		);
+		expect(html).toContain('Execution - Market = $');
+		expect(html).toContain(expected);
 	});
 });

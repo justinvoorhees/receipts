@@ -20,13 +20,24 @@ import {
 	getPriceImpactRows,
 	getVenueLabel,
 	getAggregatorFeeAttribution,
+	executionGrade,
+	executionGradeTooltip,
 } from './TradesTable';
 
 export function formatDelta(marketMid: unknown, realizedPrice: unknown): string {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
-	return `$${Math.abs(mid - exec).toFixed(2)}`;
+	return `Execution - Market = $${Math.abs(mid - exec).toFixed(2)}`;
+}
+
+export function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown): string | undefined {
+	const mid = marketMid == null ? null : Number(marketMid);
+	const exec = realizedPrice == null ? null : Number(realizedPrice);
+	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return undefined;
+	if (exec > mid) return 'Worse';
+	if (exec < mid) return 'Better';
+	return 'Market Value';
 }
 
 function receiptPairTitle(legs: RouteLeg[], row: TradeRow): string {
@@ -57,19 +68,33 @@ function DetailRow({
 	children,
 	underscored = false,
 	subvalue,
+	tooltip,
 }: {
 	label: string;
 	children: React.ReactNode;
 	underscored?: boolean;
-	subvalue?: string;
+	subvalue?: string | undefined;
+	tooltip?: string;
 }) {
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
-			<span
-				className={`text-[var(--color-secondary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
-			>
-				{label}
-			</span>
+			{tooltip ? (
+				<span className="group relative cursor-default text-[var(--color-secondary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+					{label}
+					<div
+						role="tooltip"
+						className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+					>
+						{tooltip}
+					</div>
+				</span>
+			) : (
+				<span
+					className={`text-[var(--color-secondary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
+				>
+					{label}
+				</span>
+			)}
 			{subvalue != null ? (
 				<div className="flex flex-col gap-[10px] items-end min-w-0">
 					<span>{children}</span>
@@ -126,6 +151,7 @@ function BkdRow({
 	href,
 	color,
 	valueTooltip,
+	tooltip,
 	secondary = false,
 	plain = false,
 }: {
@@ -135,6 +161,7 @@ function BkdRow({
 	href?: string | undefined;
 	color?: string | undefined;
 	valueTooltip?: string | undefined;
+	tooltip?: string | undefined;
 	secondary?: boolean;
 	plain?: boolean;
 }) {
@@ -154,7 +181,19 @@ function BkdRow({
 	return (
 		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
 			<div className="min-w-0">
-				{labelNode}
+				{tooltip ? (
+					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+						{label}
+						<div
+							role="tooltip"
+							className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+						>
+							{tooltip}
+						</div>
+					</span>
+				) : (
+					labelNode
+				)}
 				{context != null && (
 					<span className="ml-[10px] text-[var(--color-quaternary)]">{context}</span>
 				)}
@@ -211,12 +250,26 @@ function Receipt({ row }: { row: TradeRow }) {
 		<>
 			<Divider color="border" />
 
-			<h2
-				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
-				style={{ fontFeatureSettings: '"calt" 0' }}
-			>
-				{pairTitle}
-			</h2>
+			<div className="flex items-center justify-between">
+				<h2
+					className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
+					style={{ fontFeatureSettings: '"calt" 0' }}
+				>
+					{pairTitle}
+				</h2>
+				<span
+					className="group relative cursor-default font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+					style={{ fontFeatureSettings: '"calt" 0' }}
+				>
+					{executionGrade(costBps)}
+					<div
+						role="tooltip"
+						className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left font-['Sohne_Mono'] text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+					>
+						{executionGradeTooltip(costBps)}
+					</div>
+				</span>
+			</div>
 
 			{/* Detail table */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
@@ -261,7 +314,7 @@ function Receipt({ row }: { row: TradeRow }) {
 				</DetailRow>
 				<DetailRow
 					label="Market Price"
-					underscored
+					tooltip="Median of three Uniswap v3/Aerodrome pools at the trade’s block, cross-referenced against Chainlink oracle"
 					subvalue={formatSubvalueUsd(Number(row.marketMid))}
 				>
 					{formatExecutionPrice(row.marketMid)}
@@ -275,7 +328,9 @@ function Receipt({ row }: { row: TradeRow }) {
 						</span>
 					) : null}
 				</DetailRow>
-				<DetailRow label="Price Delta">{formatDelta(row.marketMid, row.realizedPrice)}</DetailRow>
+				<DetailRow label="Price Delta" subvalue={priceDeltaComparison(row.marketMid, row.realizedPrice)}>
+					{formatDelta(row.marketMid, row.realizedPrice)}
+				</DetailRow>
 				<DetailRow label="Gas Cost">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</DetailRow>
@@ -333,7 +388,7 @@ function Receipt({ row }: { row: TradeRow }) {
 
 				<BkdHeading
 					label="Price Impact"
-					tooltip="Per-venue delta between realized execution price and the venue's prior-block mid, excluding L.P. fee"
+					tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
 				/>
 				{priceImpactRows.length > 0 ? (
 					priceImpactRows.map((impact, index) => (
@@ -368,7 +423,12 @@ function Receipt({ row }: { row: TradeRow }) {
 				/>
 
 				<Divider color="border" />
-				<BkdRow label="Total Execution Quality" value={accuracy} color={accuracyColor} plain />
+				<BkdRow
+				label="Total Execution Quality"
+				value={accuracy}
+				color={accuracyColor}
+				tooltip="Delta between execution price and market price; the sum of L.P. Fee, Agg Fee, P. Impact, and Slippage"
+			/>
 			</div>
 		</>
 	);

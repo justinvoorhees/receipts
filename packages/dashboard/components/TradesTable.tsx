@@ -122,19 +122,19 @@ function HeaderRow({
 				<SortHeader col="size" sort={sort} onSort={onSort}>Size</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'The delta between realized execution price and market mid; sum of L.P Fee, Agg Fee, Impact, and Slippage' }}>EX. QUALITY</SortHeader>
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage' }}>EX. QUALITY</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="lpFee" sort={sort} onSort={onSort}>L.P. Fee</SortHeader>
+				<SortHeader col="lpFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-lp-fee', text: 'Fees paid to liquidity providers' }}>L.P. Fee</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="aggFee" sort={sort} onSort={onSort}>Agg. Fee</SortHeader>
+				<SortHeader col="aggFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-agg-fee', text: 'Fees paid to aggregators' }}>Agg. Fee</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: "Per-venue execution difference measured against that venue's prior-block mid, excluding L.P. fee." }}>P. IMPACT</SortHeader>
+				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: 'Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee' }}>P. IMPACT</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. fees, aggregator fees, or measured price impact.' }}>Slippage</SortHeader>
+				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
 			</th>
 		</tr>
 	);
@@ -332,7 +332,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					<DetailRow label="Realized Execution Price" subvalue={formatSubvalueUsd(Number(row.realizedPrice))}>
 						{formatExecutionPrice(row.realizedPrice)}
 					</DetailRow>
-					<DetailRow label="Market Price" underscored subvalue={formatSubvalueUsd(Number(row.marketMid))}>
+					<DetailRow label="Market Price" tooltip="Median of three Uniswap v3/Aerodrome pools at the trade’s block, cross-referenced against Chainlink oracle" subvalue={formatSubvalueUsd(Number(row.marketMid))}>
 						{formatExecutionPrice(row.marketMid)}
 						{row.manipulationFlag ? (
 							<span className="ml-2 text-[var(--color-warning)]" title="Median pool mid deviates from Chainlink ETH/USD by more than 0.5% at N-1">
@@ -345,7 +345,9 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 							{Number(row.chainlinkDevBps).toFixed(1)} bps
 						</DetailRow>
 					) : null}
-					<DetailRow label="Price Delta">{formatPriceDelta(row.marketMid, row.realizedPrice)}</DetailRow>
+					<DetailRow label="Price Delta" subvalue={priceDeltaComparison(row.marketMid, row.realizedPrice)}>
+						{formatPriceDelta(row.marketMid, row.realizedPrice)}
+					</DetailRow>
 					<DetailRow label="Gas Cost">
 						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 					</DetailRow>
@@ -397,7 +399,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 
 					<BreakdownDivider />
 
-					<BreakdownHeading label="Price Impact" tooltip="Per-venue delta between realized execution price the venue's prior-block mid, excluding L.P. fee" />
+					<BreakdownHeading label="Price Impact" tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee" />
 					{priceImpactRows.length > 0 ? (
 						priceImpactRows.map((impact, index) => (
 							<BreakdownRow
@@ -431,7 +433,12 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					/>
 
 					<div className="border-t border-[var(--color-border)]" />
-					<BreakdownRow label="Total Execution Quality" value={accuracy} color={accuracyColor} plain />
+					<BreakdownRow
+						label="Total Execution Quality"
+						value={accuracy}
+						color={accuracyColor}
+						tooltip="Delta between execution price and market price; the sum of L.P. Fee, Agg Fee, P. Impact, and Slippage"
+					/>
 				</div>
 			</section>
 			</div>
@@ -444,19 +451,33 @@ function DetailRow({
 	children,
 	underscored = false,
 	subvalue,
+	tooltip,
 }: {
 	label: string;
 	children: React.ReactNode;
 	underscored?: boolean;
-	subvalue?: string;
+	subvalue?: string | undefined;
+	tooltip?: string;
 }) {
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
-			<span
-				className={`text-[var(--color-secondary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
-			>
-				{label}
-			</span>
+			{tooltip ? (
+				<span className="group relative cursor-default text-[var(--color-secondary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+					{label}
+					<div
+						role="tooltip"
+						className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+					>
+						{tooltip}
+					</div>
+				</span>
+			) : (
+				<span
+					className={`text-[var(--color-secondary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
+				>
+					{label}
+				</span>
+			)}
 			{subvalue != null ? (
 				<div className="flex flex-col gap-[10px] items-end min-w-0">
 					<span>{children}</span>
@@ -530,6 +551,7 @@ function BreakdownRow({
 	href,
 	color,
 	valueTooltip,
+	tooltip,
 	secondary = false,
 	plain = false,
 }: {
@@ -539,6 +561,7 @@ function BreakdownRow({
 	href?: string | undefined;
 	color?: string | undefined;
 	valueTooltip?: string | undefined;
+	tooltip?: string | undefined;
 	secondary?: boolean;
 	plain?: boolean;
 }) {
@@ -562,7 +585,19 @@ function BreakdownRow({
 	return (
 		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
 			<div className="min-w-0">
-				{labelNode}
+				{tooltip ? (
+					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+						{label}
+						<div
+							role="tooltip"
+							className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+						>
+							{tooltip}
+						</div>
+					</span>
+				) : (
+					labelNode
+				)}
 				{context != null && (
 					<span className="ml-[10px] text-[var(--color-quaternary)]">{context}</span>
 				)}
@@ -598,6 +633,30 @@ export function formatDialogBps(value: number | null): { text: string; color: st
 	const text = rounded === 0 ? '0.00bps' : `${rounded > 0 ? '+' : ''}${Math.abs(rounded).toFixed(2)}bps`;
 	const color = rounded > 0 ? '#117d45' : undefined;
 	return { text, color };
+}
+
+// Reasonable letter-grade scale over Total Execution Quality (accuracy = -costBps).
+// Meeting or beating market mid is top marks; grade degrades as cost grows.
+export function executionGrade(costBps: number): string {
+	const accuracy = -costBps;
+	if (accuracy >= 0) return 'A+';
+	if (accuracy >= -1) return 'A';
+	if (accuracy >= -3) return 'B';
+	if (accuracy >= -7) return 'C';
+	if (accuracy >= -15) return 'D';
+	return 'F';
+}
+
+// Describes each grade's cutoff. Total Execution Quality never shows a '-' sign
+// on screen (see formatDialogBps), so the cutoffs here are stated unsigned too.
+export function executionGradeTooltip(costBps: number): string {
+	const accuracy = -costBps;
+	if (accuracy >= 0) return 'Total Execution Quality is ≥0bps';
+	if (accuracy >= -1) return 'Total Execution Quality is ≤1bps';
+	if (accuracy >= -3) return 'Total Execution Quality is ≤3bps';
+	if (accuracy >= -7) return 'Total Execution Quality is ≤7bps';
+	if (accuracy >= -15) return 'Total Execution Quality is ≤15bps';
+	return 'Total Execution Quality is >15bps';
 }
 
 export function getExecutionBreakdown(row: Pick<TradeRow, 'slippageBps' | 'routeLegs'>): {
@@ -806,7 +865,16 @@ function formatPriceDelta(marketMid: unknown, realizedPrice: unknown): string {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
-	return `$${Math.abs(mid - exec).toFixed(2)}`;
+	return `Execution - Market = $${Math.abs(mid - exec).toFixed(2)}`;
+}
+
+function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown): string | undefined {
+	const mid = marketMid == null ? null : Number(marketMid);
+	const exec = realizedPrice == null ? null : Number(realizedPrice);
+	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return undefined;
+	if (exec > mid) return 'Worse';
+	if (exec < mid) return 'Better';
+	return 'Market Value';
 }
 
 function dialogPairTitle(legs: RouteLeg[], row: TradeRow): string {
