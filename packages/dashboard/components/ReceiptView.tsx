@@ -209,7 +209,7 @@ function Receipt({ row }: { row: TradeRow }) {
 
 	return (
 		<>
-			<Divider />
+			<Divider color="border" />
 
 			<h2
 				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
@@ -281,7 +281,7 @@ function Receipt({ row }: { row: TradeRow }) {
 				</DetailRow>
 			</div>
 
-			<Divider />
+			<Divider color="border" />
 
 			<h2
 				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"

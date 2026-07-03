@@ -337,7 +337,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					</DetailRow>
 				</div>
 
-				<div className="border-t border-[var(--color-primary)]" />
+				<div className="border-t border-[var(--color-border)]" />
 
 				<h3 className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium">
 					Cost Breakdown
