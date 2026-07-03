@@ -32,8 +32,11 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 				Transaction Hash
 			</span>
 			<div
-				className="relative flex h-[40px] w-full items-center rounded-[2px] transition-colors"
-				style={inputHovered || inputFocused ? { backgroundColor: 'var(--color-surface-low)' } : undefined}
+				className="relative flex h-[40px] w-full items-stretch overflow-hidden rounded-[2px] border transition-colors"
+				style={{
+					borderColor,
+					...(inputHovered || inputFocused ? { backgroundColor: 'var(--color-surface-low)' } : {}),
+				}}
 			>
 				<input
 					type="text"
@@ -50,9 +53,8 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 					onFocus={() => setInputFocused(true)}
 					onBlur={() => setInputFocused(false)}
 					spellCheck={false}
-					className="h-full w-full rounded-[2px] border pl-[12px] pr-[48px] font-['Sohne_Mono'] text-[12px] leading-[12px] bg-transparent outline-none"
+					className="h-full min-w-0 flex-1 pl-[12px] pr-[12px] font-['Sohne_Mono'] text-[12px] leading-[12px] bg-transparent outline-none"
 					style={{
-						borderColor,
 						color: textColor,
 						fontFeatureSettings: '"calt" 0',
 					}}
@@ -60,35 +62,14 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 				<button
 					type="button"
 					onClick={submit}
-					aria-label="Search transaction"
-					className="absolute right-0 top-0 flex h-[40px] w-[40px] items-center justify-center rounded-[2px] rounded-tl-none rounded-bl-none p-[8px] cursor-pointer hover:opacity-80 active:opacity-60 transition-opacity"
-					style={{ backgroundColor: hasError ? 'var(--color-red)' : 'var(--color-primary)' }}
+					aria-label="Create receipt"
+					className="flex h-full shrink-0 cursor-pointer items-center justify-center whitespace-nowrap px-[12px] font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-surface-base)] hover:opacity-80 active:opacity-60 transition-opacity"
+					style={{
+						backgroundColor: hasError ? 'var(--color-red)' : 'var(--color-primary)',
+						fontFeatureSettings: '"calt" 0',
+					}}
 				>
-					<svg
-						width="24"
-						height="24"
-						viewBox="0 0 24 24"
-						fill="none"
-						aria-hidden="true"
-						style={{ color: 'var(--color-surface-base)' }}
-					>
-						<circle
-							cx="11"
-							cy="11"
-							r="6.5"
-							stroke="currentColor"
-							strokeWidth="1.5"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						/>
-						<path
-							d="M16 16l4 4"
-							stroke="currentColor"
-							strokeWidth="1.5"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						/>
-					</svg>
+					Create Receipt
 				</button>
 			</div>
 			{hasError && (

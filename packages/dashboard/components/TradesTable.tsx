@@ -238,9 +238,6 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 	const hasAggFee = row.aggFeeBps != null && Number(row.aggFeeBps) !== 0;
 	const execution = getExecutionBreakdown(row);
 	const priceImpactRows = getPriceImpactRows(legs);
-	const normalizeFlags = Array.isArray(row.normalizeFlags)
-		? (row.normalizeFlags as unknown[]).filter((f): f is string => typeof f === 'string' && f.trim().length > 0)
-		: [];
 
 	const title = dialogPairTitle(legs, row);
 
@@ -278,7 +275,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 						id="transaction-details-title"
 						className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium"
 					>
-						{title}
+						{shortTxHash(row.txHash)}
 					</h2>
 					<button
 						type="button"
@@ -291,6 +288,25 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 -rotate-45 bg-current" />
 						</span>
 					</button>
+				</div>
+
+				<div className="flex items-center justify-between">
+					<h2
+						className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium"
+					>
+						{title}
+					</h2>
+					<span
+						className="group relative cursor-default font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+					>
+						{executionGrade(costBps)}
+						<div
+							role="tooltip"
+							className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left font-['Sohne_Mono'] text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+						>
+							{executionGradeTooltip(costBps)}
+						</div>
+					</span>
 				</div>
 
 				<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
@@ -308,25 +324,6 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
 					<DetailRow label="Aggregator"><span style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</span></DetailRow>
 					<DetailRow label="Route">{routePath(legs)}</DetailRow>
-					<DetailRow label="Shape">{shapeLabel(row)}</DetailRow>
-					<DetailRow label="Confidence">{confidenceLabel(row.decompConfidence)}</DetailRow>
-					<DetailRow label="Flags">
-						{normalizeFlags.length === 0 ? 'None' : (
-							<span className="group relative cursor-default">
-								<span className="underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] group-hover:decoration-solid">
-									{normalizeFlags.length}
-								</span>
-								<div
-									role="tooltip"
-									className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-								>
-									<ol className="list-decimal pl-[16px] space-y-[4px]">
-										{normalizeFlags.map((f, i) => <li key={i}>{f}</li>)}
-									</ol>
-								</div>
-							</span>
-						)}
-					</DetailRow>
 					<DetailRow label="Token In" subvalue={formatSubvalueUsd(Number(row.usdcAmount))}>{formatTokenIn(row)}</DetailRow>
 					<DetailRow label="Token Out" subvalue={formatSubvalueUsd(Number(row.wethAmount) * Number(row.realizedPrice))}>{formatTokenOut(row)}</DetailRow>
 					<DetailRow label="Realized Execution Price" subvalue={formatSubvalueUsd(Number(row.realizedPrice))}>
@@ -352,8 +349,6 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 					</DetailRow>
 				</div>
-
-				<div className="border-t border-[var(--color-border)]" />
 
 				<h3 className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium">
 					Cost Breakdown
@@ -432,7 +427,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 						tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
 					/>
 
-					<div className="border-t border-[var(--color-border)]" />
+					<BreakdownDivider />
 					<BreakdownRow
 						label="Total Execution Quality"
 						value={accuracy}
@@ -440,6 +435,8 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 						tooltip="Delta between execution price and market price; the sum of L.P. Fee, Agg Fee, P. Impact, and Slippage"
 					/>
 				</div>
+
+				<ShareButton />
 			</section>
 			</div>
 		</div>
@@ -541,6 +538,27 @@ function BreakdownDivider() {
 					'repeating-linear-gradient(to right, var(--color-border) 0, var(--color-border) 1px, transparent 1px, transparent 3px)',
 			}}
 		/>
+	);
+}
+
+export function ShareButton() {
+	const [copied, setCopied] = useState(false);
+
+	const handleClick = async () => {
+		await navigator.clipboard.writeText(window.location.href);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1500);
+	};
+
+	return (
+		<button
+			type="button"
+			onClick={handleClick}
+			className="flex h-[40px] w-full shrink-0 cursor-pointer items-center justify-center rounded-[2px] bg-[var(--color-primary)] px-[8px] font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] text-[var(--color-surface-base)]"
+			style={{ fontFeatureSettings: '"calt" 0' }}
+		>
+			{copied ? 'Copied' : 'Share'}
+		</button>
 	);
 }
 
@@ -778,17 +796,6 @@ export function routePath(legs: RouteLeg[]): string {
 	if (legs.length === 0) return '–';
 	const tokens = [tokenSymbol(legs[0]!.tokenIn), ...legs.map((leg) => tokenSymbol(leg.tokenOut))];
 	return tokens.join('->');
-}
-
-function shapeLabel(row: TradeRow): string {
-	if (row.routeShape == null) return '–';
-	if (row.routeShape === 'linear' && (row.hopCount ?? 0) > 1) return 'Intermediate';
-	return row.routeShape[0]!.toUpperCase() + row.routeShape.slice(1);
-}
-
-function confidenceLabel(value: string | null | undefined): string {
-	if (value == null) return '–';
-	return value[0]!.toUpperCase() + value.slice(1);
 }
 
 export function getFlagLabel(row: Pick<TradeRow, 'normalizeFlags' | 'decompConfidence'>): string {

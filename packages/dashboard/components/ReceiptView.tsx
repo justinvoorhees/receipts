@@ -22,6 +22,7 @@ import {
 	getAggregatorFeeAttribution,
 	executionGrade,
 	executionGradeTooltip,
+	ShareButton,
 } from './TradesTable';
 
 export function formatDelta(marketMid: unknown, realizedPrice: unknown): string {
@@ -222,13 +223,6 @@ export function ReceiptView({ trade, hash }: { trade: TradeRow | null; hash: str
 
 	return (
 		<div className="flex flex-col gap-[40px] pb-10">
-			<h1
-				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
-				style={{ fontFeatureSettings: '"calt" 0' }}
-			>
-				Create Receipt
-			</h1>
-
 			<ReceiptSearch hash={hash} {...(error !== undefined ? { error } : {})} />
 
 			{trade != null && <Receipt row={trade} />}
@@ -248,7 +242,14 @@ function Receipt({ row }: { row: TradeRow }) {
 
 	return (
 		<>
-			<Divider color="border" />
+			<Divider color="primary" />
+
+			<h2
+				className="font-['Sohne_Breit'] font-medium text-[30px] leading-[30px]"
+				style={{ fontFeatureSettings: '"calt" 0' }}
+			>
+				{shortTxHash(row.txHash)}
+			</h2>
 
 			<div className="flex items-center justify-between">
 				<h2
@@ -258,7 +259,7 @@ function Receipt({ row }: { row: TradeRow }) {
 					{pairTitle}
 				</h2>
 				<span
-					className="group relative cursor-default font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+					className="group relative cursor-default font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
 					style={{ fontFeatureSettings: '"calt" 0' }}
 				>
 					{executionGrade(costBps)}
@@ -335,8 +336,6 @@ function Receipt({ row }: { row: TradeRow }) {
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</DetailRow>
 			</div>
-
-			<Divider color="border" />
 
 			<h2
 				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
@@ -422,7 +421,7 @@ function Receipt({ row }: { row: TradeRow }) {
 					tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
 				/>
 
-				<Divider color="border" />
+				<Divider dashed />
 				<BkdRow
 				label="Total Execution Quality"
 				value={accuracy}
@@ -430,6 +429,8 @@ function Receipt({ row }: { row: TradeRow }) {
 				tooltip="Delta between execution price and market price; the sum of L.P. Fee, Agg Fee, P. Impact, and Slippage"
 			/>
 			</div>
+
+			<ShareButton />
 		</>
 	);
 }
