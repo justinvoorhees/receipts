@@ -12,12 +12,12 @@ describe('formatDelta', () => {
 	it('returns the absolute dollar difference between market and execution price', async () => {
 		const { formatDelta } = await import('./ReceiptView');
 		// Figma example: market 1830.44284125, realized 1829.763683289442 → $0.68
-		expect(formatDelta(1830.44284125, 1829.763683289442)).toBe('Execution - Market = $0.68');
+		expect(formatDelta(1830.44284125, 1829.763683289442)).toBe('$0.68');
 	});
 
 	it('returns the same value when realized > market', async () => {
 		const { formatDelta } = await import('./ReceiptView');
-		expect(formatDelta(1829.00, 1830.00)).toBe('Execution - Market = $1.00');
+		expect(formatDelta(1829.00, 1830.00)).toBe('$1.00');
 	});
 
 	it('returns – for null inputs', async () => {
@@ -28,19 +28,19 @@ describe('formatDelta', () => {
 });
 
 describe('priceDeltaComparison', () => {
-	it('returns Worse when execution price is above market', async () => {
+	it('returns Below Market when execution price is above market', async () => {
 		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(1829.0, 1830.0)).toBe('Worse');
+		expect(priceDeltaComparison(1829.0, 1830.0)).toBe('Below Market');
 	});
 
-	it('returns Better when execution price is below market', async () => {
+	it('returns Above Market when execution price is below market', async () => {
 		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(1830.0, 1829.0)).toBe('Better');
+		expect(priceDeltaComparison(1830.0, 1829.0)).toBe('Above Market');
 	});
 
-	it('returns Market Value when execution and market prices match', async () => {
+	it('returns At Market when execution and market prices match', async () => {
 		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(1830.0, 1830.0)).toBe('Market Value');
+		expect(priceDeltaComparison(1830.0, 1830.0)).toBe('At Market');
 	});
 
 	it('returns undefined for null inputs', async () => {

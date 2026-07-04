@@ -29,16 +29,16 @@ export function formatDelta(marketMid: unknown, realizedPrice: unknown): string 
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
-	return `Execution - Market = $${Math.abs(mid - exec).toFixed(2)}`;
+	return `$${Math.abs(mid - exec).toFixed(2)}`;
 }
 
 export function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown): string | undefined {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return undefined;
-	if (exec > mid) return 'Worse';
-	if (exec < mid) return 'Better';
-	return 'Market Value';
+	if (Math.abs(exec - mid) < 0.01) return 'At Market';
+	if (exec > mid) return 'Below Market';
+	return 'Above Market';
 }
 
 function receiptPairTitle(legs: RouteLeg[], row: TradeRow): string {
@@ -80,7 +80,7 @@ function DetailRow({
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
 			{tooltip ? (
-				<span className="group relative cursor-default text-[var(--color-secondary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+				<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 					{label}
 					<div
 						role="tooltip"
@@ -91,7 +91,7 @@ function DetailRow({
 				</span>
 			) : (
 				<span
-					className={`text-[var(--color-secondary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
+					className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
 				>
 					{label}
 				</span>
@@ -426,7 +426,7 @@ function Receipt({ row }: { row: TradeRow }) {
 				label="Total Execution Quality"
 				value={accuracy}
 				color={accuracyColor}
-				tooltip="Delta between execution price and market price; the sum of L.P. Fee, Agg Fee, P. Impact, and Slippage"
+				tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage"
 			/>
 			</div>
 

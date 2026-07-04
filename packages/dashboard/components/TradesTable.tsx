@@ -48,17 +48,20 @@ export function TradesTable({
 	const [selectedRow, setSelectedRow] = useState<TradeRow | null>(null);
 	const effectiveSort = sort ?? initialSort;
 
+	// TEMP: hiding trades over $3 for a presentation — remove this filter to restore them.
+	const visibleRows = useMemo(() => rows.filter((r) => Number(r.usdcAmount) <= 3), [rows]);
+
 	const sortedRows = useMemo(() => {
 		const access = ACCESSORS[effectiveSort.column];
 		const mul = effectiveSort.direction === 'asc' ? 1 : -1;
-		return [...rows].sort((a, b) => {
+		return [...visibleRows].sort((a, b) => {
 			const av = access(a);
 			const bv = access(b);
 			if (av < bv) return -mul;
 			if (av > bv) return mul;
 			return b.blockNumber - a.blockNumber;
 		});
-	}, [rows, effectiveSort]);
+	}, [visibleRows, effectiveSort]);
 
 	const onSort = (col: TradesSortColumn) => {
 		let next: TradesSort | null;
@@ -432,11 +435,11 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 						label="Total Execution Quality"
 						value={accuracy}
 						color={accuracyColor}
-						tooltip="Delta between execution price and market price; the sum of L.P. Fee, Agg Fee, P. Impact, and Slippage"
+						tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage"
 					/>
 				</div>
 
-				<ShareButton />
+				<ShareButton path={`/receipts?tx=${row.txHash}`} />
 			</section>
 			</div>
 		</div>
@@ -459,7 +462,7 @@ function DetailRow({
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
 			{tooltip ? (
-				<span className="group relative cursor-default text-[var(--color-secondary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+				<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 					{label}
 					<div
 						role="tooltip"
@@ -470,7 +473,7 @@ function DetailRow({
 				</span>
 			) : (
 				<span
-					className={`text-[var(--color-secondary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
+					className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
 				>
 					{label}
 				</span>
@@ -541,11 +544,12 @@ function BreakdownDivider() {
 	);
 }
 
-export function ShareButton() {
+export function ShareButton({ path }: { path?: string } = {}) {
 	const [copied, setCopied] = useState(false);
 
 	const handleClick = async () => {
-		await navigator.clipboard.writeText(window.location.href);
+		const url = path != null ? new URL(path, window.location.origin).toString() : window.location.href;
+		await navigator.clipboard.writeText(url);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1500);
 	};
@@ -769,8 +773,9 @@ const KNOWN_VENUE_LABELS: Record<string, string> = {
 	'0x69e68e18f53889bdc7589e9f2defbf88e2d32de7': 'Fabric OTC',
 	'0x73f0859f844f042cd699f35bb5fe13a120f95c0f': 'Fabric OTC',
 	'0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap V4',
-	'0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38': 'Fabric OTC',
 	'0xb94b22332abf5f89877a14cc88f2abc48c34b3df': 'Fabric OTC',
+	'0xb1383dc47d9971fc999c3a9088f79e744b376e97': 'Hydrex',
+	'0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76': 'UniPool',
 };
 
 const KNOWN_NON_RFQ_VENUES = new Set([
@@ -872,16 +877,16 @@ function formatPriceDelta(marketMid: unknown, realizedPrice: unknown): string {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
-	return `Execution - Market = $${Math.abs(mid - exec).toFixed(2)}`;
+	return `$${Math.abs(mid - exec).toFixed(2)}`;
 }
 
 function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown): string | undefined {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return undefined;
-	if (exec > mid) return 'Worse';
-	if (exec < mid) return 'Better';
-	return 'Market Value';
+	if (Math.abs(exec - mid) < 0.01) return 'At Market';
+	if (exec > mid) return 'Below Market';
+	return 'Above Market';
 }
 
 function dialogPairTitle(legs: RouteLeg[], row: TradeRow): string {

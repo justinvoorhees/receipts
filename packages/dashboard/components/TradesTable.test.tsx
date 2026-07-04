@@ -220,14 +220,6 @@ describe('TradesTable', () => {
 			venue: '0xbee3211ab312a8d065c4fef0247448e17a8da000',
 			type: 'unknown',
 		} as never)).toBe('Unknown Pool');
-		expect(getVenueLabel({
-			venue: '0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76',
-			type: 'unknown',
-		} as never)).toBe('Unknown Pool');
-		expect(getVenueLabel({
-			venue: '0xb1383dc47d9971fc999c3a9088f79e744b376e97',
-			type: 'unknown',
-		} as never)).toBe('Unknown Pool');
 		expect(getVenueLabel({ venue: '0xother', type: 'rfq' } as never)).toBe('Unknown Pool');
 
 		expect(getPriceImpactRows([
@@ -244,6 +236,19 @@ describe('TradesTable', () => {
 			value: 'Null',
 			valueTooltip: 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.',
 		});
+	});
+
+	it('labels known Hydrex and UniPool addresses despite an "unknown" decomposition type', async () => {
+		const { getVenueLabel } = await import('./TradesTable');
+
+		expect(getVenueLabel({
+			venue: '0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76',
+			type: 'unknown',
+		} as never)).toBe('UniPool');
+		expect(getVenueLabel({
+			venue: '0xb1383dc47d9971fc999c3a9088f79e744b376e97',
+			type: 'unknown',
+		} as never)).toBe('Hydrex');
 	});
 
 	it('labels smoke-03 unknown pool and token pair symbols', async () => {
@@ -386,9 +391,9 @@ describe('TradesTable', () => {
 	});
 
 	it.each([
-		['3005', '3000', 'Worse'],
-		['2995', '3000', 'Better'],
-		['3000', '3000', 'Market Value'],
+		['3005', '3000', 'Below Market'],
+		['2995', '3000', 'Above Market'],
+		['3000', '3000', 'At Market'],
 	])('renders Price Delta subvalue "%s" as %s when realized=%s market=%s', async (realizedPrice, marketMid, expected) => {
 		const { TransactionDetailsDialog } = await import('./TradesTable');
 		const row = {
@@ -403,7 +408,7 @@ describe('TradesTable', () => {
 		const html = renderToStaticMarkup(
 			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
 		);
-		expect(html).toContain('Execution - Market = $');
+		expect(html).toContain('$');
 		expect(html).toContain(expected);
 	});
 });
