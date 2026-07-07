@@ -67,6 +67,10 @@ const V2_PAIR_ABI = parseAbi([
   'function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)',
 ]);
 
+const POOL_LIQUIDITY_ABI = parseAbi([
+  'function liquidity() view returns (uint128)',
+]);
+
 // ── Fee tiers to scan ────────────────────────────────────────────────────────
 
 /** Standard Uniswap V3 fee tiers (in hundredths of a bps, i.e. raw units). */
@@ -207,6 +211,109 @@ export async function readV4Slot0(
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the in-range `liquidity()` from a V3-style pool at a given block.
+ * Returns the liquidity (uint128) or null on revert/error. Used only to RANK
+ * candidate pools by depth — never for pricing.
+ */
+async function readLiquidity(
+  client: PublicClient,
+  poolAddress: `0x${string}`,
+  blockNumber?: bigint,
+): Promise<bigint | null> {
+  try {
+    const result = await client.readContract({
+      address: poolAddress,
+      abi: POOL_LIQUIDITY_ABI,
+      functionName: 'liquidity',
+      ...(blockNumber !== undefined ? { blockNumber } : {}),
+    });
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Discover the DEEPEST initialized reference pool for an arbitrary token pair.
+ *
+ * Unlike `discoverPool` (which returns the first initialized pool found and is
+ * relied on unchanged by existing callers), this scans every V3 fee tier and
+ * Aerodrome CL tick spacing, then ranks the initialized candidates by in-range
+ * `liquidity()` and returns the deepest. This is the reference pool a generic
+ * pair-mid should be sampled from.
+ *
+ * Returns only V3-style pools (Uniswap V3, PancakeSwap V3, Aerodrome CL) — the
+ * same families `discoverPool` covers — so callers can always read the mid via
+ * `readSlot0`. Returns `null` when no initialized pool exists for the pair.
+ *
+ * NEVER throws: individual factory / liquidity reads are wrapped so a transient
+ * RPC failure on one candidate just drops that candidate.
+ */
+export async function getDeepestPoolForPair(
+  client: PublicClient,
+  tokenA: string,
+  tokenB: string,
+  blockNumber?: bigint,
+): Promise<DiscoveredPool | null> {
+  const a = tokenA.toLowerCase() as `0x${string}`;
+  const b = tokenB.toLowerCase() as `0x${string}`;
+
+  const candidates: { address: `0x${string}`; kind: PoolKind }[] = [];
+
+  const v3Factories: { address: `0x${string}`; kind: PoolKind }[] = [
+    { address: UNIV3_FACTORY, kind: 'univ3' },
+    { address: PANCAKE_V3_FACTORY, kind: 'pancakev3' },
+  ];
+  for (const factory of v3Factories) {
+    for (const fee of V3_FEE_TIERS) {
+      try {
+        const poolAddr = await client.readContract({
+          address: factory.address,
+          abi: V3_FACTORY_ABI,
+          functionName: 'getPool',
+          args: [a, b, fee],
+        });
+        if (poolAddr && poolAddr !== ZERO_ADDRESS) {
+          candidates.push({ address: poolAddr as `0x${string}`, kind: factory.kind });
+        }
+      } catch {
+        // skip this tier
+      }
+    }
+  }
+  for (const tickSpacing of AERO_TICK_SPACINGS) {
+    try {
+      const poolAddr = await client.readContract({
+        address: AERO_CL_FACTORY,
+        abi: AERO_CL_FACTORY_ABI,
+        functionName: 'getPool',
+        args: [a, b, tickSpacing],
+      });
+      if (poolAddr && poolAddr !== ZERO_ADDRESS) {
+        candidates.push({ address: poolAddr as `0x${string}`, kind: 'aerodrome_cl' });
+      }
+    } catch {
+      // skip
+    }
+  }
+
+  // Rank initialized candidates by depth. `liquidity()` may be unreadable on
+  // some forks; such pools still qualify (depth treated as 0) so we never lose
+  // an initialized pool purely because its depth read reverted.
+  let best: { pool: DiscoveredPool; depth: bigint } | null = null;
+  for (const cand of candidates) {
+    const sqrtPriceX96 = await readSlot0(client, cand.address, blockNumber);
+    if (sqrtPriceX96 === null || sqrtPriceX96 <= 0n) continue; // uninitialized
+    const depth = (await readLiquidity(client, cand.address, blockNumber)) ?? 0n;
+    if (best === null || depth > best.depth) {
+      best = { pool: cand, depth };
+    }
+  }
+
+  return best?.pool ?? null;
 }
 
 /**
