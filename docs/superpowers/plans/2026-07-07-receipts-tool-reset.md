@@ -85,19 +85,19 @@ describe('receipts schema', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/db -- schema.test.ts`
+Run: `npx vitest run schema.test.ts`
 Expected: FAIL — `schema.receipts` does not exist.
 
 - [ ] **Step 3: Add the `receipts` table to `schema.ts`** using the column list in Interfaces above, following the existing `pgTable` style in the file (import `boolean, pgTable, text, integer, numeric, jsonb, timestamp, uniqueIndex, serial`). Add `export type ReceiptRow = typeof receipts.$inferSelect;` and include `receipts` in the exported `schema` object. Add a one-line comment `// users table added when auth lands; receipts.userId is the forward hook`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/db -- schema.test.ts`
+Run: `npx vitest run schema.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Generate the migration**
 
-Run: `npm run --workspace packages/db drizzle-kit generate` (or the repo's existing generate script per `drizzle.config.ts`)
+Run: `npm run db:generate` (or the repo's existing generate script per `drizzle.config.ts`)
 Expected: new `packages/db/drizzle/0011_receipts.sql` creating the table + unique index. Inspect it; confirm no destructive statements against existing tables (drops happen in Task 12).
 
 - [ ] **Step 6: Commit**
@@ -151,20 +151,20 @@ describe('mapSmokeToReceipt', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/db -- seed-receipts.test.ts`
+Run: `npx vitest run seed-receipts.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `mapSmokeToReceipt` + a `main()`** that: connects via `DATABASE_URL`, reads the curated-25 (`batch IN (smoke-01,02,03)` + first-2-per-agg of `smoke-04`, mirroring the logic currently in `dashboard/lib/queries.ts:getCuratedTrades`), maps each, and `insert().onConflictDoNothing()` into `receipts`. Guard `main()` behind `if (import.meta.url === ...)` so the test only imports the pure mapper.
+- [ ] **Step 3: Implement `mapSmokeToReceipt` + a `main()`** that: connects via `TCA_DATABASE_URL`, reads the curated-25 (`batch IN (smoke-01,02,03)` + first-2-per-agg of `smoke-04`, mirroring the logic currently in `dashboard/lib/queries.ts:getCuratedTrades`), maps each, and `insert().onConflictDoNothing()` into `receipts`. Guard `main()` behind `if (import.meta.url === ...)` so the test only imports the pure mapper.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/db -- seed-receipts.test.ts`
+Run: `npx vitest run seed-receipts.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Apply migration + seed against the live DB**
 
-Run: `npm run --workspace packages/db drizzle-kit migrate` then `npx tsx packages/db/scripts/seed-receipts.ts`
-Expected: `receipts` created; 25 rows inserted. Verify: `psql "$DATABASE_URL" -c "select count(*) from receipts;"` → 25.
+Run: `npm run db:migrate` then `npx tsx packages/db/scripts/seed-receipts.ts`
+Expected: `receipts` created; 25 rows inserted. Verify: `psql "$TCA_DATABASE_URL" -c "select count(*) from receipts;"` → 25.
 
 - [ ] **Step 6: Commit**
 
@@ -205,8 +205,8 @@ Expected: PASS for the modules we keep (decomposeRoute, legFees, routeGraph, ben
 cd packages/core/src
 git rm discover-router-trades.ts extract-router-trades.ts extract-smoke-candidates.ts \
   load-router-trades.ts load-smoke-trades.ts reextract-gated.ts decompose-gated.ts \
-  decompose-remaining.ts redecompose-smoke.ts selectionGate.ts \
-  poller.ts promoter.ts quoter.ts tcaCalculator.ts processSwap.ts referencePrice.ts \
+  decompose-remaining.ts redecompose-smoke.ts \
+  poller.ts promoter.ts quoter.ts tcaCalculator.ts processSwap.ts \
   backfill-*.ts scan-005-pool-backfill.ts sample-*.ts \
   inspect-*.ts investigate-*.ts patch-*.ts fix-*.ts diagnose-*.ts spotcheck-*.ts \
   survey-*.ts check-*.ts list-*.ts orient-*.ts revalue-*.ts prove-*.ts \
@@ -216,7 +216,7 @@ git rm discover-router-trades.ts extract-router-trades.ts extract-smoke-candidat
   heartbeat.ts cli.ts backfill-p99.ts debug-aggregator.ts check-single-swap.ts \
   validate-trader-id.ts validate-trader-id-singlehop.ts
 ```
-(If a name above doesn't exist, skip it. Keep `selectionGate.ts` *logic* for tagging until Task 4 extracts it — so delete `selectionGate.ts` in Task 4's commit, not here. Remove it from this `git rm` line.)
+(If a name above doesn't exist, skip it. Do NOT delete `selectionGate.ts` here — its tagging maps are extracted in Task 4, which deletes the file. Do NOT delete `referencePrice.ts` — it's in the keep-list; if it proves unused it's flagged in the final review, not deleted here.)
 
 - [ ] **Step 4: Fix the build** — resolve import breakages from deletions.
 
@@ -266,14 +266,14 @@ describe('labelAddress', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/core -- tagging.test.ts`
+Run: `npx vitest run tagging.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement `tagging.ts`** by lifting the address→name constants out of `selectionGate.ts` and combining with `routerRegistry.ts`. Then delete `selectionGate.ts` and repoint any remaining importer (there should be none after Task 3).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/core -- tagging.test.ts`
+Run: `npx vitest run tagging.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -334,14 +334,14 @@ describe('extractEndpoints', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/core -- endpoints.test.ts`
+Run: `npx vitest run endpoints.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement `extractEndpoints`**, reusing helpers from `tradeEndpoints.ts`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/core -- endpoints.test.ts`
+Run: `npx vitest run endpoints.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -402,14 +402,14 @@ describe('priceReceipt', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/core -- pricing.test.ts`
+Run: `npx vitest run pricing.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement `priceReceipt`** with the USDC/WETH fast-path delegating to `getBenchmarkMid`, a generic deepest-pool branch via `poolDiscovery`, a stablecoin allowlist for USD anchoring, and a top-level try/catch returning `status:'partial'`. Add a `getDeepestPoolForPair(...)` helper to `poolDiscovery.ts` if absent (do not alter existing exports).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/core -- pricing.test.ts`
+Run: `npx vitest run pricing.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -453,14 +453,14 @@ export async function analyzeTransaction(
 ```
 Flow: fetch receipt+trace; `trader = tx.from.toLowerCase()`; `extractEndpoints`; if null → return null. `priceReceipt`. Run `decomposeRoute` (as wired in `normalizeSmokeTrade`, but fed generic endpoints; when `pricingStatus==='partial'`, skip price-impact/slippage and set them null, keep LP+Agg). Assemble `Receipt`. Aggregator name via `tagging`/`routerRegistry` (best-effort; unknown → raw). Wrap in try/catch → `null`.
 
-- [ ] **Step 1: Write the failing test** — a pinned Base swap hash exercised against a real RPC (integration), guarded to skip without `BASE_RPC_URL`.
+- [ ] **Step 1: Write the failing test** — a pinned Base swap hash exercised against a real RPC (integration), guarded to skip without `TCA_RPC_URL`.
 
 ```ts
 // packages/core/src/analyzeTransaction.test.ts
 import { describe, it, expect } from 'vitest';
 import { analyzeTransaction } from './analyzeTransaction.js';
 
-const RPC = process.env.BASE_RPC_URL;
+const RPC = process.env.TCA_RPC_URL;
 describe.runIf(RPC)('analyzeTransaction (integration)', () => {
   it('produces a full receipt for a known USDC/WETH smoke hash', async () => {
     const r = await analyzeTransaction(
@@ -482,15 +482,15 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `BASE_RPC_URL=$BASE_RPC_URL npm run test --workspace packages/core -- analyzeTransaction.test.ts`
+Run: `TCA_RPC_URL=$TCA_RPC_URL npx vitest run analyzeTransaction.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement `analyzeTransaction.ts` + `index.ts`** (re-export `analyzeTransaction`, `Receipt`). Reuse the `decomposeRoute` wiring from `normalizeSmokeTrade` verbatim where possible; feed it generic endpoints.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `BASE_RPC_URL=$BASE_RPC_URL npm run test --workspace packages/core -- analyzeTransaction.test.ts`
-Expected: PASS (both cases). If `BASE_RPC_URL` unset, tests skip — set it before claiming done.
+Run: `TCA_RPC_URL=$TCA_RPC_URL npx vitest run analyzeTransaction.test.ts`
+Expected: PASS (both cases). If `TCA_RPC_URL` unset, tests skip — set it before claiming done.
 
 - [ ] **Step 5: Delete `normalizeSmokeTrade.ts` + `buildSmokeRow`** now that `analyzeTransaction` supersedes it (its test too). Confirm nothing else imports it: `grep -rl normalizeSmokeTrade packages`.
 
@@ -523,13 +523,13 @@ export function deleteReceipt(id: number): Promise<void>;
 ```
 Remove `getCuratedTrades`, `getCuratedAggregatorSummary`, `getCostByAggregator`, `getRecentTrades`, `getAggregatorSummary`, `getHeartbeats`, and the `RouteLeg`/`TradeRow` smoke-specific types (replace `TradeRow` usage with `ReceiptRow`; keep a `RouteLeg` interface for the JSONB legs).
 
-- [ ] **Step 1: Write the failing test** for `getReceiptByHash` case-insensitivity (unit against a mocked db, or an integration test guarded by `DATABASE_URL`).
+- [ ] **Step 1: Write the failing test** for `getReceiptByHash` case-insensitivity (unit against a mocked db, or an integration test guarded by `TCA_DATABASE_URL`).
 
 ```ts
 // packages/dashboard/lib/queries.test.ts
 import { describe, it, expect } from 'vitest';
 import { getReceiptByHash } from './queries.js';
-const DB = process.env.DATABASE_URL;
+const DB = process.env.TCA_DATABASE_URL;
 describe.runIf(DB)('getReceiptByHash', () => {
   it('finds a seeded receipt regardless of hash case', async () => {
     const r = await getReceiptByHash(
@@ -541,14 +541,14 @@ describe.runIf(DB)('getReceiptByHash', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `DATABASE_URL=$DATABASE_URL npm run test --workspace packages/dashboard -- queries.test.ts`
+Run: `TCA_DATABASE_URL=$TCA_DATABASE_URL npx vitest run queries.test.ts`
 Expected: FAIL — `getReceiptByHash` not exported.
 
 - [ ] **Step 3: Implement the four functions** against `schema.receipts` using Drizzle (`eq`, `desc`, `sql\`lower(...)\`` for case-insensitive hash match). Delete the removed functions and fix importers (they'll be rewired in Tasks 9–11).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `DATABASE_URL=$DATABASE_URL npm run test --workspace packages/dashboard -- queries.test.ts`
+Run: `TCA_DATABASE_URL=$TCA_DATABASE_URL npx vitest run queries.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -566,7 +566,7 @@ git commit -m "feat(dashboard): receipts data layer (list/get/insert/delete)"
 
 **Interfaces:**
 - Consumes: `analyzeTransaction` (`@fabric-tca/core`), `insertReceipt`/`getReceiptByHash` (Task 8).
-- Produces: `POST /api/receipts { hash, chainId? }` → `200 ReceiptRow` (existing-or-computed-and-saved) | `404 { error: 'Transaction not found.' }`. Handler: `getReceiptByHash` → return if present; else `analyzeTransaction(hash, chainId ?? 8453, { rpcUrl: process.env.BASE_RPC_URL! })` → null ⇒ 404; else `insertReceipt` ⇒ 200.
+- Produces: `POST /api/receipts { hash, chainId? }` → `200 ReceiptRow` (existing-or-computed-and-saved) | `404 { error: 'Transaction not found.' }`. Handler: `getReceiptByHash` → return if present; else `analyzeTransaction(hash, chainId ?? 8453, { rpcUrl: process.env.TCA_RPC_URL! })` → null ⇒ 404; else `insertReceipt` ⇒ 200.
 
 - [ ] **Step 1: Write the failing test** (route unit test with `analyzeTransaction` + queries mocked).
 
@@ -593,17 +593,17 @@ describe('POST /api/receipts', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/dashboard -- route.test.ts`
+Run: `npx vitest run route.test.ts`
 Expected: FAIL — route not found.
 
 - [ ] **Step 3: Implement `route.ts`.** Then change `ReceiptSearch` to `POST` to the API (replace the `router.push('/receipts?tx=...')` navigation with a `fetch`, showing the returned receipt or the 404 error via its existing `error` prop), and make `app/receipts/page.tsx` a client flow (or keep server page + a client search island) that renders `ReceiptView` from the API result. On success, revalidate History.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/dashboard -- route.test.ts`
+Run: `npx vitest run route.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Manually verify end-to-end.** `BASE_RPC_URL` + `DATABASE_URL` set; `npm run dev --workspace packages/dashboard`; paste a fresh non-seeded Base swap hash → receipt renders → appears in History. Paste garbage → "Transaction not found."
+- [ ] **Step 5: Manually verify end-to-end.** `TCA_RPC_URL` + `TCA_DATABASE_URL` set; `npm run dev --workspace packages/dashboard`; paste a fresh non-seeded Base swap hash → receipt renders → appears in History. Paste garbage → "Transaction not found."
 
 - [ ] **Step 6: Commit**
 
@@ -638,14 +638,14 @@ it('renders a partial exotic-pair receipt with impact/slippage unavailable', () 
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/dashboard -- ReceiptView.test.tsx`
+Run: `npx vitest run ReceiptView.test.tsx`
 Expected: FAIL — reads undefined `usdcAmount`, no unavailable state.
 
 - [ ] **Step 3: Generalize the component** — swap `usdcAmount/wethAmount/settledIn` reads for the generalized fields; add the partial-state rendering; de-hardcode "ETH/USD" and "Base".
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/dashboard -- ReceiptView.test.tsx`
+Run: `npx vitest run ReceiptView.test.tsx`
 Expected: PASS. Also re-run the existing seed-row (USDC/WETH) assertions to confirm no regression.
 
 - [ ] **Step 5: Commit**
@@ -684,14 +684,14 @@ it('renders a delete control per row and calls onDelete', async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test --workspace packages/dashboard -- TradesTable.test.tsx`
+Run: `npx vitest run TradesTable.test.tsx`
 Expected: FAIL — no delete control / prop.
 
 - [ ] **Step 3: Implement** — add `DELETE` to the route (`deleteReceipt(Number(id))`); add an `onDelete` prop + per-row delete button to `TradesTable` (confirm-then-`fetch`, then `router.refresh()`); change `app/trades/page.tsx` to `listReceipts()` and a receipts-appropriate empty state ("No receipts yet — paste a transaction hash on the Receipts tab."). Keep the row-click→dialog interaction intact.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test --workspace packages/dashboard -- TradesTable.test.tsx`
+Run: `npx vitest run TradesTable.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Manually verify** — History lists 25 seeded rows; clicking a row opens the receipt dialog; deleting removes it and the list refreshes.
@@ -733,17 +733,17 @@ Expected: PASS (no references to deleted modules).
 
 - [ ] **Step 3: Drop old tables.** Remove `swapsStaging, swaps, routerTrades, routerTradesGated, p99Thresholds, pollState, ingestHeartbeats, smokeTrades` from `schema.ts`; generate migration.
 
-Run: `npm run --workspace packages/db drizzle-kit generate`
+Run: `npm run db:generate`
 Expected: `0012_drop_pipeline_tables.sql` with `DROP TABLE` for each (and backups: `router_trades_backup`, `router_trades_gated_backup` — add manual `DROP TABLE IF EXISTS` for those since they're not in the Drizzle schema).
 
 - [ ] **Step 4: Apply + verify**
 
-Run: `npm run --workspace packages/db drizzle-kit migrate` then `psql "$DATABASE_URL" -c "\dt"`
+Run: `npm run db:migrate` then `psql "$TCA_DATABASE_URL" -c "\dt"`
 Expected: only `receipts` (+ drizzle `__drizzle_migrations`) remain.
 
 - [ ] **Step 5: Full suite + build across workspaces**
 
-Run: `npm run test --workspaces && npm run build --workspaces`
+Run: `npm test && npm run build`
 Expected: PASS. (Any residual pre-existing tsc errors from deleted-script land should now be gone since those files were removed.)
 
 - [ ] **Step 6: Commit**
