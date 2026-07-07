@@ -79,6 +79,10 @@ export interface PricingResult {
   chainlinkPrice: number | null;
   poolDivergenceBps: number | null;
   manipulationFlag: boolean;
+  chainlinkDevBps: number | null;
+  offchainPrice: number | null;
+  offchainDevBps: number | null;
+  chainlinkStalenessSecs: number | null;
 }
 
 // ── DI seam ──────────────────────────────────────────────────────────────────
@@ -259,6 +263,10 @@ export async function priceReceipt(
     chainlinkPrice: null,
     poolDivergenceBps: null,
     manipulationFlag: false,
+    chainlinkDevBps: null,
+    offchainPrice: null,
+    offchainDevBps: null,
+    chainlinkStalenessSecs: null,
   });
 
   try {
@@ -297,6 +305,10 @@ export async function priceReceipt(
         chainlinkPrice: bench.chainlinkPrice,
         poolDivergenceBps: bench.poolDivergenceBps,
         manipulationFlag: bench.manipulationSuspect,
+        chainlinkDevBps: bench.chainlinkDevBps,
+        offchainPrice: bench.offchainPrice,
+        offchainDevBps: bench.offchainDevBps,
+        chainlinkStalenessSecs: bench.chainlinkStalenessSecs,
       };
     }
 
@@ -317,6 +329,10 @@ export async function priceReceipt(
         chainlinkPrice: null,
         poolDivergenceBps: null,
         manipulationFlag: false,
+        chainlinkDevBps: null,
+        offchainPrice: null,
+        offchainDevBps: null,
+        chainlinkStalenessSecs: null,
       };
     }
 

@@ -16,6 +16,10 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(r!.inputSymbol === 'USDC' || r!.outputSymbol === 'USDC').toBe(true);
 		// LP + Agg + PriceImpact + Slippage reconcile to all-in within tolerance
 		expect(Math.abs(Number(r!.allInCostBps))).toBeLessThan(200);
+		// Oracle sub-fields flow through the USDC/WETH fast-path (regression guard
+		// for the priceReceipt -> Receipt forwarding wiring).
+		expect(r!.chainlinkPrice).not.toBeNull();
+		expect(r!.chainlinkDevBps).not.toBeNull();
 	}, 60_000);
 
 	it('returns null for a non-swap hash', async () => {

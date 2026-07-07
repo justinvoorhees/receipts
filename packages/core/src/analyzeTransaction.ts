@@ -247,12 +247,12 @@ export async function analyzeTransaction(
 			normalizeFlags: flags,
 			// Oracle-validation passthrough (populated only on the WETH/USDC path).
 			chainlinkPrice: pricing.chainlinkPrice,
-			chainlinkDevBps: null,
+			chainlinkDevBps: pricing.chainlinkDevBps,
 			poolDivergenceBps: pricing.poolDivergenceBps,
 			manipulationFlag: pricing.manipulationFlag,
-			offchainPrice: null,
-			offchainDevBps: null,
-			chainlinkStalenessSecs: null,
+			offchainPrice: pricing.offchainPrice,
+			offchainDevBps: pricing.offchainDevBps,
+			chainlinkStalenessSecs: pricing.chainlinkStalenessSecs,
 		};
 	} catch {
 		return null;

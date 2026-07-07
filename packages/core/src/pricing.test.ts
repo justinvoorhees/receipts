@@ -86,6 +86,11 @@ describe('priceReceipt', () => {
     expect(r.manipulationFlag).toBe(false);
     expect(r.inputSymbol).toBe('WETH');
     expect(r.outputSymbol).toBe('USDC');
+    // oracle sub-fields forward from the benchmark result on the fast-path
+    expect(r.chainlinkDevBps).toBe(27);
+    expect(r.offchainPrice).toBeNull();
+    expect(r.offchainDevBps).toBeNull();
+    expect(r.chainlinkStalenessSecs).toBe(12);
   });
 
   it('inverts the benchmark mid for USDC in, WETH out', async () => {
@@ -117,6 +122,10 @@ describe('priceReceipt', () => {
     // oracle-validation fields are null for non-WETH/USDC pairs
     expect(r.chainlinkPrice).toBeNull();
     expect(r.poolDivergenceBps).toBeNull();
+    expect(r.chainlinkDevBps).toBeNull();
+    expect(r.offchainPrice).toBeNull();
+    expect(r.offchainDevBps).toBeNull();
+    expect(r.chainlinkStalenessSecs).toBeNull();
   });
 
   // pool found but NO USD anchor on either side -> partial
