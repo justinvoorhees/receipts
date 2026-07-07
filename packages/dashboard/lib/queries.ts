@@ -7,6 +7,46 @@ export type SwapRow = typeof schema.swaps.$inferSelect;
 export type RouterTradeRow = typeof schema.routerTradesGated.$inferSelect;
 export type HeartbeatRow = typeof schema.ingestHeartbeats.$inferSelect;
 
+// ─── Receipts data layer ─────────────────────────────────────────────────────
+// CRUD over the `receipts` table (Task 1 schema, Task 2 seed). Consumed by the
+// API route (Task 9) and History page (Task 11). The legacy curated/smoke
+// query functions below remain in place until their consumers are rewired.
+
+export type ReceiptRow = typeof schema.receipts.$inferSelect;
+export type NewReceipt = typeof schema.receipts.$inferInsert;
+
+/** All receipts, most recently created first. */
+export async function listReceipts(): Promise<ReceiptRow[]> {
+	const db = getDb();
+	return db.select().from(schema.receipts).orderBy(desc(schema.receipts.createdAt));
+}
+
+/** Looks up a receipt by transaction hash, case-insensitively. Returns null if not found. */
+export async function getReceiptByHash(hash: string): Promise<ReceiptRow | null> {
+	const db = getDb();
+	const rows = await db
+		.select()
+		.from(schema.receipts)
+		.where(sql`lower(${schema.receipts.txHash}) = lower(${hash})`)
+		.limit(1);
+	return rows[0] ?? null;
+}
+
+/** Inserts a new receipt row and returns it. Idempotency is handled by the caller (API route). */
+export async function insertReceipt(r: NewReceipt): Promise<ReceiptRow> {
+	const db = getDb();
+	const rows = await db.insert(schema.receipts).values(r).returning();
+	const row = rows[0];
+	if (!row) throw new Error('insertReceipt: insert returned no row');
+	return row;
+}
+
+/** Deletes a receipt by its numeric id. */
+export async function deleteReceipt(id: number): Promise<void> {
+	const db = getDb();
+	await db.delete(schema.receipts).where(eq(schema.receipts.id, id));
+}
+
 /** Per-leg shape persisted in smoke_trades.route_legs jsonb. */
 export interface RouteLeg {
 	venue: string;
