@@ -102,16 +102,37 @@ export interface PricingDeps {
 const ERC20_SYMBOL_ABI = parseAbi(['function symbol() view returns (string)']);
 
 /**
+ * Low-level readers `defaultGetPairMid` needs, decoupled from a live
+ * `PublicClient` so the orientation/inversion math below is directly
+ * testable with pure fakes (no RPC, no viem mocking required).
+ */
+export interface PoolMidReaders {
+  /** Deepest initialized pool for the already address-sorted (token0, token1) pair. */
+  getDeepestPool: (
+    token0: string,
+    token1: string,
+    blockNumber: bigint,
+  ) => Promise<{ address: string; kind: string } | null>;
+  /** Raw `slot0` sqrtPriceX96 read for a given pool address. */
+  readSlot0: (poolAddress: string, blockNumber: bigint) => Promise<bigint | null>;
+  readDecimals: (address: string) => Promise<number>;
+}
+
+/**
  * Compute an arbitrary-pair mid from the deepest on-chain pool.
  *
  * `getDeepestPoolForPair` returns V3-style pools only, so the mid is always a
  * `slot0` read. `sqrtPriceX96ToPrice` yields token1-per-token0 (Uniswap sort
  * order, lower address = token0); we invert when the caller's `tokenIn` is the
  * higher address so the result is always output-per-input.
+ *
+ * Exported (and parameterized over `PoolMidReaders` rather than a raw
+ * `PublicClient`) so this — the highest-risk math in the module — can be
+ * unit-tested directly with fake readers instead of only indirectly via a
+ * stubbed `getPairMid`. See pricing.test.ts.
  */
-async function defaultGetPairMid(
-  client: PublicClient,
-  decimalsOf: (address: string) => Promise<number>,
+export async function defaultGetPairMid(
+  readers: PoolMidReaders,
   tokenIn: string,
   tokenOut: string,
   blockNumber: bigint,
@@ -122,13 +143,13 @@ async function defaultGetPairMid(
   const token0 = inverted ? outLc : inLc;
   const token1 = inverted ? inLc : outLc;
 
-  const pool = await getDeepestPoolForPair(client, token0, token1, blockNumber);
+  const pool = await readers.getDeepestPool(token0, token1, blockNumber);
   if (!pool) return null;
 
-  const sqrtPriceX96 = await readSlot0(client, pool.address, blockNumber);
+  const sqrtPriceX96 = await readers.readSlot0(pool.address, blockNumber);
   if (sqrtPriceX96 === null) return null;
 
-  const [dec0, dec1] = await Promise.all([decimalsOf(token0), decimalsOf(token1)]);
+  const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
   const rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1); // token1 per token0
   const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
   return { price, poolAddress: pool.address, poolKind: pool.kind };
@@ -143,6 +164,12 @@ async function defaultGetPairMid(
 export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
   const client = createPublicClient({ chain: base, transport: http(rpcUrl) }) as PublicClient;
   const decCache = makeRpcDecimalsCache(client);
+
+  const poolReaders: PoolMidReaders = {
+    getDeepestPool: (token0, token1, blockNumber) => getDeepestPoolForPair(client, token0, token1, blockNumber),
+    readSlot0: (poolAddress, blockNumber) => readSlot0(client, poolAddress as `0x${string}`, blockNumber),
+    readDecimals: decCache,
+  };
 
   const symCache = new Map<string, string>();
   for (const [addr, sym] of KNOWN_SYMBOLS) symCache.set(addr, sym);
@@ -161,8 +188,7 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
 
   return {
     benchmark: getBenchmarkMid,
-    getPairMid: (tokenIn, tokenOut, blockNumber) =>
-      defaultGetPairMid(client, decCache, tokenIn, tokenOut, blockNumber),
+    getPairMid: (tokenIn, tokenOut, blockNumber) => defaultGetPairMid(poolReaders, tokenIn, tokenOut, blockNumber),
     getUsdValue: (token, amountRaw, blockNumber, precomputedWethUsd) =>
       getTokenUsdcValue(client, token, amountRaw, blockNumber, decCache, precomputedWethUsd),
     readDecimals: decCache,
@@ -172,22 +198,28 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
-/** Fallback symbol/decimals when even the metadata reads fail (never throw). */
+/** Best-effort symbol guess used when even the metadata reads fail (never throw). */
+function fallbackSymbolFor(token: string): string {
+  return KNOWN_SYMBOLS.get(token.toLowerCase()) ?? '???';
+}
+/** Best-effort decimals guess used when even the metadata reads fail (never throw). */
+function fallbackDecimalsFor(token: string): number {
+  if (isWeth(token)) return 18;
+  if (isStable(token)) return 6;
+  return 18; // conservative default; only used for display when metadata is unavailable
+}
 async function safeSymbol(read: (t: string) => Promise<string>, token: string): Promise<string> {
   try {
     return await read(token);
   } catch {
-    const key = token.toLowerCase();
-    return KNOWN_SYMBOLS.get(key) ?? '???';
+    return fallbackSymbolFor(token);
   }
 }
 async function safeDecimals(read: (t: string) => Promise<number>, token: string): Promise<number> {
   try {
     return await read(token);
   } catch {
-    if (token.toLowerCase() === WETH) return 18;
-    if (isStable(token)) return 6;
-    return 18; // conservative default; only used for display when metadata is unavailable
+    return fallbackDecimalsFor(token);
   }
 }
 
@@ -203,19 +235,18 @@ export async function priceReceipt(
   },
   depsOverride?: Partial<PricingDeps>,
 ): Promise<PricingResult> {
-  const deps: PricingDeps = { ...createDefaultPricingDeps(args.rpcUrl), ...depsOverride };
   const { inputToken, outputToken, blockNumber } = args;
 
   // Reference mid samples at the block BEFORE the trade settled (spec §4).
   const refBlock = blockNumber > 0n ? blockNumber - 1n : blockNumber;
 
-  // Metadata is best-effort and shared by every return path.
-  const [inputSymbol, outputSymbol, inputDecimals, outputDecimals] = await Promise.all([
-    safeSymbol(deps.readSymbol, inputToken),
-    safeSymbol(deps.readSymbol, outputToken),
-    safeDecimals(deps.readDecimals, inputToken),
-    safeDecimals(deps.readDecimals, outputToken),
-  ]);
+  // Best-effort metadata defaults, used verbatim by `partial()` if we fail
+  // before the real reads (or even deps construction) complete below —
+  // reassigned to the real values as soon as the Promise.all resolves.
+  let inputSymbol = fallbackSymbolFor(inputToken);
+  let outputSymbol = fallbackSymbolFor(outputToken);
+  let inputDecimals = fallbackDecimalsFor(inputToken);
+  let outputDecimals = fallbackDecimalsFor(outputToken);
 
   const partial = (notionalUsd: number | null = null): PricingResult => ({
     status: 'partial',
@@ -231,6 +262,19 @@ export async function priceReceipt(
   });
 
   try {
+    // Deps construction happens INSIDE the try: NEVER-THROW is a hard contract,
+    // so a failure here (e.g. an unparsable rpcUrl) must also degrade to
+    // `partial`, not throw past this function.
+    const deps: PricingDeps = { ...createDefaultPricingDeps(args.rpcUrl), ...depsOverride };
+
+    // Metadata is best-effort and shared by every return path.
+    [inputSymbol, outputSymbol, inputDecimals, outputDecimals] = await Promise.all([
+      safeSymbol(deps.readSymbol, inputToken),
+      safeSymbol(deps.readSymbol, outputToken),
+      safeDecimals(deps.readDecimals, inputToken),
+      safeDecimals(deps.readDecimals, outputToken),
+    ]);
+
     // ── Branch 1: USDC/WETH fast-path — full oracle-validated benchmark ──
     if (isUsdcWethPair(inputToken, outputToken)) {
       const bench = await deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber });

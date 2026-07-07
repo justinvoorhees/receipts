@@ -6,7 +6,7 @@
  * the RPC-backed defaults are swapped for pure fakes.
  */
 import { describe, expect, it } from 'vitest';
-import { priceReceipt, type PricingDeps } from './pricing.js';
+import { priceReceipt, defaultGetPairMid, type PricingDeps, type PoolMidReaders } from './pricing.js';
 import type { BenchmarkResult } from './benchmarkPrice.js';
 
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
@@ -175,5 +175,78 @@ describe('priceReceipt', () => {
     // symbols/decimals best-effort — fall back to safe defaults, no throw
     expect(typeof r.inputSymbol).toBe('string');
     expect(typeof r.inputDecimals).toBe('number');
+  });
+});
+
+// ── defaultGetPairMid: direct test of the orientation + inversion math ──────
+//
+// Every `priceReceipt` test above stubs `getPairMid` with a pre-computed
+// value, so it never exercises the token-address sort → deepest-pool lookup
+// → sqrtPriceX96ToPrice → `inverted ? 1/rawPrice : rawPrice` glue inside
+// `defaultGetPairMid` itself. That inversion is the highest-risk line in this
+// module (a silent flip would corrupt Price Impact / Slippage for every
+// non-WETH/USDC pair), so it gets its own hand-computed assertions here,
+// injecting a fake `PoolMidReaders` (no live RPC).
+describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
+  // sqrtPriceX96 encodes price = (sqrtPriceX96 / 2^96)^2 as token1-per-token0.
+  // Choosing sqrtPriceX96 = 2^97 = sqrt(4) * 2^96 gives an exact raw price of
+  // 4 (token1 per token0) when dec0 === dec1, so the expected mid is exact,
+  // not merely close.
+  const SQRT_PRICE_X96_FOR_4X = 2n ** 97n;
+
+  /** Fake reader set: always finds the same pool/price/decimals; records the
+   * (token0, token1) order it was asked to discover a pool for. */
+  function makeReaders(captured: { token0?: string; token1?: string }): PoolMidReaders {
+    return {
+      getDeepestPool: async (token0, token1) => {
+        captured.token0 = token0;
+        captured.token1 = token1;
+        return { address: '0xpool', kind: 'univ3' };
+      },
+      readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
+      readDecimals: async () => 18, // dec0 === dec1 → rawPrice is exactly 4
+    };
+  }
+
+  it('tokenIn < tokenOut (address order): mid is the exact raw token1-per-token0 price (4)', async () => {
+    const captured: { token0?: string; token1?: string } = {};
+    const mid = await defaultGetPairMid(makeReaders(captured), EXOTIC_A, EXOTIC_B, 100n);
+    expect(mid).not.toBeNull();
+    expect(mid!.price).toBe(4);
+    // Pool discovery always gets the address-sorted (lower, higher) order,
+    // regardless of which side the caller passed as tokenIn.
+    expect(captured.token0).toBe(EXOTIC_A);
+    expect(captured.token1).toBe(EXOTIC_B);
+  });
+
+  it('tokenIn > tokenOut (inverted): mid is the exact RECIPROCAL of the non-inverted case (0.25), same pool', async () => {
+    const captured: { token0?: string; token1?: string } = {};
+    const mid = await defaultGetPairMid(makeReaders(captured), EXOTIC_B, EXOTIC_A, 100n);
+    expect(mid).not.toBeNull();
+    expect(mid!.price).toBe(0.25);
+    expect(mid!.price).toBe(1 / 4);
+    // Same underlying pool (address-sorted order is unaffected by direction).
+    expect(captured.token0).toBe(EXOTIC_A);
+    expect(captured.token1).toBe(EXOTIC_B);
+  });
+
+  it('returns null when no deepest pool is found for the pair', async () => {
+    const readers: PoolMidReaders = {
+      getDeepestPool: async () => null,
+      readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
+      readDecimals: async () => 18,
+    };
+    const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
+    expect(mid).toBeNull();
+  });
+
+  it('returns null when slot0 is unreadable/uninitialized', async () => {
+    const readers: PoolMidReaders = {
+      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
+      readSlot0: async () => null,
+      readDecimals: async () => 18,
+    };
+    const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
+    expect(mid).toBeNull();
   });
 });
