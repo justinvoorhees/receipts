@@ -4,7 +4,7 @@
  *
  * READ-ONLY — no DB writes, no schema changes, no dashboard edits.
  *
- * Run: set -a && source .env && set +a && npx tsx packages/ingest/src/validate-selection.ts
+ * Run: set -a && source .env && set +a && npx tsx packages/core/src/validate-selection.ts
  */
 
 import { createPublicClient, http } from 'viem';

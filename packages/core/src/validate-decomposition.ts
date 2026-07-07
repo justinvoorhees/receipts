@@ -4,7 +4,7 @@
  *
  * READ-ONLY spike — no DB writes, no pipeline edits.
  *
- * Run: set -a && source .env && set +a && npx tsx packages/ingest/src/validate-decomposition.ts
+ * Run: set -a && source .env && set +a && npx tsx packages/core/src/validate-decomposition.ts
  */
 
 import { createPublicClient, http } from 'viem';

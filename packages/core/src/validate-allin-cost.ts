@@ -17,7 +17,7 @@
  * Usage:
  *   TCA_RPC_URL=$(grep TCA_RPC_URL .env | cut -d= -f2) \
  *   TCA_DATABASE_URL=$(grep TCA_DATABASE_URL .env | cut -d= -f2) \
- *   npx tsx packages/ingest/src/validate-allin-cost.ts
+ *   npx tsx packages/core/src/validate-allin-cost.ts
  */
 
 import { sql } from 'drizzle-orm';

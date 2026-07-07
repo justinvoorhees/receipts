@@ -6,7 +6,7 @@
  * residual/confidence distribution. Asserts the invariant LP+Agg+Slippage=all_in
  * within a 0.01 bps tolerance for high/medium confidence rows.
  *
- * Run: set -a && source .env && set +a && npx tsx packages/ingest/src/validate-route-decomposition.ts
+ * Run: set -a && source .env && set +a && npx tsx packages/core/src/validate-route-decomposition.ts
  */
 
 import postgres from 'postgres';
