@@ -14,8 +14,7 @@
 		"build": "tsc --build && npm --workspace packages/dashboard run build",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
-		"db:check": "drizzle-kit check",
-		"ingest": "node packages/ingest/dist/cli.js"
+		"db:check": "drizzle-kit check"
 	},
 	"devDependencies": {
 		"@types/node": "^20.14.0",

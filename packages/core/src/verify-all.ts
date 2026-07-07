@@ -17,6 +17,6 @@ for (const r of rows) {
   const issues = flags.filter(f => f.includes('MID_NULL') || f.includes('ROUTE_NOT') || f.includes('IMPLAUS'));
   const hasIssues = r.lp_fee_bps === null || r.slippage_bps === null || issues.length > 0;
   const mark = hasIssues ? ' ⚠' : ' ✓';
-  console.log(`${r.tx_hash.slice(0,14)}… ${r.aggregator.padEnd(12)} $${Number(r.usdc_amount).toFixed(0).padStart(7)}  allIn=${Number(r.all_in_cost_bps).toFixed(2).padStart(7)}  lp=${r.lp_fee_bps ? Number(r.lp_fee_bps).toFixed(2) : 'null'}  slip=${r.slippage_bps ? Number(r.slippage_bps).toFixed(2) : 'null'}  legs=${r.leg_count}${mark}${issues.length ? '  ' + issues[0].slice(0, 50) : ''}`);
+  console.log(`${r.tx_hash.slice(0,14)}… ${r.aggregator.padEnd(12)} $${Number(r.usdc_amount).toFixed(0).padStart(7)}  allIn=${Number(r.all_in_cost_bps).toFixed(2).padStart(7)}  lp=${r.lp_fee_bps ? Number(r.lp_fee_bps).toFixed(2) : 'null'}  slip=${r.slippage_bps ? Number(r.slippage_bps).toFixed(2) : 'null'}  legs=${r.leg_count}${mark}${issues.length ? '  ' + (issues[0] ?? '').slice(0, 50) : ''}`);
 }
 await sql.end();

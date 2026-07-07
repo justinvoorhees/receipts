@@ -1,10 +1,8 @@
 {
-	"name": "@fabric-tca/ingest",
+	"name": "@fabric-tca/core",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
-	"main": "./dist/cli.js",
-	"bin": { "tca-ingest": "./bin/tca-ingest.mjs" },
 	"scripts": {
 		"build": "tsc --build"
 	},

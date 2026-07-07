@@ -2,7 +2,7 @@
 	"files": [],
 	"references": [
 		{ "path": "./packages/db" },
-		{ "path": "./packages/ingest" },
+		{ "path": "./packages/core" },
 		{ "path": "./packages/dashboard" }
 	]
 }
