@@ -234,7 +234,8 @@ describe('TradesTable', () => {
 			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
 		);
 
-		expect(html).toContain('USDC-&gt;cbBTC-&gt;cbETH-&gt;WETH');
+		// The Route summary row was removed from the receipt; leg token symbols are
+		// still exercised via the Cost Breakdown per-venue pair labels below.
 		expect(html).toContain('cbBTC/cbETH');
 		expect(html).toContain('cbETH/WETH');
 	});

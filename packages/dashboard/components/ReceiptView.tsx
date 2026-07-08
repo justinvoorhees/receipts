@@ -14,7 +14,6 @@ import {
 	formatTokenIn,
 	formatTokenOut,
 	normalizeRouteLegs,
-	routePath,
 	tokenSymbol,
 	getExecutionBreakdown,
 	getPriceImpactRows,
@@ -332,7 +331,6 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 						{formatProvider(row.aggregator.toLowerCase())}
 					</span>
 				</DetailRow>
-				<DetailRow label="Route">{routePath(legs)}</DetailRow>
 
 				<Divider dashed />
 
