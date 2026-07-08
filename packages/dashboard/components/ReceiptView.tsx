@@ -257,7 +257,7 @@ export function ReceiptView({ trade, hash }: { trade: ReceiptRow | null; hash: s
 	);
 }
 
-function Receipt({ row }: { row: ReceiptRow }) {
+export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: string }) {
 	const legs = normalizeRouteLegs(row.routeLegs);
 	// Partial receipts have no reference mid, so price/impact/slippage are null.
 	// Guard every numeric read against null instead of `Number(null) === 0`.
@@ -474,7 +474,7 @@ function Receipt({ row }: { row: ReceiptRow }) {
 				)}
 			</div>
 
-			<ShareButton />
+			<ShareButton {...(sharePath !== undefined ? { path: sharePath } : {})} />
 		</>
 	);
 }

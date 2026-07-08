@@ -1,5 +1,5 @@
 import {
-	getCuratedTrades,
+	listReceipts,
 	TRADES_SORT_COLUMNS,
 	type SortDirection,
 	type TradesSort,
@@ -19,7 +19,9 @@ export default async function TradesPage({
 }) {
 	const sp = await searchParams;
 	const sort = parseSort(sp);
-	const rows = await getCuratedTrades();
+	// Receipts arrive newest-first (createdAt desc). The table applies the active
+	// column sort client-side on top of this order.
+	const rows = await listReceipts();
 
 	return (
 		<div className="pb-5">
@@ -34,7 +36,7 @@ export default async function TradesPage({
 					className="flex items-center gap-[10px] font-['Sohne_Mono'] font-medium text-[12px] leading-[12px] uppercase text-[var(--color-secondary)] text-center"
 					style={{ fontFeatureSettings: '"calt" 0' }}
 				>
-					<span>{rows.length.toLocaleString()} trades</span>
+					<span>{rows.length.toLocaleString()} receipts</span>
 				</div>
 			</div>
 
@@ -57,7 +59,7 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 function EmptyState() {
 	return (
 		<p className="font-['Sohne_Mono'] text-[12px] leading-[20px] text-[var(--color-secondary)] mt-[40px] max-w-[640px]">
-			No trades yet — the table populates from the <code>smoke_trades</code> dataset.
+			No receipts yet — paste a transaction hash on the Receipts tab.
 		</p>
 	);
 }

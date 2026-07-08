@@ -1,10 +1,60 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// TradesTable calls useRouter() for the delete → refresh flow; the app-router
+// context isn't mounted under renderToStaticMarkup, so stub it.
+vi.mock('next/navigation', () => ({
+	useRouter: () => ({ refresh: () => {}, push: () => {} }),
+}));
 
 globalThis.React = React;
 
+// Minimal ReceiptRow-shaped sample for table-level tests. Full USDC/WETH row.
+const sampleReceiptRow = {
+	id: 42,
+	txHash: '0x1234567890abcdef1234567890abcdef12345678',
+	chainId: 8453,
+	blockNumber: 123,
+	aggregator: 'kyberswap',
+	direction: 'buy_weth',
+	inputSymbol: 'USDC',
+	outputSymbol: 'WETH',
+	inputAmount: '1000.00',
+	outputAmount: '0.33',
+	notionalUsd: '1000.00',
+	realizedPrice: '3000',
+	marketMid: '3000',
+	allInCostBps: '-1',
+	pricingStatus: 'full',
+	lpFeeBps: '1',
+	aggFeeBps: '0',
+	slippageBps: '-2',
+	gasCostUsd: '0.001',
+	routeLegs: [],
+	manipulationFlag: false,
+};
+
 describe('TradesTable', () => {
+	it('renders a delete control per row', async () => {
+		const { TradesTable } = await import('./TradesTable');
+		const onDelete = vi.fn();
+		const rows = [
+			sampleReceiptRow as never,
+			{ ...sampleReceiptRow, id: 43, txHash: '0xabcdef1234567890abcdef1234567890abcdef12' } as never,
+		];
+		const html = renderToStaticMarkup(
+			<TradesTable
+				initialSort={{ column: 'block', direction: 'desc' }}
+				rows={rows}
+				onDelete={onDelete}
+			/>,
+		);
+		// One accessible delete affordance is rendered per row.
+		const matches = html.match(/aria-label="Delete receipt/g) ?? [];
+		expect(matches.length).toBe(rows.length);
+	});
+
 	it('does not render route hop badges', async () => {
 		const { TradesTable } = await import('./TradesTable');
 		const html = renderToStaticMarkup(
@@ -12,11 +62,17 @@ describe('TradesTable', () => {
 				initialSort={{ column: 'block', direction: 'desc' }}
 				rows={[
 					{
+						id: 99,
 						txHash: '0x1234567890abcdef1234567890abcdef12345678',
 						blockNumber: 123,
 						aggregator: 'kyberswap',
 						direction: 'buy_weth',
-						usdcAmount: '1.00',
+						inputSymbol: 'USDC',
+						outputSymbol: 'WETH',
+						inputAmount: '1.00',
+						outputAmount: '0.0003',
+						notionalUsd: '1.00',
+						pricingStatus: 'full',
 						allInCostBps: '-1',
 						lpFeeBps: '1',
 						aggFeeBps: '0',
@@ -129,9 +185,11 @@ describe('TradesTable', () => {
 	it('renders stringified route legs with Coinbase token symbols in the dialog', async () => {
 		const { TransactionDetailsDialog } = await import('./TradesTable');
 		const row = {
+			id: 1, chainId: 8453, pricingStatus: 'full',
 			txHash: '0x6442772f65f0575be26037beac9c7a168d2543cadc16c4ccdbf80182f7d03f8e',
 			blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
-			usdcAmount: '1.646224', wethAmount: '0.0005', realizedPrice: '3000',
+			inputSymbol: 'USDC', outputSymbol: 'WETH', inputAmount: '1.646224', outputAmount: '0.0005',
+			notionalUsd: '1.646224', realizedPrice: '3000',
 			marketMid: '3000', allInCostBps: '-1',
 			lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
 			hopCount: 3, routeShape: 'linear', decompConfidence: 'medium',
@@ -370,24 +428,26 @@ describe('TradesTable', () => {
 		expect(getFlagLabel({ decompConfidence: 'low' })).toBe('None');
 	});
 
-	it('dialog shows manipulation badge and Chainlink Δ row when flagged', async () => {
+	it('dialog shows the manipulation badge when flagged', async () => {
 		const { TransactionDetailsDialog } = await import('./TradesTable');
 		const row = {
+			id: 2, chainId: 8453, pricingStatus: 'full',
 			txHash: '0x1234567890abcdef1234567890abcdef12345678',
 			blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
-			usdcAmount: '1000.00', wethAmount: '0.33', realizedPrice: '3000',
+			inputSymbol: 'USDC', outputSymbol: 'WETH', inputAmount: '1000.00', outputAmount: '0.33',
+			notionalUsd: '1000.00', realizedPrice: '3000',
 			marketMid: '3000', allInCostBps: '-1',
 			lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
 			hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
-			reconResidualBps: null, settledIn: 'WETH',
+			reconResidualBps: null,
 			chainlinkPrice: '2970', chainlinkDevBps: '101', poolDivergenceBps: '3', manipulationFlag: true,
 		};
 		const html = renderToStaticMarkup(
 			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
 		);
+		// The generalized receipt keeps the manipulation badge (the Chainlink-specific
+		// Δ row was dropped when the dialog was generalized off ReceiptRow).
 		expect(html).toContain('Possible manipulation');
-		expect(html).toContain('Chainlink Δ');
-		expect(html).toContain('101.0 bps'); // chainlinkDevBps 101 -> Number(101).toFixed(1)
 	});
 
 	it.each([
@@ -397,13 +457,15 @@ describe('TradesTable', () => {
 	])('renders Price Delta subvalue "%s" as %s when realized=%s market=%s', async (realizedPrice, marketMid, expected) => {
 		const { TransactionDetailsDialog } = await import('./TradesTable');
 		const row = {
+			id: 3, chainId: 8453, pricingStatus: 'full',
 			txHash: '0x1234567890abcdef1234567890abcdef12345678',
 			blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
-			usdcAmount: '1000.00', wethAmount: '0.33', realizedPrice,
+			inputSymbol: 'USDC', outputSymbol: 'WETH', inputAmount: '1000.00', outputAmount: '0.33',
+			notionalUsd: '1000.00', realizedPrice,
 			marketMid, allInCostBps: '-1',
 			lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
 			hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
-			reconResidualBps: null, settledIn: 'WETH',
+			reconResidualBps: null,
 		};
 		const html = renderToStaticMarkup(
 			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,

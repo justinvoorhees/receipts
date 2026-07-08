@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { analyzeTransaction, type Receipt } from '@fabric-tca/core';
-import { getReceiptByHash, insertReceipt, type NewReceipt } from '../../../lib/queries.js';
+import { deleteReceipt, getReceiptByHash, insertReceipt, type NewReceipt } from '../../../lib/queries.js';
 
 // core uses viem + fs (config load in tagging.ts) — must run on Node, not edge.
 export const runtime = 'nodejs';
@@ -99,4 +99,18 @@ export async function POST(req: Request): Promise<Response> {
 	// 3. Persist and return the stored row (so it also shows up in History).
 	const inserted = await insertReceipt(toNewReceipt(receipt));
 	return NextResponse.json(inserted, { status: 200 });
+}
+
+/**
+ * DELETE /api/receipts?id=<n> — removes a single receipt by its numeric id.
+ * Used by the History table's per-row delete control. Returns 400 on a
+ * missing/non-numeric id, 204 on success.
+ */
+export async function DELETE(req: Request): Promise<Response> {
+	const id = Number(new URL(req.url).searchParams.get('id'));
+	if (!Number.isInteger(id) || id <= 0) {
+		return NextResponse.json({ error: 'Missing or invalid receipt id.' }, { status: 400 });
+	}
+	await deleteReceipt(id);
+	return new NextResponse(null, { status: 204 });
 }
