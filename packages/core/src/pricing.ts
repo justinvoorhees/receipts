@@ -63,8 +63,14 @@ const KNOWN_SYMBOLS: ReadonlyMap<string, string> = new Map([
 
 const isStable = (t: string): boolean => STABLECOINS.has(t.toLowerCase());
 const isWeth = (t: string): boolean => t.toLowerCase() === WETH;
-/** A token anchors to USD if it's a stablecoin or WETH (priced via WETH/USD). */
-const anchorsToUsd = (t: string): boolean => isStable(t) || isWeth(t);
+const isNative = (t: string): boolean => t.toLowerCase() === NATIVE;
+/**
+ * A token anchors to USD if it's a stablecoin, WETH, or native ETH — i.e. it has
+ * a reliable, liquid USD reference (stable ≈ $1; WETH/ETH via WETH/USDC). Such a
+ * leg is the trustworthy side to derive `notionalUsd` from; the volatile,
+ * possibly-illiquid other side may not be.
+ */
+const anchorsToUsd = (t: string): boolean => isStable(t) || isWeth(t) || isNative(t);
 
 const isUsdcWethPair = (input: string, output: string): boolean => {
   const i = input.toLowerCase();
@@ -354,8 +360,17 @@ export async function priceReceipt(
 }
 
 /**
- * Best-effort USD notional: value the input side first, then the output side.
- * Any error swallows to null (the caller decides full vs partial independently).
+ * Best-effort USD notional.
+ *
+ * Value the USD-ANCHORED side first, not blindly the input side. A volatile,
+ * illiquid token (e.g. WARP) priced directly against USDC can resolve to a
+ * dead/stale reference pool and mis-value the trade by multiples — for a
+ * WARP→ETH swap the input-side WARP/USDC pool had zero in-range liquidity yet a
+ * stale mid, inflating notional ~7×. The anchored leg (stablecoin or ETH/WETH,
+ * priced via the deep WETH/USDC reference) is the trustworthy USD peg, so prefer
+ * it. When exactly one side anchors, value THAT side first; otherwise keep the
+ * historical input-first order. Any error swallows to null (the caller decides
+ * full vs partial independently).
  */
 async function bestEffortNotional(
   deps: PricingDeps,
@@ -363,17 +378,20 @@ async function bestEffortNotional(
   refBlock: bigint,
   precomputedWethUsd?: number,
 ): Promise<number | null> {
-  try {
-    const fromInput = await deps.getUsdValue(args.inputToken, args.inputAmountRaw, refBlock, precomputedWethUsd);
-    if (fromInput != null && fromInput > 0) return fromInput;
-  } catch {
-    // fall through to output side
-  }
-  try {
-    const fromOutput = await deps.getUsdValue(args.outputToken, args.outputAmountRaw, refBlock, precomputedWethUsd);
-    if (fromOutput != null && fromOutput > 0) return fromOutput;
-  } catch {
-    // give up
+  const inputSide: [string, bigint] = [args.inputToken, args.inputAmountRaw];
+  const outputSide: [string, bigint] = [args.outputToken, args.outputAmountRaw];
+  // Prefer the anchored side only when it's UNambiguously the output — i.e. the
+  // output anchors and the input does not. Ties/both-anchored keep input-first.
+  const preferOutput = anchorsToUsd(args.outputToken) && !anchorsToUsd(args.inputToken);
+  const order = preferOutput ? [outputSide, inputSide] : [inputSide, outputSide];
+
+  for (const [token, amountRaw] of order) {
+    try {
+      const value = await deps.getUsdValue(token, amountRaw, refBlock, precomputedWethUsd);
+      if (value != null && value > 0) return value;
+    } catch {
+      // fall through to the other side
+    }
   }
   return null;
 }

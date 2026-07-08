@@ -156,6 +156,19 @@ describe('getTokenUsdcValue', () => {
     expect(val).toBeCloseTo(3000, 6);
     expect((client.readContract as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
+
+  it('prices native ETH as WETH (1:1, 18 dec) without reading decimals("native")', async () => {
+    // A real decimals()/pool read on the "native" pseudo-address would revert.
+    // The decimalsOf fake throws to prove native is priced before any such read.
+    const client = { readContract: vi.fn() } as unknown as PublicClient;
+    const decimalsOf = async () => {
+      throw new Error('decimals("native") must not be called');
+    };
+    const halfEth = 5n * 10n ** 17n; // 0.5 ETH
+    const val = await getTokenUsdcValue(client, 'native', halfEth, 100n, decimalsOf, 3000);
+    expect(val).toBeCloseTo(1500, 6); // 0.5 × 3000
+    expect((client.readContract as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
 });
 
 // ── getLegMidAtBlock ─────────────────────────────────────────────────────────

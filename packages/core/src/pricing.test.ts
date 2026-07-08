@@ -186,6 +186,52 @@ describe('priceReceipt', () => {
     expect(typeof r.inputDecimals).toBe('number');
   });
 
+  // (e) notional is derived from the USD-anchored OUTPUT side when the INPUT
+  // token is a volatile/illiquid non-anchor. Regression for the WARP→ETH bug:
+  // the input-side WARP/USDC reference pool was dead (0 liquidity) but had a
+  // stale mid, over-valuing 202M WARP at ~$939 instead of the true ~$135 that
+  // the realized ~0.0778 ETH output is worth. Notional must follow the anchored
+  // output leg, not the mispriced input leg.
+  it('prefers the USD-anchored OUTPUT side for notional when the input token is illiquid/mispriced', async () => {
+    const WARP = '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07';
+    const r = await priceReceipt(
+      {
+        ...baseArgs,
+        inputToken: WARP,
+        outputToken: 'native',
+        inputAmountRaw: 202_116_011_451_859_899_429_447_474n, // 202.1M WARP (18 dec)
+        outputAmountRaw: 77_799_818_791_214_842n, // 0.0778 ETH
+      },
+      makeDeps({
+        // Input side (WARP via a dead reference pool) grossly over-values; the
+        // output side (native ETH via the deep WETH/USDC reference) is correct.
+        getUsdValue: async (token) => (token.toLowerCase() === 'native' ? 135 : 939.66),
+        readDecimals: async () => 18,
+        readSymbol: async (t) => (t.toLowerCase() === 'native' ? 'ETH' : 'WARP'),
+      }),
+    );
+    // Not the inflated $939.66 input-side figure.
+    expect(r.notionalUsd).toBeCloseTo(135, 2);
+  });
+
+  it('keeps input-first notional when both sides anchor to USD (e.g. WETH→USDC)', async () => {
+    const seen: string[] = [];
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: WETH, outputToken: USDC },
+      makeDeps({
+        benchmark: async () => fakeBenchmark({ marketMid: 1800 }),
+        getUsdValue: async (token) => {
+          seen.push(token.toLowerCase());
+          return token.toLowerCase() === USDC ? 1800 : 1801;
+        },
+        readDecimals: async (t) => (t.toLowerCase() === USDC ? 6 : 18),
+      }),
+    );
+    // Input (WETH) valued first → 1801, and no fall-through to the output side.
+    expect(r.notionalUsd).toBe(1801);
+    expect(seen[0]).toBe(WETH);
+  });
+
   it('resolves native ETH to the "ETH" symbol (no contract to read symbol() from)', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: 'native' },
