@@ -50,22 +50,75 @@ describe('priceDeltaComparison', () => {
 	});
 });
 
+// A full USDC/WETH receipt, generalized ReceiptRow shape (Task 8+).
+const fullUsdcWethRow = {
+	txHash: '0x1234567890abcdef1234567890abcdef12345678',
+	chainId: 8453, blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
+	inputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+	outputToken: '0x4200000000000000000000000000000000000006',
+	inputSymbol: 'USDC', outputSymbol: 'WETH',
+	inputAmount: '1000.00', outputAmount: '0.33', notionalUsd: '1000.00',
+	realizedPrice: '3000', marketMid: '3000', allInCostBps: '-1', pricingStatus: 'full',
+	lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
+	hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
+	reconResidualBps: null, manipulationFlag: false,
+};
+
 describe('Receipt header', () => {
 	it('renders the execution grade next to the pair title', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
-		const row = {
-			txHash: '0x1234567890abcdef1234567890abcdef12345678',
-			blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
-			usdcAmount: '1000.00', wethAmount: '0.33', realizedPrice: '3000',
-			marketMid: '3000', allInCostBps: '-1',
-			lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
-			hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
-			reconResidualBps: null, settledIn: 'WETH',
-		};
 		const html = renderToStaticMarkup(
-			<ReceiptView trade={row as never} hash={row.txHash} />,
+			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
 		expect(html).toContain('>A+<');
 		expect(html).toContain('Total Execution Quality is ≥0bps');
+	});
+
+	it('renders a full USDC/WETH receipt with generalized token fields', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
+		);
+		// Pair title uses outputSymbol→inputSymbol convention.
+		expect(html).toContain('WETH→USDC');
+		// Token In / Token Out render the generalized symbols + amounts.
+		expect(html).toContain('1000 USDC');
+		expect(html).toContain('0.33 WETH');
+		// Price expressed per output token (WETH), chain derived from chainId.
+		expect(html).toContain('= 1 WETH');
+		expect(html).toContain('Base');
+		// Full receipts still show the priced sections.
+		expect(html).not.toContain('unavailable for this pair');
+	});
+});
+
+describe('Receipt partial state', () => {
+	const partialRow = {
+		txHash: '0xabcabcabcabcabcabcabcabcabcabcabcabcabcd',
+		chainId: 8453, blockNumber: 987, aggregator: 'odos', direction: 'USDC->???',
+		inputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+		outputToken: '0x000000000000000000000000000000000000dead',
+		inputSymbol: 'AAA', outputSymbol: 'BBB',
+		inputAmount: '1000', outputAmount: '5', notionalUsd: '1000',
+		realizedPrice: null, marketMid: null, allInCostBps: null, pricingStatus: 'partial',
+		lpFeeBps: '3', aggFeeBps: '2', slippageBps: null, executionBps: null, gasCostUsd: '0.01',
+		hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
+		reconResidualBps: null, manipulationFlag: null,
+	};
+
+	it('renders a partial exotic-pair receipt with impact/slippage unavailable and does not crash on nulls', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		// Pair title shows the exotic pair (outputSymbol→inputSymbol).
+		expect(html).toMatch(/BBB→AAA|AAA→BBB/);
+		// Token symbols/amounts still render.
+		expect(html).toContain('1000 AAA');
+		expect(html).toContain('5 BBB');
+		// Unavailable treatment for price-derived sections.
+		expect(html.toLowerCase()).toContain('unavailable for this pair');
+		// Aggregator fee still shows normally (non-zero).
+		expect(html).toContain('Aggregator Fee');
 	});
 });

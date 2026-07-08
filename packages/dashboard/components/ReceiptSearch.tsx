@@ -8,14 +8,37 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 	const [value, setValue] = useState(hash);
 	const [inputHovered, setInputHovered] = useState(false);
 	const [inputFocused, setInputFocused] = useState(false);
+	const [submitting, setSubmitting] = useState(false);
 
 	useEffect(() => {
 		setValue(hash);
 	}, [hash]);
 
+	// Compute + persist the receipt on the server (idempotent — a hash already
+	// stored is returned without recompute), then navigate to render it. The
+	// server page reads the now-persisted row; a miss surfaces as the
+	// "Transaction not found." error via the `error` prop.
+	const go = async (raw: string) => {
+		const trimmed = raw.trim();
+		if (!trimmed || submitting) return;
+		setSubmitting(true);
+		try {
+			await fetch('/api/receipts', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ hash: trimmed }),
+			});
+		} catch {
+			// Network/compute failure still navigates; the server render shows the
+			// not-found state rather than leaving the UI hung.
+		} finally {
+			setSubmitting(false);
+			router.push(`/receipts?tx=${encodeURIComponent(trimmed)}` as Route);
+		}
+	};
+
 	const submit = () => {
-		const trimmed = value.trim();
-		if (trimmed) router.push(`/receipts?tx=${encodeURIComponent(trimmed)}` as Route);
+		void go(value);
 	};
 
 	const hasError = error != null;
@@ -46,7 +69,7 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 					onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
 					onPaste={(e) => {
 						const pasted = e.clipboardData.getData('text').trim();
-						if (pasted) router.push(`/receipts?tx=${encodeURIComponent(pasted)}` as Route);
+						if (pasted) void go(pasted);
 					}}
 					onMouseEnter={() => setInputHovered(true)}
 					onMouseLeave={() => setInputHovered(false)}
@@ -62,14 +85,15 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 				<button
 					type="button"
 					onClick={submit}
+					disabled={submitting}
 					aria-label="Create receipt"
-					className="flex h-full shrink-0 cursor-pointer items-center justify-center whitespace-nowrap px-[12px] font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-surface-base)] hover:opacity-80 active:opacity-60 transition-opacity"
+					className="flex h-full shrink-0 cursor-pointer items-center justify-center whitespace-nowrap px-[12px] font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-surface-base)] hover:opacity-80 active:opacity-60 disabled:cursor-default disabled:opacity-70 transition-opacity"
 					style={{
 						backgroundColor: hasError ? 'var(--color-red)' : 'var(--color-primary)',
 						fontFeatureSettings: '"calt" 0',
 					}}
 				>
-					Create Receipt
+					{submitting ? 'Analyzing…' : 'Create Receipt'}
 				</button>
 			</div>
 			{hasError && (

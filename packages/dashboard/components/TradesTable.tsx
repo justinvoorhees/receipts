@@ -1,24 +1,25 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import type { RouteLeg, TradeRow, TradesSort, TradesSortColumn } from '../lib/queries';
+import { useRouter } from 'next/navigation';
+import type { ReceiptRow, RouteLeg, TradesSort, TradesSortColumn } from '../lib/queries';
 import {
 	formatContribution,
-	formatGasUsd,
 	formatNotional,
 	formatProvider,
 	providerColor,
-	shortTxHash,
 } from '../lib/formatters';
+import { Receipt } from './ReceiptView';
 
 const COL = 'p-0 py-[10px] pl-[28px] align-baseline';
 const COL_FIRST = 'p-0 py-[10px] align-baseline';
 
-const ACCESSORS: Record<TradesSortColumn, (r: TradeRow) => string | number> = {
+const ACCESSORS: Record<TradesSortColumn, (r: ReceiptRow) => string | number> = {
 	block: (r) => r.blockNumber,
 	aggregator: (r) => r.aggregator.toLowerCase(),
-	side: (r) => r.direction,
-	size: (r) => Number(r.usdcAmount),
-	accuracy: (r) => -Number(r.allInCostBps),
+	// "side" = input→output symbols; we never parse `direction`.
+	side: (r) => `${r.inputSymbol}->${r.outputSymbol}`,
+	size: (r) => Number(r.notionalUsd ?? 0),
+	accuracy: (r) => -Number(r.allInCostBps ?? 0),
 	lpFee: (r) => -Number(r.lpFeeBps ?? 0),
 	aggFee: (r) => -Number(r.aggFeeBps ?? 0),
 	impact: (r) => {
@@ -40,28 +41,40 @@ const ACCESSORS: Record<TradesSortColumn, (r: TradeRow) => string | number> = {
 export function TradesTable({
 	rows,
 	initialSort,
+	onDelete,
 }: {
-	rows: TradeRow[];
+	rows: ReceiptRow[];
 	initialSort: TradesSort;
+	onDelete?: (id: number) => void;
 }) {
+	const router = useRouter();
 	const [sort, setSort] = useState<TradesSort | null>(null);
-	const [selectedRow, setSelectedRow] = useState<TradeRow | null>(null);
+	const [selectedRow, setSelectedRow] = useState<ReceiptRow | null>(null);
 	const effectiveSort = sort ?? initialSort;
-
-	// TEMP: hiding trades over $3 for a presentation — remove this filter to restore them.
-	const visibleRows = useMemo(() => rows.filter((r) => Number(r.usdcAmount) <= 3), [rows]);
 
 	const sortedRows = useMemo(() => {
 		const access = ACCESSORS[effectiveSort.column];
 		const mul = effectiveSort.direction === 'asc' ? 1 : -1;
-		return [...visibleRows].sort((a, b) => {
+		return [...rows].sort((a, b) => {
 			const av = access(a);
 			const bv = access(b);
 			if (av < bv) return -mul;
 			if (av > bv) return mul;
 			return b.blockNumber - a.blockNumber;
 		});
-	}, [visibleRows, effectiveSort]);
+	}, [rows, effectiveSort]);
+
+	// Per-row delete: confirm, then either defer to an injected handler (tests)
+	// or hit the DELETE route and refresh the server-rendered list.
+	const handleDelete = async (id: number) => {
+		if (typeof window !== 'undefined' && !window.confirm('Delete this receipt?')) return;
+		if (onDelete) {
+			onDelete(id);
+			return;
+		}
+		await fetch(`/api/receipts?id=${id}`, { method: 'DELETE' });
+		router.refresh();
+	};
 
 	const onSort = (col: TradesSortColumn) => {
 		let next: TradesSort | null;
@@ -94,7 +107,7 @@ export function TradesTable({
 				</thead>
 				<tbody>
 					{sortedRows.map((r) => (
-						<DataRow key={r.txHash} row={r} onOpen={setSelectedRow} />
+						<DataRow key={r.id} row={r} onOpen={setSelectedRow} onDelete={handleDelete} />
 					))}
 				</tbody>
 			</table>
@@ -139,6 +152,7 @@ function HeaderRow({
 			<th className={TH}>
 				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
 			</th>
+			<th className="p-0 pb-[10px] pl-[28px] align-baseline w-[24px]" aria-hidden="true" />
 		</tr>
 	);
 }
@@ -202,10 +216,19 @@ function formatAccuracySigned(costBps: number): string {
 	return `${rounded > 0 ? '+' : ''}${Math.abs(rounded).toFixed(1)}bps`;
 }
 
-function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => void }) {
-	const costBps = Number(row.allInCostBps);
-	const accuracy = -costBps;
-	const accuracyColor = accuracy > 0.05 ? '#117d45' : undefined;
+function DataRow({
+	row,
+	onOpen,
+	onDelete,
+}: {
+	row: ReceiptRow;
+	onOpen: (row: ReceiptRow) => void;
+	onDelete: (id: number) => void;
+}) {
+	// Partial receipts have no cost model, so guard every cost field and render "–".
+	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
+	const accuracy = costBps == null ? null : -costBps;
+	const accuracyColor = accuracy != null && accuracy > 0.05 ? '#117d45' : undefined;
 
 	const lp = formatContribution(row.lpFeeBps != null ? Number(row.lpFeeBps) : null);
 	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
@@ -215,7 +238,7 @@ function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => vo
 
 	return (
 		<tr
-			className="cursor-pointer text-[var(--color-primary)] transition-colors duration-150 hover:bg-[var(--color-surface-low)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--color-focus)]"
+			className="group cursor-pointer text-[var(--color-primary)] transition-colors duration-150 hover:bg-[var(--color-surface-low)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--color-focus)]"
 			style={{ fontFeatureSettings: '"calt" 0' }}
 			onClick={() => onOpen(row)}
 			tabIndex={0}
@@ -223,27 +246,34 @@ function DataRow({ row, onOpen }: { row: TradeRow; onOpen: (row: TradeRow) => vo
 		>
 			<td className={COL_FIRST}>{row.blockNumber.toLocaleString()}</td>
 			<td className={`${COL} text-right`} style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</td>
-			<td className={`${COL} text-right`}>{formatNotional(Number(row.usdcAmount))}</td>
-			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{formatAccuracySigned(costBps)}</td>
+			<td className={`${COL} text-right`}>{formatNotional(row.notionalUsd != null ? Number(row.notionalUsd) : null)}</td>
+			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{costBps == null ? '–' : formatAccuracySigned(costBps)}</td>
 			<td className={`${COL} text-right`} style={lp.color ? { color: lp.color } : undefined}>{stripSign(lp.text)}</td>
 			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
 			<td className={`${COL} text-right`} style={slip.color ? { color: slip.color } : undefined}>{slip.text}</td>
+			<td className={`${COL} text-right`}>
+				<button
+					type="button"
+					aria-label="Delete receipt"
+					title="Delete receipt"
+					onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
+					className="cursor-pointer text-[var(--color-secondary)] opacity-0 transition-opacity hover:text-[var(--color-primary)] group-hover:opacity-100 focus-visible:opacity-100"
+				>
+					✕
+				</button>
+			</td>
 		</tr>
 	);
 }
 
-export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onClose: () => void }) {
-	const legs = normalizeRouteLegs(row.routeLegs);
-	const costBps = Number(row.allInCostBps);
-	const { text: accuracy, color: accuracyColor } = formatDialogBps(-costBps);
-	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
-	const hasAggFee = row.aggFeeBps != null && Number(row.aggFeeBps) !== 0;
-	const execution = getExecutionBreakdown(row);
-	const priceImpactRows = getPriceImpactRows(legs);
-
-	const title = dialogPairTitle(legs, row);
-
+/**
+ * Row-click receipt dialog. The body is the same generalized `Receipt`
+ * rendering used by the /receipts page (Task 10), so the two never drift.
+ * This component only owns the modal shell: scrim, scroll-lock, Escape /
+ * click-outside close, and the close button.
+ */
+export function TransactionDetailsDialog({ row, onClose }: { row: ReceiptRow; onClose: () => void }) {
 	useEffect(() => {
 		const prev = document.body.style.overflow;
 		document.body.style.overflow = 'hidden';
@@ -267,225 +297,27 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					if (e.target === e.currentTarget) onClose();
 				}}
 			>
-			<section
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="transaction-details-title"
-				className="flex w-full max-w-[694px] flex-col gap-[40px] bg-[var(--color-surface-base)] px-[40px] pt-[40px] pb-[40px] text-[var(--color-primary)] shadow-[8px_0px_8px_rgba(15,15,15,0.06),-8px_0px_8px_rgba(15,15,15,0.06)]"
-			>
-				<div className="flex items-center justify-between">
-					<h2
-						id="transaction-details-title"
-						className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium"
-					>
-						{shortTxHash(row.txHash)}
-					</h2>
+				<section
+					role="dialog"
+					aria-modal="true"
+					aria-label="Transaction receipt"
+					className="relative flex w-full max-w-[694px] flex-col gap-[40px] bg-[var(--color-surface-base)] px-[40px] pt-[40px] pb-[40px] text-[var(--color-primary)] shadow-[8px_0px_8px_rgba(15,15,15,0.06),-8px_0px_8px_rgba(15,15,15,0.06)]"
+				>
 					<button
 						type="button"
 						onClick={onClose}
 						aria-label="Close transaction details"
-						className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-[2px] p-[8px] text-[var(--color-primary)] transition-colors hover:bg-[var(--color-surface-low)] active:bg-[var(--color-surface-low)]"
+						className="absolute right-[40px] top-[40px] z-10 flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-[2px] p-[8px] text-[var(--color-primary)] transition-colors hover:bg-[var(--color-surface-low)] active:bg-[var(--color-surface-low)]"
 					>
 						<span aria-hidden="true" className="relative block h-[18px] w-[18px]">
 							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 rotate-45 bg-current" />
 							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 -rotate-45 bg-current" />
 						</span>
 					</button>
-				</div>
 
-				<div className="flex items-center justify-between">
-					<h2
-						className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium"
-					>
-						{title}
-					</h2>
-					<span
-						className="group relative cursor-default font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
-					>
-						{executionGrade(costBps)}
-						<div
-							role="tooltip"
-							className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left font-['Sohne_Mono'] text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-						>
-							{executionGradeTooltip(costBps)}
-						</div>
-					</span>
-				</div>
-
-				<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
-					<DetailRow label="Txn Hash">
-						<a
-							href={`https://basescan.org/tx/${row.txHash}`}
-							target="_blank"
-							rel="noreferrer"
-							className="underline decoration-dotted underline-offset-[3px] hover:decoration-solid"
-						>
-							{shortTxHash(row.txHash)}
-						</a>
-					</DetailRow>
-					<DetailRow label="Chain">Base</DetailRow>
-					<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
-					<DetailRow label="Aggregator"><span style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</span></DetailRow>
-					<DetailRow label="Route">{routePath(legs)}</DetailRow>
-					<DetailRow label="Token In" subvalue={formatSubvalueUsd(Number(row.usdcAmount))}>{formatTokenIn(row)}</DetailRow>
-					<DetailRow label="Token Out" subvalue={formatSubvalueUsd(Number(row.wethAmount) * Number(row.realizedPrice))}>{formatTokenOut(row)}</DetailRow>
-					<DetailRow label="Realized Execution Price" subvalue={formatSubvalueUsd(Number(row.realizedPrice))}>
-						{formatExecutionPrice(row.realizedPrice)}
-					</DetailRow>
-					<DetailRow label="Market Price" tooltip="Median of three Uniswap v3/Aerodrome pools at the trade’s block, cross-referenced against Chainlink oracle" subvalue={formatSubvalueUsd(Number(row.marketMid))}>
-						{formatExecutionPrice(row.marketMid)}
-						{row.manipulationFlag ? (
-							<span className="ml-2 text-[var(--color-warning)]" title="Median pool mid deviates from Chainlink ETH/USD by more than 0.5% at N-1">
-								⚠ Possible manipulation
-							</span>
-						) : null}
-					</DetailRow>
-					{row.manipulationFlag && row.chainlinkDevBps != null ? (
-						<DetailRow label="Chainlink Δ">
-							{Number(row.chainlinkDevBps).toFixed(1)} bps
-						</DetailRow>
-					) : null}
-					<DetailRow label="Price Delta" subvalue={priceDeltaComparison(row.marketMid, row.realizedPrice)}>
-						{formatPriceDelta(row.marketMid, row.realizedPrice)}
-					</DetailRow>
-					<DetailRow label="Gas Cost">
-						{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
-					</DetailRow>
-				</div>
-
-				<h3 className="font-['Sohne_Breit'] text-[20px] leading-[20px] font-medium">
-					Cost Breakdown
-				</h3>
-
-				<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
-					<BreakdownHeading label="Liquidity Provider Fee" plain />
-					{legs.length > 0 ? (
-						legs.map((leg, index) => {
-							const { text: lpText, color: lpColor } = formatDialogBps(-leg.lpFeeBps);
-							return (
-								<BreakdownRow
-									key={`${leg.venue}-${index}`}
-									label={getVenueLabel(leg)}
-									href={`https://basescan.org/address/${leg.venue}`}
-									context={`${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`}
-									value={lpText}
-									color={lpColor}
-									secondary
-								/>
-							);
-						})
-					) : (
-						<BreakdownRow label="Route" value="–" secondary />
-					)}
-
-					<BreakdownDivider />
-
-					{hasAggFee ? (
-						<>
-							<BreakdownHeading label="Aggregator Fee" plain />
-							<BreakdownRow
-								label={getAggregatorFeeAttribution(row).label}
-								href={getAggregatorFeeAttribution(row).href}
-								value={agg.text}
-								color={agg.color}
-								secondary
-							/>
-						</>
-					) : (
-						<BreakdownHeading label="Aggregator Fee" value="0.00bps" plain />
-					)}
-
-					<BreakdownDivider />
-
-					<BreakdownHeading label="Price Impact" tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee" />
-					{priceImpactRows.length > 0 ? (
-						priceImpactRows.map((impact, index) => (
-							<BreakdownRow
-								key={`${impact.href ?? impact.label}-${index}`}
-								label={impact.label}
-								href={impact.href}
-								context={impact.context}
-								value={impact.value}
-								color={impact.color}
-								valueTooltip={impact.valueTooltip}
-								secondary
-							/>
-						))
-					) : (
-						<BreakdownRow label="Route" value="–" secondary />
-					)}
-
-					<BreakdownDivider />
-
-					<BreakdownHeading
-						label="Slippage"
-						value={execution.slippageDisplay.text}
-						color={execution.slippageDisplay.color}
-						tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
-					/>
-					<BreakdownHeading
-						label="Positive Slippage"
-						value={execution.positiveSlippageDisplay.text}
-						color={execution.positiveSlippageDisplay.color}
-						tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
-					/>
-
-					<BreakdownDivider />
-					<BreakdownRow
-						label="Total Execution Quality"
-						value={accuracy}
-						color={accuracyColor}
-						tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage"
-					/>
-				</div>
-
-				<ShareButton path={`/receipts?tx=${row.txHash}`} />
-			</section>
+					<Receipt row={row} sharePath={`/receipts?tx=${row.txHash}`} />
+				</section>
 			</div>
-		</div>
-	);
-}
-
-function DetailRow({
-	label,
-	children,
-	underscored = false,
-	subvalue,
-	tooltip,
-}: {
-	label: string;
-	children: React.ReactNode;
-	underscored?: boolean;
-	subvalue?: string | undefined;
-	tooltip?: string;
-}) {
-	return (
-		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
-			{tooltip ? (
-				<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
-					{label}
-					<div
-						role="tooltip"
-						className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-					>
-						{tooltip}
-					</div>
-				</span>
-			) : (
-				<span
-					className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
-				>
-					{label}
-				</span>
-			)}
-			{subvalue != null ? (
-				<div className="flex flex-col gap-[10px] items-end min-w-0">
-					<span>{children}</span>
-					<span className="text-[var(--color-secondary)]">{subvalue}</span>
-				</div>
-			) : (
-				<span className="min-w-0 text-right">{children}</span>
-			)}
 		</div>
 	);
 }
@@ -493,55 +325,6 @@ function DetailRow({
 export function formatSubvalueUsd(value: number): string {
 	if (!Number.isFinite(value) || value === 0) return '–';
 	return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function BreakdownHeading({
-	label,
-	value,
-	color,
-	plain = false,
-	tooltip,
-}: {
-	label: string;
-	value?: string;
-	color?: string | undefined;
-	plain?: boolean;
-	tooltip?: string;
-}) {
-	return (
-		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
-			{tooltip ? (
-				<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
-					{label}
-					<div
-						role="tooltip"
-						className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-					>
-						{tooltip}
-					</div>
-				</span>
-			) : (
-				<span className={plain ? '' : 'underline decoration-dotted underline-offset-[3px]'}>{label}</span>
-			)}
-			{value != null && (
-				<span className="text-right" style={color ? { color } : undefined}>
-					{value}
-				</span>
-			)}
-		</div>
-	);
-}
-
-function BreakdownDivider() {
-	return (
-		<div
-			className="h-px"
-			style={{
-				backgroundImage:
-					'repeating-linear-gradient(to right, var(--color-border) 0, var(--color-border) 1px, transparent 1px, transparent 3px)',
-			}}
-		/>
-	);
 }
 
 export function ShareButton({ path }: { path?: string } = {}) {
@@ -566,87 +349,10 @@ export function ShareButton({ path }: { path?: string } = {}) {
 	);
 }
 
-function BreakdownRow({
-	label,
-	value,
-	context,
-	href,
-	color,
-	valueTooltip,
-	tooltip,
-	secondary = false,
-	plain = false,
-}: {
-	label: string;
-	value: string;
-	context?: string | undefined;
-	href?: string | undefined;
-	color?: string | undefined;
-	valueTooltip?: string | undefined;
-	tooltip?: string | undefined;
-	secondary?: boolean;
-	plain?: boolean;
-}) {
-	const labelClass = [
-		plain ? '' : 'underline decoration-dotted underline-offset-[3px]',
-		secondary ? 'text-[var(--color-secondary)]' : '',
-	].filter(Boolean).join(' ');
-	const labelNode = href ? (
-		<a
-			href={href}
-			target="_blank"
-			rel="noreferrer"
-			className={`${labelClass} hover:decoration-solid`}
-		>
-			{label}
-		</a>
-	) : (
-		<span className={labelClass}>{label}</span>
-	);
-
-	return (
-		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
-			<div className="min-w-0">
-				{tooltip ? (
-					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
-						{label}
-						<div
-							role="tooltip"
-							className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-						>
-							{tooltip}
-						</div>
-					</span>
-				) : (
-					labelNode
-				)}
-				{context != null && (
-					<span className="ml-[10px] text-[var(--color-quaternary)]">{context}</span>
-				)}
-			</div>
-			{valueTooltip ? (
-				<span className="group relative text-right cursor-default" style={color ? { color } : undefined}>
-					<span className="underline decoration-dotted underline-offset-[3px] group-hover:decoration-solid">{value}</span>
-					<span
-						role="tooltip"
-						className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-[280px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible group-focus-visible:visible"
-					>
-						{valueTooltip}
-					</span>
-				</span>
-			) : (
-				<span className="text-right" style={color ? { color } : undefined}>
-					{value}
-				</span>
-			)}
-		</div>
-	);
-}
-
-export function formatExecutionPrice(value: unknown): string {
+export function formatExecutionPrice(value: unknown, unitSymbol = 'WETH'): string {
 	const n = value == null ? null : Number(value);
 	if (n == null || Number.isNaN(n)) return '–';
-	return `${trimNumber(n, 12)} = 1 WETH`;
+	return `${trimNumber(n, 12)} = 1 ${unitSymbol}`;
 }
 
 export function formatDialogBps(value: number | null): { text: string; color: string | undefined } {
@@ -681,7 +387,7 @@ export function executionGradeTooltip(costBps: number): string {
 	return 'Total Execution Quality is >15bps';
 }
 
-export function getExecutionBreakdown(row: Pick<TradeRow, 'slippageBps' | 'routeLegs'>): {
+export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };
 	marketForcesDisplay: { text: string; color: string | undefined };
@@ -786,7 +492,7 @@ export function tokenSymbol(address: string): string {
 	return TOKEN_SYMBOLS[address.toLowerCase()] ?? shortAddress(address);
 }
 
-export function normalizeRouteLegs(routeLegs: TradeRow['routeLegs'] | string | null | undefined): RouteLeg[] {
+export function normalizeRouteLegs(routeLegs: unknown): RouteLeg[] {
 	if (Array.isArray(routeLegs)) return routeLegs as RouteLeg[];
 	if (typeof routeLegs !== 'string') return [];
 	try {
@@ -803,19 +509,21 @@ export function routePath(legs: RouteLeg[]): string {
 	return tokens.join('->');
 }
 
-export function getFlagLabel(row: Pick<TradeRow, 'normalizeFlags' | 'decompConfidence'>): string {
+export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'decompConfidence'>>): string {
 	const flags = Array.isArray(row.normalizeFlags)
 		? row.normalizeFlags.filter((flag): flag is string => typeof flag === 'string' && flag.trim().length > 0)
 		: [];
 	return flags.length > 0 ? flags.join('; ') : 'None';
 }
 
-export function formatTokenIn(row: TradeRow): string {
-	return `${trimNumber(Number(row.usdcAmount), 6)} USDC`;
+// Generalized token display: reads the input/output symbol + amount fields that
+// exist on both `ReceiptRow` (ReceiptView) and the History dialog's adapter.
+export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number }): string {
+	return `${trimNumber(Number(row.inputAmount), 6)} ${row.inputSymbol}`;
 }
 
-export function formatTokenOut(row: TradeRow): string {
-	return `${trimNumber(Number(row.wethAmount), 15)} ${row.settledIn ?? 'WETH'}`;
+export function formatTokenOut(row: { outputSymbol: string; outputAmount: string | number }): string {
+	return `${trimNumber(Number(row.outputAmount), 15)} ${row.outputSymbol}`;
 }
 
 export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLeg, 'venue'>>): string {
@@ -835,18 +543,13 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	return leg.type.toUpperCase();
 }
 
-function firstLegContext(legs: RouteLeg[]): string | undefined {
-	const leg = legs.find((l) => l.priceImpactBps != null) ?? legs[0];
-	return leg ? `${tokenSymbol(leg.tokenIn)}->${tokenSymbol(leg.tokenOut)}` : undefined;
-}
-
-function aggregatorFeeLabel(row: TradeRow): string {
+function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | number | null }): string {
 	const provider = formatProvider(row.aggregator.toLowerCase());
 	if (Number(row.aggFeeBps ?? 0) === 0) return provider;
 	return `${provider} Fee`;
 }
 
-export function getAggregatorFeeAttribution(row: Pick<TradeRow, 'aggregator' | 'aggFeeBps'>): {
+export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps: string | number | null }): {
 	label: string;
 	href?: string | undefined;
 } {
@@ -866,32 +569,9 @@ export function getAggregatorFeeAttribution(row: Pick<TradeRow, 'aggregator' | '
 	};
 	const tagged = vaults[row.aggregator.toLowerCase()];
 	if (tagged) return tagged;
-	return { label: aggregatorFeeLabel(row as TradeRow) };
+	return { label: aggregatorFeeLabel(row) };
 }
 
 function trimNumber(value: number, digits: number): string {
 	return value.toFixed(digits).replace(/\.?0+$/, '');
-}
-
-function formatPriceDelta(marketMid: unknown, realizedPrice: unknown): string {
-	const mid = marketMid == null ? null : Number(marketMid);
-	const exec = realizedPrice == null ? null : Number(realizedPrice);
-	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
-	return `$${Math.abs(mid - exec).toFixed(2)}`;
-}
-
-function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown): string | undefined {
-	const mid = marketMid == null ? null : Number(marketMid);
-	const exec = realizedPrice == null ? null : Number(realizedPrice);
-	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return undefined;
-	if (Math.abs(exec - mid) < 0.01) return 'At Market';
-	if (exec > mid) return 'Below Market';
-	return 'Above Market';
-}
-
-function dialogPairTitle(legs: RouteLeg[], row: TradeRow): string {
-	if (legs.length === 0) return row.settledIn ?? 'WETH';
-	const tokens = [legs[0]!.tokenIn, ...legs.map((l) => l.tokenOut)];
-	const symbols = tokens.map(tokenSymbol);
-	return `${symbols[symbols.length - 1]}→${symbols[0]}`;
 }

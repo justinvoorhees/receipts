@@ -3,8 +3,7 @@ import type { Route } from 'next';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTransition } from 'react';
 
-const TABS: { label: string; href: Route; matches: (path: string) => boolean; hidden?: boolean }[] = [
-	{ label: 'Dashboard', href: '/' as Route, matches: (p) => p === '/', hidden: true },
+const TABS: { label: string; href: Route; matches: (path: string) => boolean }[] = [
 	{
 		label: 'Receipts',
 		href: '/receipts' as Route,
@@ -24,7 +23,7 @@ export function NavTabs() {
 
 	return (
 		<nav className="flex gap-[40px] items-center">
-			{TABS.filter((tab) => !tab.hidden).map((tab) => {
+			{TABS.map((tab) => {
 				const selected = tab.matches(pathname);
 				const className = selected
 					? 'text-[var(--color-primary)] underline decoration-dotted'

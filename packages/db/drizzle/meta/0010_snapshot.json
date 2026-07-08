@@ -1,0 +1,1021 @@
+{
+  "id": "ff975083-4649-471e-8d3e-59b546bb61ae",
+  "prevId": "b9309676-638c-482f-87b5-c75ff16e3aae",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.ingest_heartbeats": {
+      "name": "ingest_heartbeats",
+      "schema": "",
+      "columns": {
+        "service": {
+          "name": "service",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "last_tick_at": {
+          "name": "last_tick_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_block": {
+          "name": "last_block",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_status": {
+          "name": "last_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.p99_thresholds": {
+      "name": "p99_thresholds",
+      "schema": "",
+      "columns": {
+        "computed_at": {
+          "name": "computed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "threshold_usd": {
+          "name": "threshold_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sample_count": {
+          "name": "sample_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "window_days": {
+          "name": "window_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 30
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.poll_state": {
+      "name": "poll_state",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "last_block": {
+          "name": "last_block",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.router_trades": {
+      "name": "router_trades",
+      "schema": "",
+      "columns": {
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "aggregator": {
+          "name": "aggregator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trader": {
+          "name": "trader",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settled_in": {
+          "name": "settled_in",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "usdc_amount": {
+          "name": "usdc_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weth_amount": {
+          "name": "weth_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "realized_price": {
+          "name": "realized_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "market_mid": {
+          "name": "market_mid",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "all_in_cost_bps": {
+          "name": "all_in_cost_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gas_used": {
+          "name": "gas_used",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "effective_gas_price": {
+          "name": "effective_gas_price",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gas_cost_usd": {
+          "name": "gas_cost_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lp_fee_bps": {
+          "name": "lp_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agg_fee_bps": {
+          "name": "agg_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slippage_bps": {
+          "name": "slippage_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loaded_at": {
+          "name": "loaded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "router_trades_aggregator_idx": {
+          "name": "router_trades_aggregator_idx",
+          "columns": [
+            {
+              "expression": "aggregator",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.router_trades_gated": {
+      "name": "router_trades_gated",
+      "schema": "",
+      "columns": {
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "aggregator": {
+          "name": "aggregator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trader": {
+          "name": "trader",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_trader": {
+          "name": "original_trader",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "re_anchored": {
+          "name": "re_anchored",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settled_in": {
+          "name": "settled_in",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "usdc_amount": {
+          "name": "usdc_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weth_amount": {
+          "name": "weth_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "realized_price": {
+          "name": "realized_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "market_mid": {
+          "name": "market_mid",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "all_in_cost_bps": {
+          "name": "all_in_cost_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gate_reason": {
+          "name": "gate_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "loaded_at": {
+          "name": "loaded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "lp_fee_bps": {
+          "name": "lp_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agg_fee_bps": {
+          "name": "agg_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slippage_bps": {
+          "name": "slippage_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "execution_bps": {
+          "name": "execution_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gas_cost_usd": {
+          "name": "gas_cost_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "route_pure": {
+          "name": "route_pure",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chainlink_price": {
+          "name": "chainlink_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chainlink_dev_bps": {
+          "name": "chainlink_dev_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_divergence_bps": {
+          "name": "pool_divergence_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "manipulation_flag": {
+          "name": "manipulation_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "offchain_price": {
+          "name": "offchain_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "offchain_dev_bps": {
+          "name": "offchain_dev_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chainlink_staleness_secs": {
+          "name": "chainlink_staleness_secs",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.smoke_trades": {
+      "name": "smoke_trades",
+      "schema": "",
+      "columns": {
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "aggregator": {
+          "name": "aggregator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trader": {
+          "name": "trader",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settled_in": {
+          "name": "settled_in",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "usdc_amount": {
+          "name": "usdc_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weth_amount": {
+          "name": "weth_amount",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "realized_price": {
+          "name": "realized_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "market_mid": {
+          "name": "market_mid",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "all_in_cost_bps": {
+          "name": "all_in_cost_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lp_fee_bps": {
+          "name": "lp_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agg_fee_bps": {
+          "name": "agg_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slippage_bps": {
+          "name": "slippage_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "execution_bps": {
+          "name": "execution_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gas_cost_usd": {
+          "name": "gas_cost_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "route_pure": {
+          "name": "route_pure",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "route_shape": {
+          "name": "route_shape",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "hop_count": {
+          "name": "hop_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "route_legs": {
+          "name": "route_legs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recon_residual_bps": {
+          "name": "recon_residual_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decomp_confidence": {
+          "name": "decomp_confidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'smoke-01'"
+        },
+        "experiment_slug": {
+          "name": "experiment_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "v1_status": {
+          "name": "v1_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "v1_quote_amount_usd": {
+          "name": "v1_quote_amount_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "v1_realized_amount_usd": {
+          "name": "v1_realized_amount_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_event_name": {
+          "name": "settlement_event_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_event_topic0": {
+          "name": "settlement_event_topic0",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_event_seen": {
+          "name": "settlement_event_seen",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "normalize_flags": {
+          "name": "normalize_flags",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loaded_at": {
+          "name": "loaded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "chainlink_price": {
+          "name": "chainlink_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chainlink_dev_bps": {
+          "name": "chainlink_dev_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_divergence_bps": {
+          "name": "pool_divergence_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "manipulation_flag": {
+          "name": "manipulation_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "offchain_price": {
+          "name": "offchain_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "offchain_dev_bps": {
+          "name": "offchain_dev_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chainlink_staleness_secs": {
+          "name": "chainlink_staleness_secs",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "smoke_trades_aggregator_idx": {
+          "name": "smoke_trades_aggregator_idx",
+          "columns": [
+            {
+              "expression": "aggregator",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.swaps": {
+      "name": "swaps",
+      "schema": "",
+      "columns": {
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "block_timestamp": {
+          "name": "block_timestamp",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aggregator": {
+          "name": "aggregator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_in_raw": {
+          "name": "amount_in_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount_out_raw": {
+          "name": "amount_out_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notional_usd": {
+          "name": "notional_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_price": {
+          "name": "reference_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "executed_price": {
+          "name": "executed_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "simulated_amount_out": {
+          "name": "simulated_amount_out",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "simulated_price": {
+          "name": "simulated_price",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_cost_bps": {
+          "name": "total_cost_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lp_fee_bps": {
+          "name": "lp_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agg_fee_bps": {
+          "name": "agg_fee_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gas_cost_usd": {
+          "name": "gas_cost_usd",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gas_cost_bps": {
+          "name": "gas_cost_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_impact_bps": {
+          "name": "price_impact_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slippage_bps": {
+          "name": "slippage_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "execution_quality_bps": {
+          "name": "execution_quality_bps",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gas_used": {
+          "name": "gas_used",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "effective_gas_price": {
+          "name": "effective_gas_price",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pool_fee_tier": {
+          "name": "pool_fee_tier",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_trace": {
+          "name": "raw_trace",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processing_status": {
+          "name": "processing_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "swaps_aggregator_block_timestamp_idx": {
+          "name": "swaps_aggregator_block_timestamp_idx",
+          "columns": [
+            {
+              "expression": "aggregator",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "block_timestamp",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "swaps_direction_notional_idx": {
+          "name": "swaps_direction_notional_idx",
+          "columns": [
+            {
+              "expression": "direction",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "notional_usd",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "swaps_processing_status_idx": {
+          "name": "swaps_processing_status_idx",
+          "columns": [
+            {
+              "expression": "processing_status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.swaps_staging": {
+      "name": "swaps_staging",
+      "schema": "",
+      "columns": {
+        "tx_hash": {
+          "name": "tx_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "log_index": {
+          "name": "log_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "block_number": {
+          "name": "block_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "block_timestamp": {
+          "name": "block_timestamp",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pool_address": {
+          "name": "pool_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_address": {
+          "name": "to_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_in_raw": {
+          "name": "amount_in_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_out_raw": {
+          "name": "amount_out_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "notional_usd_estimate": {
+          "name": "notional_usd_estimate",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discovered_at": {
+          "name": "discovered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "promoted_tx_hash": {
+          "name": "promoted_tx_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "staging_block_timestamp_idx": {
+          "name": "staging_block_timestamp_idx",
+          "columns": [
+            {
+              "expression": "block_timestamp",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
