@@ -25,15 +25,19 @@ describe('buildRouteGraph', () => {
     expect(g.legs[0]!.amountInRaw).toBe(2_000000n);
     expect(g.legs[1]!.amountOutRaw).toBe(1_000000000000000n);
   });
-  it('flags an RFQ filler (no Swap event) as an rfq leg', () => {
-    const rfq = '0xbee3211ab312a8d065c4fef0247448e17a8da000';
+  it('classifies an unrecognized 1-in-1-out venue (no Swap event) as unknown', () => {
+    // A clean 1-in-1-out address with no Swap event is NOT assumed to be a
+    // genuine RFQ filler: probing showed these are real AMM pools we failed to
+    // recognize (see 30cb93ba). Classifying them `unknown` keeps their LP fee a
+    // flagged (defaulted) guess rather than a confident 0, per decomposeRoute.
+    const unknownVenue = '0xbee3211ab312a8d065c4fef0247448e17a8da000';
     const t2 = [
-      { token: USDC, from: trader, to: rfq, value: 2_000000n },
-      { token: VIRTUAL, from: rfq, to: v4, value: 3_000000000000000000n },
+      { token: USDC, from: trader, to: unknownVenue, value: 2_000000n },
+      { token: VIRTUAL, from: unknownVenue, to: v4, value: 3_000000000000000000n },
       { token: WETH, from: v4, to: trader, value: 1_000000000000000n },
     ];
     const g = buildRouteGraph({ transfers: t2, trader, venues: new Map([[v4, { type: 'univ4' as const }]]), denylist: new Set() });
-    expect(g.legs[0]!.type).toBe('rfq');
+    expect(g.legs[0]!.type).toBe('unknown');
     expect(g.shape).toBe('linear');
   });
 

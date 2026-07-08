@@ -181,8 +181,10 @@ function buildLegs(
         legs.push(leg);
       }
     } else {
-      // Not a known venue — check if it's an RFQ filler:
-      // net-received exactly one token and net-sent exactly one other
+      // Not a known venue, but a clean 1-in-1-out flow (net-received exactly one
+      // token, net-sent exactly one other). Classified `unknown` — NOT `rfq`:
+      // probing showed these are real AMM pools we failed to recognize, so their
+      // LP fee stays a flagged (defaulted) guess rather than a confident 0.
       if (netReceived.length === 1 && netSent.length === 1) {
         const tokenIn = netReceived[0]!;
         const tokenOut = netSent[0]!;
