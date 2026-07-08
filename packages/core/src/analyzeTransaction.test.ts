@@ -1,8 +1,52 @@
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
-import { analyzeTransaction } from './analyzeTransaction.js';
+import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice } from './analyzeTransaction.js';
 
 const RPC = process.env.TCA_RPC_URL;
+
+const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const DAI = '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
+const WETH = '0x4200000000000000000000000000000000000006';
+const DEGEN = '0x4ed4e862860bed51a9570b96d89af5e1b0efefed';
+
+describe('baseIsOutputLeg', () => {
+	it('buy-side USDC→WETH: base (WETH) is the output', () => {
+		expect(baseIsOutputLeg(USDC, WETH)).toBe(true);
+	});
+	it('sell-side WETH→USDC: base (WETH) is the input', () => {
+		expect(baseIsOutputLeg(WETH, USDC)).toBe(false);
+	});
+	it('ranks WETH above a plain token: WETH→DEGEN base (DEGEN) is the output', () => {
+		expect(baseIsOutputLeg(WETH, DEGEN)).toBe(true);
+	});
+	it('ranks WETH above a plain token: DEGEN→WETH base (DEGEN) is the input', () => {
+		expect(baseIsOutputLeg(DEGEN, WETH)).toBe(false);
+	});
+	it('is case-insensitive on addresses', () => {
+		expect(baseIsOutputLeg(USDC.toLowerCase(), WETH.toUpperCase())).toBe(true);
+	});
+	it('defaults to no inversion when both legs anchor equally (USDC↔DAI)', () => {
+		expect(baseIsOutputLeg(USDC, DAI)).toBe(false);
+		expect(baseIsOutputLeg(DAI, USDC)).toBe(false);
+	});
+});
+
+describe('toDisplayPrice', () => {
+	it('passes an output-per-input price through untouched when base is the input', () => {
+		expect(toDisplayPrice(3000, false)).toBe(3000);
+	});
+	it('inverts an output-per-input price into USD-per-base when base is the output', () => {
+		expect(toDisplayPrice(1 / 3000, true)).toBeCloseTo(3000, 6);
+	});
+	it('returns null for a null price', () => {
+		expect(toDisplayPrice(null, true)).toBeNull();
+		expect(toDisplayPrice(null, false)).toBeNull();
+	});
+	it('returns null for a non-positive price that cannot be inverted', () => {
+		expect(toDisplayPrice(0, true)).toBeNull();
+		expect(toDisplayPrice(-5, true)).toBeNull();
+	});
+});
 
 describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 	it('produces a full receipt for a known USDC/WETH smoke hash', async () => {
@@ -16,6 +60,10 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(r!.inputSymbol === 'USDC' || r!.outputSymbol === 'USDC').toBe(true);
 		// LP + Agg + PriceImpact + Slippage reconcile to all-in within tolerance
 		expect(Math.abs(Number(r!.allInCostBps))).toBeLessThan(200);
+		// Prices are stored in the display convention (USD-per-WETH), never the
+		// tiny output-per-input orientation, regardless of trade direction.
+		expect(Number(r!.realizedPrice)).toBeGreaterThan(100);
+		expect(Number(r!.marketMid)).toBeGreaterThan(100);
 		// Oracle sub-fields flow through the USDC/WETH fast-path (regression guard
 		// for the priceReceipt -> Receipt forwarding wiring).
 		expect(r!.chainlinkPrice).not.toBeNull();

@@ -32,6 +32,46 @@ import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSigna
 const WETH = '0x4200000000000000000000000000000000000006';
 const NATIVE = 'native';
 
+/** Stablecoins that anchor a receipt directly to USD (~$1), mirroring pricing.ts. */
+const STABLECOINS: ReadonlySet<string> = new Set([
+	'0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC
+	'0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca', // USDbC
+	'0x50c5725949a6f0c72e6c4a641f24049a917db0cb', // DAI
+]);
+
+/** USD-anchor strength: stablecoin > WETH > everything else. The quote leg is
+ *  the stronger anchor; the weaker one is the volatile "base" we quote a price
+ *  for (e.g. WETH in a USDC/WETH pair). */
+function anchorRank(token: string): number {
+	const t = token.toLowerCase();
+	if (STABLECOINS.has(t)) return 2;
+	if (t === WETH) return 1;
+	return 0;
+}
+
+/**
+ * True when the price's base (volatile) leg is the OUTPUT token — i.e. a
+ * buy-side trade like USDC→WETH. Stored realized/mid prices are output-per-input;
+ * when the base is the output they must be inverted to reach the display
+ * convention (USD-per-base). Ties (both legs anchor equally) → false (no invert).
+ */
+export function baseIsOutputLeg(inputToken: string, outputToken: string): boolean {
+	return anchorRank(outputToken) < anchorRank(inputToken);
+}
+
+/**
+ * Re-orient an output-per-input price into the receipt display convention —
+ * USD-per-base (quote-per-base), matching seed rows so the UI reads prices
+ * uniformly. Inverts only when the base is the output leg. Cost math stays in
+ * output-per-input; only display fields use this. A non-positive price that
+ * cannot be inverted degrades to null.
+ */
+export function toDisplayPrice(price: number | null, baseIsOutput: boolean): number | null {
+	if (price == null) return null;
+	if (!baseIsOutput) return price;
+	return price > 0 ? 1 / price : null;
+}
+
 export interface Receipt {
 	txHash: string;
 	chainId: number;
@@ -153,6 +193,7 @@ export async function analyzeTransaction(
 		// otherwise WETH paths never fire and the value is inert.
 		const inLc = endpoints.inputToken.toLowerCase();
 		const outLc = endpoints.outputToken.toLowerCase();
+		const baseIsOutput = baseIsOutputLeg(inLc, outLc);
 		const notionalUsd = pricing.notionalUsd;
 		const wethHuman = inLc === WETH ? inputAmount : outLc === WETH ? outputAmount : null;
 		const decompRealizedPrice =
@@ -226,8 +267,11 @@ export async function analyzeTransaction(
 			outputAmount,
 			notionalUsd,
 			// Mid-derived fields are null on a partial (LP + Agg still valid below).
-			realizedPrice: isFull ? realizedPrice : null,
-			marketMid: isFull ? marketMid : null,
+			// Stored in the display convention (USD-per-base) — NOT the raw
+			// output-per-input used for the cost math above — so buy-side receipts
+			// (USDC→WETH) show USD-per-WETH like seed rows instead of a tiny inverse.
+			realizedPrice: isFull ? toDisplayPrice(realizedPrice, baseIsOutput) : null,
+			marketMid: isFull ? toDisplayPrice(marketMid, baseIsOutput) : null,
 			allInCostBps: isFull ? allInCostBps : null,
 			pricingStatus: pricing.status,
 			executionBps: isFull ? route.executionBps : null,
