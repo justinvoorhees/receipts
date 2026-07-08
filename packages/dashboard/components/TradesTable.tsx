@@ -543,15 +543,43 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	return leg.type.toUpperCase();
 }
 
+// Fabric's own protocol fee defaults to 0 bps and is capped at 10 bps
+// (surplus-sharing only — see docs.withfabric.xyz/apis/quotes/fees). Fabric
+// is also the *router* for every trade routed through it, so any retained
+// fee we detect there is presented under the "Fabric" aggregator label even
+// when it's actually an integrator/partner's `feeBps` being forwarded to
+// their `feeRecipient` (integrators can set up to 1000 bps). A fee above
+// this cap attributed to the Fabric router is therefore definitionally NOT
+// Fabric revenue — label it neutrally instead of implying Fabric earned it.
+const FABRIC_AGGREGATOR_SLUG = 'fabric';
+const FABRIC_MAX_PROTOCOL_FEE_BPS = 10;
+// The integrator label for a forwarded Fabric fee. NOTE: this is an ASSUMPTION,
+// not on-chain-derived — "Farcaster" is hardcoded because it is currently the
+// only known Fabric integrator. The actual `feeRecipient` cannot be resolved to
+// a named integrator from chain data alone; once we persist `feeRecipient` per
+// receipt (schema split) this should map recipient → integrator name instead of
+// assuming Farcaster for every >10bps Fabric fee.
+const FABRIC_INTEGRATOR_FEE_LABEL = 'Integrator Fee (Farcaster)';
+
 function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | number | null }): string {
 	const provider = formatProvider(row.aggregator.toLowerCase());
-	if (Number(row.aggFeeBps ?? 0) === 0) return provider;
+	const feeBps = Number(row.aggFeeBps ?? 0);
+	if (feeBps === 0) return provider;
+	if (row.aggregator.toLowerCase() === FABRIC_AGGREGATOR_SLUG) {
+		// > 10bps: definitively an integrator/partner fee forwarded through the
+		// Fabric router, not Fabric's own revenue (see cap above).
+		// <= 10bps: genuinely ambiguous from on-chain data alone — could be
+		// Fabric's surplus-share fee OR a small integrator fee. Use a neutral
+		// label rather than crediting either party without evidence.
+		return feeBps > FABRIC_MAX_PROTOCOL_FEE_BPS ? FABRIC_INTEGRATOR_FEE_LABEL : 'Router Fee';
+	}
 	return `${provider} Fee`;
 }
 
 export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps: string | number | null }): {
 	label: string;
 	href?: string | undefined;
+	tooltip?: string | undefined;
 } {
 	const vaults: Record<string, { label: string; href: string }> = {
 		velora: {
@@ -569,7 +597,25 @@ export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps
 	};
 	const tagged = vaults[row.aggregator.toLowerCase()];
 	if (tagged) return tagged;
-	return { label: aggregatorFeeLabel(row) };
+	const label = aggregatorFeeLabel(row);
+	if (label === FABRIC_INTEGRATOR_FEE_LABEL) {
+		return {
+			label,
+			tooltip:
+				'Fabric’s own protocol fee is 0bps by default (max 10bps, surplus-sharing only). ' +
+				'A fee this size is an integrator’s feeBps, forwarded by the Fabric router to their feeRecipient — not Fabric revenue.',
+		};
+	}
+	if (label === 'Router Fee') {
+		return {
+			label,
+			tooltip:
+				'Retained by an address reached via the Fabric router. Within Fabric’s own protocol-fee range ' +
+				'(0–10bps, surplus-sharing), but on-chain data alone can’t confirm whether this is Fabric’s fee ' +
+				'or a small partner feeBps — shown neutrally.',
+		};
+	}
+	return { label };
 }
 
 function trimNumber(value: number, digits: number): string {

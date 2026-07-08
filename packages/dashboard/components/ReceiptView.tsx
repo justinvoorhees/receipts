@@ -265,6 +265,7 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
 	const hasAggFee = row.aggFeeBps != null && Number(row.aggFeeBps) !== 0;
+	const aggAttribution = getAggregatorFeeAttribution(row);
 	const execution = getExecutionBreakdown(row);
 	const priceImpactRows = getPriceImpactRows(legs);
 	const pairTitle = receiptPairTitle(row);
@@ -408,8 +409,9 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 					<>
 						<BkdHeading label="Aggregator Fee" plain />
 						<BkdRow
-							label={getAggregatorFeeAttribution(row).label}
-							href={getAggregatorFeeAttribution(row).href}
+							label={aggAttribution.label}
+							href={aggAttribution.href}
+							tooltip={aggAttribution.tooltip}
 							value={agg.text}
 							color={agg.color}
 							secondary

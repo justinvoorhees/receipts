@@ -92,6 +92,27 @@ describe('Receipt header', () => {
 	});
 });
 
+describe('Receipt Fabric partner-fee attribution', () => {
+	// A Fabric-routed swap where an integrator/partner feeBps (80bps here) is
+	// forwarded through the Fabric router. Fabric's own fee caps at 10bps, so the
+	// receipt must NOT present this as a "Fabric Fee".
+	const fabricPartnerRow = {
+		...fullUsdcWethRow,
+		aggregator: 'Fabric',
+		aggFeeBps: '80',
+	};
+
+	it('does not render "Fabric Fee" for a large Fabric-routed integrator fee', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={fabricPartnerRow as never} hash={fabricPartnerRow.txHash} />,
+		);
+		expect(html).toContain('Integrator Fee (Farcaster)');
+		expect(html).not.toContain('Fabric Fee');
+		expect(html).toContain('not Fabric revenue');
+	});
+});
+
 describe('Receipt partial state', () => {
 	const partialRow = {
 		txHash: '0xabcabcabcabcabcabcabcabcabcabcabcabcabcd',
