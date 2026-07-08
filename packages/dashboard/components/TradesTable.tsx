@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ReceiptRow, RouteLeg, TradeRow, TradesSort, TradesSortColumn } from '../lib/queries';
+import type { ReceiptRow, RouteLeg, TradesSort, TradesSortColumn } from '../lib/queries';
 import {
 	formatContribution,
 	formatNotional,
@@ -509,7 +509,7 @@ export function routePath(legs: RouteLeg[]): string {
 	return tokens.join('->');
 }
 
-export function getFlagLabel(row: Pick<TradeRow, 'normalizeFlags' | 'decompConfidence'>): string {
+export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'decompConfidence'>>): string {
 	const flags = Array.isArray(row.normalizeFlags)
 		? row.normalizeFlags.filter((flag): flag is string => typeof flag === 'string' && flag.trim().length > 0)
 		: [];
