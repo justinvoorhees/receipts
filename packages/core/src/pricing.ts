@@ -41,16 +41,24 @@ const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const USDBC = '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca';
 const DAI = '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
 const WETH = '0x4200000000000000000000000000000000000006';
+/** Synthetic endpoint for native ETH (mirrors `NATIVE` in endpoints.ts). */
+const NATIVE = 'native';
 
 /** Stablecoins that anchor a receipt directly to USD (~$1). */
 const STABLECOINS: ReadonlySet<string> = new Set([USDC, USDBC, DAI]);
 
-/** Known symbols — avoid an RPC round-trip for common tokens. */
+/**
+ * Known symbols — avoid an RPC round-trip for common tokens. This is only a
+ * cache/override: any other token resolves via an on-chain `symbol()` read
+ * (see `readSymbol`). The exception is `native` (ETH), which is a synthetic
+ * endpoint with no contract to call `symbol()` on, so it MUST be listed here.
+ */
 const KNOWN_SYMBOLS: ReadonlyMap<string, string> = new Map([
   [USDC, 'USDC'],
   [USDBC, 'USDbC'],
   [DAI, 'DAI'],
   [WETH, 'WETH'],
+  [NATIVE, 'ETH'],
 ]);
 
 const isStable = (t: string): boolean => STABLECOINS.has(t.toLowerCase());

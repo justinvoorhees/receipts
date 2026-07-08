@@ -185,6 +185,20 @@ describe('priceReceipt', () => {
     expect(typeof r.inputSymbol).toBe('string');
     expect(typeof r.inputDecimals).toBe('number');
   });
+
+  it('resolves native ETH to the "ETH" symbol (no contract to read symbol() from)', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: 'native' },
+      makeDeps({
+        // native is not a contract: a real symbol() read throws → must fall back to "ETH".
+        readSymbol: async (t) => {
+          if (t.toLowerCase() === 'native') throw new Error('native has no contract');
+          return 'TKN';
+        },
+      }),
+    );
+    expect(r.outputSymbol).toBe('ETH');
+  });
 });
 
 // ── defaultGetPairMid: direct test of the orientation + inversion math ──────
