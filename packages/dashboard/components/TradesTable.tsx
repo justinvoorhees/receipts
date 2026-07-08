@@ -327,8 +327,8 @@ export function TransactionDetailsDialog({ row, onClose }: { row: TradeRow; onCl
 					<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
 					<DetailRow label="Aggregator"><span style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</span></DetailRow>
 					<DetailRow label="Route">{routePath(legs)}</DetailRow>
-					<DetailRow label="Token In" subvalue={formatSubvalueUsd(Number(row.usdcAmount))}>{formatTokenIn(row)}</DetailRow>
-					<DetailRow label="Token Out" subvalue={formatSubvalueUsd(Number(row.wethAmount) * Number(row.realizedPrice))}>{formatTokenOut(row)}</DetailRow>
+					<DetailRow label="Token In" subvalue={formatSubvalueUsd(Number(row.usdcAmount))}>{formatTokenIn({ inputSymbol: 'USDC', inputAmount: row.usdcAmount })}</DetailRow>
+					<DetailRow label="Token Out" subvalue={formatSubvalueUsd(Number(row.wethAmount) * Number(row.realizedPrice))}>{formatTokenOut({ outputSymbol: row.settledIn ?? 'WETH', outputAmount: row.wethAmount })}</DetailRow>
 					<DetailRow label="Realized Execution Price" subvalue={formatSubvalueUsd(Number(row.realizedPrice))}>
 						{formatExecutionPrice(row.realizedPrice)}
 					</DetailRow>
@@ -643,10 +643,10 @@ function BreakdownRow({
 	);
 }
 
-export function formatExecutionPrice(value: unknown): string {
+export function formatExecutionPrice(value: unknown, unitSymbol = 'WETH'): string {
 	const n = value == null ? null : Number(value);
 	if (n == null || Number.isNaN(n)) return '–';
-	return `${trimNumber(n, 12)} = 1 WETH`;
+	return `${trimNumber(n, 12)} = 1 ${unitSymbol}`;
 }
 
 export function formatDialogBps(value: number | null): { text: string; color: string | undefined } {
@@ -681,7 +681,7 @@ export function executionGradeTooltip(costBps: number): string {
 	return 'Total Execution Quality is >15bps';
 }
 
-export function getExecutionBreakdown(row: Pick<TradeRow, 'slippageBps' | 'routeLegs'>): {
+export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };
 	marketForcesDisplay: { text: string; color: string | undefined };
@@ -786,7 +786,7 @@ export function tokenSymbol(address: string): string {
 	return TOKEN_SYMBOLS[address.toLowerCase()] ?? shortAddress(address);
 }
 
-export function normalizeRouteLegs(routeLegs: TradeRow['routeLegs'] | string | null | undefined): RouteLeg[] {
+export function normalizeRouteLegs(routeLegs: unknown): RouteLeg[] {
 	if (Array.isArray(routeLegs)) return routeLegs as RouteLeg[];
 	if (typeof routeLegs !== 'string') return [];
 	try {
@@ -810,12 +810,14 @@ export function getFlagLabel(row: Pick<TradeRow, 'normalizeFlags' | 'decompConfi
 	return flags.length > 0 ? flags.join('; ') : 'None';
 }
 
-export function formatTokenIn(row: TradeRow): string {
-	return `${trimNumber(Number(row.usdcAmount), 6)} USDC`;
+// Generalized token display: reads the input/output symbol + amount fields that
+// exist on both `ReceiptRow` (ReceiptView) and the History dialog's adapter.
+export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number }): string {
+	return `${trimNumber(Number(row.inputAmount), 6)} ${row.inputSymbol}`;
 }
 
-export function formatTokenOut(row: TradeRow): string {
-	return `${trimNumber(Number(row.wethAmount), 15)} ${row.settledIn ?? 'WETH'}`;
+export function formatTokenOut(row: { outputSymbol: string; outputAmount: string | number }): string {
+	return `${trimNumber(Number(row.outputAmount), 15)} ${row.outputSymbol}`;
 }
 
 export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLeg, 'venue'>>): string {
@@ -840,13 +842,13 @@ function firstLegContext(legs: RouteLeg[]): string | undefined {
 	return leg ? `${tokenSymbol(leg.tokenIn)}->${tokenSymbol(leg.tokenOut)}` : undefined;
 }
 
-function aggregatorFeeLabel(row: TradeRow): string {
+function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | number | null }): string {
 	const provider = formatProvider(row.aggregator.toLowerCase());
 	if (Number(row.aggFeeBps ?? 0) === 0) return provider;
 	return `${provider} Fee`;
 }
 
-export function getAggregatorFeeAttribution(row: Pick<TradeRow, 'aggregator' | 'aggFeeBps'>): {
+export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps: string | number | null }): {
 	label: string;
 	href?: string | undefined;
 } {
@@ -866,7 +868,7 @@ export function getAggregatorFeeAttribution(row: Pick<TradeRow, 'aggregator' | '
 	};
 	const tagged = vaults[row.aggregator.toLowerCase()];
 	if (tagged) return tagged;
-	return { label: aggregatorFeeLabel(row as TradeRow) };
+	return { label: aggregatorFeeLabel(row) };
 }
 
 function trimNumber(value: number, digits: number): string {
