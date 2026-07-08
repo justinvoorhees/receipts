@@ -59,7 +59,7 @@ export interface RouteLeg {
  */
 export const TRADES_SORT_COLUMN_KEYS = {
 	block: 'blockNumber', aggregator: 'aggregator', side: 'direction',
-	size: 'usdcAmount', accuracy: 'allInCostBps', lpFee: 'lpFeeBps',
+	size: 'notionalUsd', accuracy: 'allInCostBps', lpFee: 'lpFeeBps',
 	aggFee: 'aggFeeBps', impact: 'slippageBps', slippage: 'slippageBps', gas: 'gasCostUsd',
 } as const;
 export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMN_KEYS;
