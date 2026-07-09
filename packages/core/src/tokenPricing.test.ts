@@ -252,4 +252,17 @@ describe('getEstimatedMidAtBlock', () => {
     const res = await getEstimatedMidAtBlock(readers, WARP, NATIVE, 100n, 1n);
     expect(res).toBeNull();
   });
+
+  it('returns null when the WETH/USDC anchor pool itself is below the liquidity floor', async () => {
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 0n }; // dead
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n };
+        return null;
+      },
+    });
+    const res = await getEstimatedMidAtBlock(readers, WARP, NATIVE, 100n, 1n);
+    expect(res).toBeNull();
+  });
 });

@@ -317,7 +317,7 @@ export async function getDeepestPoolWithDepth(
 }
 
 /**
- * Same discovery/ranking as `getDeepestPoolForPair` but returns only the pool
+ * Same discovery/ranking as `getDeepestPoolWithDepth` but returns only the pool
  * (back-compat for callers that don't need depth).
  */
 export async function getDeepestPoolForPair(

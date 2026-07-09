@@ -317,7 +317,7 @@ export async function getEstimatedMidAtBlock(
   minLiquidity: bigint,
 ): Promise<PairMidResult | null> {
   const anchor = await midViaDeepest(readers, WETH, USDC, blockNumber); // USDC per WETH
-  if (anchor === null || anchor.price <= 0) return null;
+  if (anchor === null || anchor.price <= 0 || anchor.depth < minLiquidity) return null;
   const wethUsd = anchor.price;
   const usdIn = await usdRef(readers, inputToken, blockNumber, wethUsd, minLiquidity);
   const usdOut = await usdRef(readers, outputToken, blockNumber, wethUsd, minLiquidity);
