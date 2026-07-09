@@ -120,7 +120,7 @@ export interface Receipt {
 	realizedPrice: number | null;
 	marketMid: number | null;
 	allInCostBps: number | null;
-	pricingStatus: 'full' | 'partial';
+	pricingStatus: 'full' | 'estimated' | 'partial';
 	executionBps: number | null;
 	lpFeeBps: number | null;
 	aggFeeBps: number | null;
