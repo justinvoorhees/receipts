@@ -163,3 +163,50 @@ describe('Receipt partial state', () => {
 		expect(html).toContain('Aggregator Fee');
 	});
 });
+
+describe('Receipt estimated pricing tier', () => {
+	const estimatedRow = {
+		...fullUsdcWethRow,
+		aggregator: 'fabric',
+		pricingStatus: 'estimated',
+		// best-effort mid + realized price present, but no oracle fields
+		realizedPrice: '0.00000068',
+		marketMid: '0.00000069',
+		allInCostBps: '14',
+		chainlinkPrice: null,
+		manipulationFlag: false,
+	};
+
+	it('renders Execution, Market, and Delta on an estimated receipt with a best-effort marker', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={estimatedRow as never} hash={estimatedRow.txHash} />,
+		);
+		// The three rows are present (not "Unavailable for this pair").
+		expect(html).toContain('Realized Execution Price');
+		expect(html).toContain('Market Price');
+		expect(html).toContain('Price Delta');
+		// Best-effort marker + honest tooltip, and NOT the oracle-validated copy.
+		expect(html).toContain('est.');
+		expect(html).toContain('not oracle-validated');
+		expect(html).not.toContain('cross-referenced against an on-chain price oracle');
+	});
+
+	it('shows Execution Price on a fully partial receipt but leaves Market/Delta unavailable', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const partialRow = {
+			...fullUsdcWethRow,
+			pricingStatus: 'partial',
+			realizedPrice: '0.00000068',
+			marketMid: null,
+			allInCostBps: null,
+		};
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		// Execution Price now renders (previously "Unavailable for this pair").
+		expect(html).toContain('Realized Execution Price');
+		// Market/Delta still unavailable — exactly one "Unavailable" per those 2 rows.
+		expect(html).toContain('Unavailable for this pair');
+	});
+});

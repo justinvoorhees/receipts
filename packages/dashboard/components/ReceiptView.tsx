@@ -261,6 +261,13 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 	// Partial receipts have no reference mid, so price/impact/slippage are null.
 	// Guard every numeric read against null instead of `Number(null) === 0`.
 	const isPartial = row.pricingStatus === 'partial';
+	const isEstimated = row.pricingStatus === 'estimated';
+	// Market Price / Price Delta render whenever a mid exists (full OR estimated).
+	const hasMarketPrice = row.marketMid != null;
+	const marketTooltip = isEstimated
+		? 'Best-effort reference from the deepest on-chain pool at block N-1; not oracle-validated.'
+		: 'Median of the traded pair’s reference pools at the trade’s block, cross-referenced against an on-chain price oracle';
+	const estMark = isEstimated ? <span className="ml-2 text-[var(--color-secondary)]">est.</span> : null;
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
@@ -343,17 +350,18 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 				</DetailRow>
 				<DetailRow
 					label="Realized Execution Price"
-					subvalue={isPartial ? undefined : formatSubvalueUsd(Number(row.realizedPrice))}
+					subvalue={row.realizedPrice == null ? undefined : formatSubvalueUsd(Number(row.realizedPrice))}
 				>
-					{isPartial ? UNAVAILABLE : formatExecutionPrice(row.realizedPrice, priceUnit)}
+					{row.realizedPrice == null ? UNAVAILABLE : formatExecutionPrice(row.realizedPrice, priceUnit)}
 				</DetailRow>
 				<DetailRow
 					label="Market Price"
-					tooltip="Median of the traded pair’s reference pools at the trade’s block, cross-referenced against an on-chain price oracle"
-					subvalue={isPartial ? undefined : formatSubvalueUsd(Number(row.marketMid))}
+					tooltip={marketTooltip}
+					subvalue={hasMarketPrice ? formatSubvalueUsd(Number(row.marketMid)) : undefined}
 				>
-					{isPartial ? UNAVAILABLE : formatExecutionPrice(row.marketMid, priceUnit)}
-					{!isPartial && row.manipulationFlag ? (
+					{hasMarketPrice ? formatExecutionPrice(row.marketMid, priceUnit) : UNAVAILABLE}
+					{hasMarketPrice ? estMark : null}
+					{hasMarketPrice && row.manipulationFlag ? (
 						<span
 							className="ml-2"
 							style={{ color: 'var(--color-yellow)' }}
@@ -365,9 +373,10 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 				</DetailRow>
 				<DetailRow
 					label="Price Delta"
-					subvalue={isPartial ? undefined : priceDeltaComparison(row.marketMid, row.realizedPrice)}
+					subvalue={hasMarketPrice ? priceDeltaComparison(row.marketMid, row.realizedPrice) : undefined}
 				>
-					{isPartial ? UNAVAILABLE : formatDelta(row.marketMid, row.realizedPrice)}
+					{hasMarketPrice ? formatDelta(row.marketMid, row.realizedPrice) : UNAVAILABLE}
+					{hasMarketPrice ? estMark : null}
 				</DetailRow>
 				<DetailRow label="Gas Cost">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
