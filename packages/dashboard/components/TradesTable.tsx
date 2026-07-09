@@ -553,15 +553,30 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 // Fabric revenue — label it neutrally instead of implying Fabric earned it.
 const FABRIC_AGGREGATOR_SLUG = 'fabric';
 const FABRIC_MAX_PROTOCOL_FEE_BPS = 10;
-// The integrator label for a forwarded Fabric fee. NOTE: this is an ASSUMPTION,
-// not on-chain-derived — "Farcaster" is hardcoded because it is currently the
-// only known Fabric integrator. The actual `feeRecipient` cannot be resolved to
-// a named integrator from chain data alone; once we persist `feeRecipient` per
-// receipt (schema split) this should map recipient → integrator name instead of
-// assuming Farcaster for every >10bps Fabric fee.
-const FABRIC_INTEGRATOR_FEE_LABEL = 'Integrator Fee (Farcaster)';
 
-function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | number | null }): string {
+// Known Fabric integrator fee-recipient addresses (lowercase) -> display name.
+// A forwarded Fabric fee (aggFeeBps > FABRIC_MAX_PROTOCOL_FEE_BPS) is definitionally
+// an integrator/partner's feeBps, not Fabric revenue (see cap above); the persisted
+// `feeRecipient` is the on-chain wallet that actually received it. This registry
+// names the integrator once we've positively identified their wallet. Add entries
+// here as more integrators are confirmed — do NOT assume a name for an unmapped
+// recipient.
+const INTEGRATOR_FEE_RECIPIENTS: Record<string, string> = {
+	// Farcaster/Warplet fee-collection wallet: a high-frequency EOA fed ~0.8%
+	// output-side fees by the Fabric router (WARP = the "Warplet" token; ~0.8%
+	// matches the Warpcast wallet swap fee).
+	'0x403560800cb7e03a06ebbc991dba0f6ac751a1c5': 'Farcaster',
+};
+
+// Resolves a persisted fee-recipient address to an "Integrator Fee (<Name>)" label
+// when the recipient is a known integrator, or a neutral "Integrator Fee" when the
+// recipient is missing or unrecognized. Never invents a name.
+function integratorFeeLabel(feeRecipient: string | null | undefined): string {
+	const name = feeRecipient ? INTEGRATOR_FEE_RECIPIENTS[feeRecipient.toLowerCase()] : undefined;
+	return name ? `Integrator Fee (${name})` : 'Integrator Fee';
+}
+
+function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | number | null; feeRecipient?: string | null }): string {
 	const provider = formatProvider(row.aggregator.toLowerCase());
 	const feeBps = Number(row.aggFeeBps ?? 0);
 	if (feeBps === 0) return provider;
@@ -571,7 +586,7 @@ function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | numbe
 		// <= 10bps: genuinely ambiguous from on-chain data alone — could be
 		// Fabric's surplus-share fee OR a small integrator fee. Use a neutral
 		// label rather than crediting either party without evidence.
-		return feeBps > FABRIC_MAX_PROTOCOL_FEE_BPS ? FABRIC_INTEGRATOR_FEE_LABEL : 'Router Fee';
+		return feeBps > FABRIC_MAX_PROTOCOL_FEE_BPS ? integratorFeeLabel(row.feeRecipient) : 'Router Fee';
 	}
 	return `${provider} Fee`;
 }
@@ -598,14 +613,21 @@ export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps
 	const tagged = vaults[row.aggregator.toLowerCase()];
 	if (tagged) return tagged;
 	const label = aggregatorFeeLabel(row);
-	if (label === FABRIC_INTEGRATOR_FEE_LABEL) {
+	const isFabricIntegratorFee =
+		row.aggregator.toLowerCase() === FABRIC_AGGREGATOR_SLUG &&
+		Number(row.aggFeeBps ?? 0) > FABRIC_MAX_PROTOCOL_FEE_BPS;
+	if (isFabricIntegratorFee) {
+		const knownIntegrator = row.feeRecipient
+			? INTEGRATOR_FEE_RECIPIENTS[row.feeRecipient.toLowerCase()]
+			: undefined;
 		return {
 			label,
 			// Link to the persisted feeRecipient (the integrator's fee wallet) when available.
 			href: row.feeRecipient ? `https://basescan.org/address/${row.feeRecipient}` : undefined,
 			tooltip:
 				'Fabric’s own protocol fee is 0bps by default (max 10bps, surplus-sharing only). ' +
-				'A fee this size is an integrator’s feeBps, forwarded by the Fabric router to their feeRecipient — not Fabric revenue.',
+				'A fee this size is an integrator’s feeBps, forwarded by the Fabric router to their feeRecipient — not Fabric revenue.' +
+				(knownIntegrator ? '' : ' The specific integrator has not been identified.'),
 		};
 	}
 	if (label === 'Router Fee') {

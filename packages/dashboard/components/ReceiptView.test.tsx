@@ -100,6 +100,9 @@ describe('Receipt Fabric partner-fee attribution', () => {
 		...fullUsdcWethRow,
 		aggregator: 'Fabric',
 		aggFeeBps: '80',
+		// Farcaster/Warplet's known fee-collection wallet — resolved to a display
+		// name via the INTEGRATOR_FEE_RECIPIENTS registry in TradesTable.tsx.
+		feeRecipient: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5',
 	};
 
 	it('does not render "Fabric Fee" for a large Fabric-routed integrator fee', async () => {
@@ -108,6 +111,23 @@ describe('Receipt Fabric partner-fee attribution', () => {
 			<ReceiptView trade={fabricPartnerRow as never} hash={fabricPartnerRow.txHash} />,
 		);
 		expect(html).toContain('Integrator Fee (Farcaster)');
+		expect(html).not.toContain('Fabric Fee');
+		expect(html).toContain('not Fabric revenue');
+	});
+
+	it('labels an unrecognized Fabric-routed integrator fee neutrally, without inventing a name', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const unknownIntegratorRow = {
+			...fullUsdcWethRow,
+			aggregator: 'Fabric',
+			aggFeeBps: '80',
+			feeRecipient: '0x00000000000000000000000000000000000bad',
+		};
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={unknownIntegratorRow as never} hash={unknownIntegratorRow.txHash} />,
+		);
+		expect(html).toContain('Integrator Fee');
+		expect(html).not.toContain('Farcaster');
 		expect(html).not.toContain('Fabric Fee');
 		expect(html).toContain('not Fabric revenue');
 	});
