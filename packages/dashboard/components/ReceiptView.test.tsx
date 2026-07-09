@@ -190,6 +190,7 @@ describe('Receipt estimated pricing tier', () => {
 		expect(html).toContain('est.');
 		expect(html).toContain('not oracle-validated');
 		expect(html).not.toContain('cross-referenced against an on-chain price oracle');
+		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(0);
 	});
 
 	it('shows Execution Price on a fully partial receipt but leaves Market/Delta unavailable', async () => {
@@ -206,7 +207,7 @@ describe('Receipt estimated pricing tier', () => {
 		);
 		// Execution Price now renders (previously "Unavailable for this pair").
 		expect(html).toContain('Realized Execution Price');
-		// Market/Delta still unavailable — exactly one "Unavailable" per those 2 rows.
-		expect(html).toContain('Unavailable for this pair');
+		// Execution Price renders (realizedPrice present); only Market + Delta are unavailable.
+		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(2);
 	});
 });
