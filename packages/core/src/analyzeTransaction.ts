@@ -199,6 +199,9 @@ export async function analyzeTransaction(
 			outputAmountRaw: endpoints.outputAmountRaw,
 		});
 		const isFull = pricing.status === 'full';
+		// A market mid exists on both the oracle-validated (full) and best-effort
+		// (estimated) tiers; the Execution/Market/Delta rows key off THIS, not isFull.
+		const priced = pricing.marketMid != null;
 
 		// Human amounts (decimals from pricing) and realized output-per-input price.
 		const inputAmount = Number(endpoints.inputAmountRaw) / 10 ** pricing.inputDecimals;
@@ -209,7 +212,7 @@ export async function analyzeTransaction(
 		// output-per-input convention: (mid − realized)/mid. Positive = cost.
 		const marketMid = pricing.marketMid; // output-per-input, or null when partial
 		const allInCostBps =
-			isFull && marketMid != null && marketMid > 0 && realizedPrice != null
+			marketMid != null && marketMid > 0 && realizedPrice != null
 				? signedDeviationBps('sell_weth', marketMid, realizedPrice)
 				: null;
 
@@ -301,13 +304,15 @@ export async function analyzeTransaction(
 			inputAmount,
 			outputAmount,
 			notionalUsd,
-			// Mid-derived fields are null on a partial (LP + Agg still valid below).
-			// Stored in the display convention (USD-per-base) — NOT the raw
-			// output-per-input used for the cost math above — so buy-side receipts
-			// (USDC→WETH) show USD-per-WETH like seed rows instead of a tiny inverse.
-			realizedPrice: isFull ? toDisplayPrice(realizedPrice, baseIsOutput) : null,
-			marketMid: isFull ? toDisplayPrice(marketMid, baseIsOutput) : null,
-			allInCostBps: isFull ? allInCostBps : null,
+			// marketMid/allInCostBps are null when no mid exists (partial tier only —
+			// LP + Agg fields still valid below). realizedPrice is always populated
+			// when inputAmount > 0. Stored in the display convention (USD-per-base) —
+			// NOT the raw output-per-input used for the cost math above — so buy-side
+			// receipts (USDC→WETH) show USD-per-WETH like seed rows instead of a tiny
+			// inverse.
+			realizedPrice: toDisplayPrice(realizedPrice, baseIsOutput),
+			marketMid: priced ? toDisplayPrice(marketMid, baseIsOutput) : null,
+			allInCostBps,
 			pricingStatus: pricing.status,
 			executionBps: isFull ? route.executionBps : null,
 			lpFeeBps: route.lpFeeBps,
