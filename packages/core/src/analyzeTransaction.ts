@@ -32,6 +32,37 @@ import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSigna
 const WETH = '0x4200000000000000000000000000000000000006';
 const NATIVE = 'native';
 
+/** Aggregator slug for Fabric's own router. */
+const FABRIC_AGGREGATOR_SLUG = 'fabric';
+/** Fabric's own protocol fee is 0 bps by default and capped at 10 bps (surplus
+ *  sharing only — docs.withfabric.xyz/apis/quotes/fees). A fee above this cap
+ *  routed through the Fabric router is definitionally an integrator's forwarded
+ *  `feeBps`, not Fabric revenue. */
+const FABRIC_MAX_PROTOCOL_FEE_BPS = 10;
+
+/**
+ * Split a Fabric-routed trade's total retained fee into integrator vs Fabric
+ * attribution. Only meaningful for the `fabric` aggregator; other aggregators
+ * return nulls (their fee model differs and is presented under their own label).
+ *
+ *  - fee > 10 bps  → integrator's forwarded feeBps; Fabric earned 0.
+ *  - fee 0–10 bps  → ambiguous on-chain (Fabric surplus-share vs a small
+ *                    integrator fee) → both null (don't attribute without proof).
+ *  - fee = 0 / null → both null.
+ */
+export function splitFabricFee(
+	aggregatorSlug: string,
+	aggFeeBps: number | null,
+): { integratorFeeBps: number | null; fabricFeeBps: number | null } {
+	if (aggregatorSlug.toLowerCase() !== FABRIC_AGGREGATOR_SLUG) {
+		return { integratorFeeBps: null, fabricFeeBps: null };
+	}
+	if (aggFeeBps != null && aggFeeBps > FABRIC_MAX_PROTOCOL_FEE_BPS) {
+		return { integratorFeeBps: aggFeeBps, fabricFeeBps: 0 };
+	}
+	return { integratorFeeBps: null, fabricFeeBps: null };
+}
+
 /** Stablecoins that anchor a receipt directly to USD (~$1), mirroring pricing.ts. */
 const STABLECOINS: ReadonlySet<string> = new Set([
 	'0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC
@@ -101,6 +132,10 @@ export interface Receipt {
 	routeLegs: unknown[] | null;
 	reconResidualBps: number | null;
 	decompConfidence: string | null;
+	feeRecipient: string | null;
+	feeSinkSource: string | null;
+	integratorFeeBps: number | null;
+	fabricFeeBps: number | null;
 	settlementEventName: string | null;
 	settlementEventTopic0: string | null;
 	settlementEventSeen: boolean;
@@ -285,6 +320,9 @@ export async function analyzeTransaction(
 			routeLegs,
 			reconResidualBps: isFull ? route.reconResidualBps : null,
 			decompConfidence: route.confidence,
+			feeRecipient: route.feeRecipient,
+			feeSinkSource: route.feeSinkSource,
+			...splitFabricFee(aggSlug, route.aggFeeBps),
 			settlementEventName: sig?.eventName ?? null,
 			settlementEventTopic0: sig?.eventTopic0 ?? null,
 			settlementEventSeen,

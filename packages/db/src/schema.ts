@@ -56,6 +56,16 @@ export const receipts = pgTable(
 		routeLegs: jsonb('route_legs'),
 		reconResidualBps: numeric('recon_residual_bps'),
 		decompConfidence: text('decomp_confidence'),
+		// fee attribution (nullable). `aggFeeBps` is the total retained fee; these
+		// split/identify it. `feeRecipient` is the dominant fee-sink address and
+		// `feeSinkSource` how it was detected ('vault_map' | 'retained_balance').
+		// For a Fabric-routed trade, a fee > Fabric's 10bps protocol-fee cap is an
+		// integrator's forwarded feeBps: `integratorFeeBps` = the fee, `fabricFeeBps`
+		// = 0. A fee <= 10bps is ambiguous on-chain → both left null.
+		feeRecipient: text('fee_recipient'),
+		feeSinkSource: text('fee_sink_source'),
+		integratorFeeBps: numeric('integrator_fee_bps'),
+		fabricFeeBps: numeric('fabric_fee_bps'),
 		// tagging / provenance
 		settlementEventName: text('settlement_event_name'),
 		settlementEventTopic0: text('settlement_event_topic0'),

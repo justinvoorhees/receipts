@@ -27,6 +27,8 @@ import type { Leg } from './routeGraph.js';
 
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH = '0x4200000000000000000000000000000000000006';
+/** Synthetic endpoint for native ETH (mirrors `NATIVE` in pricing.ts / endpoints.ts). */
+const NATIVE = 'native';
 
 /** Known decimals — avoid RPC for common tokens. */
 const KNOWN_DECIMALS: ReadonlyMap<string, number> = new Map([
@@ -252,9 +254,10 @@ export async function getPairMidAtBlock(
  *
  * Priority:
  *   1. If token IS USDC → direct conversion (amountRaw / 10^6)
- *   2. If token IS WETH → getPairMidAtBlock(WETH, USDC, block) × amount
- *   3. token/USDC direct pair
- *   4. token/WETH × WETH/USDC (two-hop)
+ *   2. If token IS native ETH → 1:1 with WETH, via WETH/USDC × amount
+ *   3. If token IS WETH → getPairMidAtBlock(WETH, USDC, block) × amount
+ *   4. token/USDC direct pair
+ *   5. token/WETH × WETH/USDC (two-hop)
  *
  * Returns the USDC value or null if pricing fails.
  */
@@ -271,6 +274,18 @@ export async function getTokenUsdcValue(
   // Direct USDC
   if (tokenLc === USDC) {
     return Number(amountRaw) / 1e6;
+  }
+
+  // Native ETH: a synthetic endpoint with no contract to read `decimals()` from
+  // and no pool of its own. It is 1:1 with WETH (18 decimals), so value it via
+  // the WETH/USDC reference. This MUST run before the `decimalsOf` read below,
+  // which would revert on the "native" pseudo-address.
+  if (tokenLc === NATIVE) {
+    const humanEth = Number(amountRaw) / 1e18;
+    if (precomputedWethUsd != null) return humanEth * precomputedWethUsd;
+    const mid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
+    if (mid === null) return null;
+    return humanEth * mid.price;
   }
 
   const tokenDec = await decimalsOf(tokenLc);

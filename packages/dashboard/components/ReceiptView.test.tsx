@@ -92,6 +92,47 @@ describe('Receipt header', () => {
 	});
 });
 
+describe('Receipt Fabric partner-fee attribution', () => {
+	// A Fabric-routed swap where an integrator/partner feeBps (80bps here) is
+	// forwarded through the Fabric router. Fabric's own fee caps at 10bps, so the
+	// receipt must NOT present this as a "Fabric Fee".
+	const fabricPartnerRow = {
+		...fullUsdcWethRow,
+		aggregator: 'Fabric',
+		aggFeeBps: '80',
+		// Farcaster/Warplet's known fee-collection wallet — resolved to a display
+		// name via the INTEGRATOR_FEE_RECIPIENTS registry in TradesTable.tsx.
+		feeRecipient: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5',
+	};
+
+	it('does not render "Fabric Fee" for a large Fabric-routed integrator fee', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={fabricPartnerRow as never} hash={fabricPartnerRow.txHash} />,
+		);
+		expect(html).toContain('Integrator Fee (Farcaster)');
+		expect(html).not.toContain('Fabric Fee');
+		expect(html).toContain('not Fabric revenue');
+	});
+
+	it('labels an unrecognized Fabric-routed integrator fee neutrally, without inventing a name', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const unknownIntegratorRow = {
+			...fullUsdcWethRow,
+			aggregator: 'Fabric',
+			aggFeeBps: '80',
+			feeRecipient: '0x00000000000000000000000000000000000bad',
+		};
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={unknownIntegratorRow as never} hash={unknownIntegratorRow.txHash} />,
+		);
+		expect(html).toContain('Integrator Fee');
+		expect(html).not.toContain('Farcaster');
+		expect(html).not.toContain('Fabric Fee');
+		expect(html).toContain('not Fabric revenue');
+	});
+});
+
 describe('Receipt partial state', () => {
 	const partialRow = {
 		txHash: '0xabcabcabcabcabcabcabcabcabcabcabcabcabcd',

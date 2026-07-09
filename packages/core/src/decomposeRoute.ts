@@ -93,6 +93,10 @@ export interface RouteDecomposeResult {
 	reconResidualBps: number | null;
 	confidence: 'high' | 'medium' | 'low';
 	flags: string[];
+	/** Dominant fee-sink address (max retained value) that `aggFeeBps` is attributed to, or null when no fee sink was detected. */
+	feeRecipient: string | null;
+	/** How the dominant fee sink was detected: 'vault_map' | 'retained_balance', or null. */
+	feeSinkSource: string | null;
 }
 
 /** Injectable dependencies for testing without live RPC. */
@@ -528,6 +532,15 @@ export async function decomposeRoute(
 	// Step 1: Get base decomposition from decomposeTrade (reuse agg fee, gas, flags)
 	const base = await decomposeTrade(input);
 
+	// Identify the dominant fee sink (largest retained value) that `aggFeeBps` is
+	// attributed to, so the receipt can record WHO received the fee, not just how
+	// much. Null when no fee sink was detected.
+	const dominantSink = base.feeSinks.length > 0
+		? base.feeSinks.reduce((max, s) => (s.totalUsdc > max.totalUsdc ? s : max))
+		: null;
+	const feeRecipient = dominantSink?.address ?? null;
+	const feeSinkSource = dominantSink?.source ?? null;
+
 	// Step 2: Get trace (injected or from input)
 	const trace = (deps?.trace ?? input.trace) as TraceNode;
 
@@ -726,6 +739,8 @@ export async function decomposeRoute(
 			reconResidualBps,
 			confidence,
 			flags: [...base.flags, ...routeFlags],
+			feeRecipient,
+			feeSinkSource,
 		};
 	}
 
@@ -746,5 +761,7 @@ export async function decomposeRoute(
 		reconResidualBps: null,
 		confidence: 'low',
 		flags: [...base.flags, ...routeFlags],
+		feeRecipient,
+		feeSinkSource,
 	};
 }
