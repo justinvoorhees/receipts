@@ -21,6 +21,7 @@ function makeDeps(over: Partial<PricingDeps> = {}): PricingDeps {
       throw new Error('benchmark not stubbed');
     },
     getPairMid: async () => null,
+    getEstimatedMid: async () => null,
     getUsdValue: async () => null,
     readDecimals: async () => 18,
     readSymbol: async () => 'TKN',
@@ -244,6 +245,44 @@ describe('priceReceipt', () => {
       }),
     );
     expect(r.outputSymbol).toBe('ETH');
+  });
+
+  it('returns estimated when no full mid exists but a bridged mid is available', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({
+        getPairMid: async () => null, // no direct pool → not full
+        getEstimatedMid: async () => ({ price: 0.0005, poolAddress: 'bridged', poolKind: 'estimated' }),
+        getUsdValue: async () => 135, // best-effort notional from the anchored side
+      }),
+    );
+    expect(r.status).toBe('estimated');
+    expect(r.marketMid).toBeCloseTo(0.0005, 9);
+    expect(r.notionalUsd).toBe(135);
+    // oracle-validation fields stay null on the estimated tier
+    expect(r.chainlinkPrice).toBeNull();
+  });
+
+  it('stays partial when neither a full nor a bridged mid is available', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({ getPairMid: async () => null, getEstimatedMid: async () => null }),
+    );
+    expect(r.status).toBe('partial');
+    expect(r.marketMid).toBeNull();
+  });
+
+  it('prefers full over estimated when a direct anchored mid exists', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: USDC },
+      makeDeps({
+        getPairMid: async () => ({ price: 0.5, poolAddress: '0xpool', poolKind: 'univ3' }),
+        getEstimatedMid: async () => ({ price: 999, poolAddress: 'bridged', poolKind: 'estimated' }),
+        getUsdValue: async () => 500,
+      }),
+    );
+    expect(r.status).toBe('full');
+    expect(r.marketMid).toBeCloseTo(0.5, 9);
   });
 });
 

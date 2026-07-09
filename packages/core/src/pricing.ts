@@ -27,11 +27,13 @@
 import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 import { getBenchmarkMid, type BenchmarkResult } from './benchmarkPrice.js';
-import { getDeepestPoolForPair, readSlot0 } from './poolDiscovery.js';
+import { getDeepestPoolForPair, getDeepestPoolWithDepth, readSlot0 } from './poolDiscovery.js';
 import {
   makeRpcDecimalsCache,
   sqrtPriceX96ToPrice,
   getTokenUsdcValue,
+  getEstimatedMidAtBlock,
+  ESTIMATED_MID_MIN_LIQUIDITY,
   type PairMidResult,
 } from './tokenPricing.js';
 
@@ -81,7 +83,7 @@ const isUsdcWethPair = (input: string, output: string): boolean => {
 // ── Result interface ─────────────────────────────────────────────────────────
 
 export interface PricingResult {
-  status: 'full' | 'partial';
+  status: 'full' | 'estimated' | 'partial';
   /** Output-per-input mid at block N-1; null when partial. */
   marketMid: number | null;
   notionalUsd: number | null;
@@ -106,6 +108,8 @@ export interface PricingDeps {
   benchmark: (args: { rpcUrl: string; blockNumber: bigint }) => Promise<BenchmarkResult>;
   /** Deepest-pool mid: output(tokenOut)-per-input(tokenIn) at `blockNumber`. */
   getPairMid: (tokenIn: string, tokenOut: string, blockNumber: bigint) => Promise<PairMidResult | null>;
+  /** Best-effort bridged mid (output-per-input) for illiquid pairs, or null. */
+  getEstimatedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<PairMidResult | null>;
   /** Best-effort USD value of `amountRaw` of `token` at `blockNumber`. */
   getUsdValue: (
     token: string,
@@ -207,6 +211,21 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
   return {
     benchmark: getBenchmarkMid,
     getPairMid: (tokenIn, tokenOut, blockNumber) => defaultGetPairMid(poolReaders, tokenIn, tokenOut, blockNumber),
+    getEstimatedMid: (inputToken, outputToken, blockNumber) =>
+      getEstimatedMidAtBlock(
+        {
+          getDeepestPoolWithDepth: async (a, b, block) => {
+            const best = await getDeepestPoolWithDepth(client, a, b, block);
+            return best ? { address: best.pool.address, depth: best.depth } : null;
+          },
+          readSlot0: (pool, block) => readSlot0(client, pool as `0x${string}`, block),
+          readDecimals: decCache,
+        },
+        inputToken,
+        outputToken,
+        blockNumber,
+        ESTIMATED_MID_MIN_LIQUIDITY,
+      ),
     getUsdValue: (token, amountRaw, blockNumber, precomputedWethUsd) =>
       getTokenUsdcValue(client, token, amountRaw, blockNumber, decCache, precomputedWethUsd),
     readDecimals: decCache,
@@ -335,6 +354,30 @@ export async function priceReceipt(
       return {
         status: 'full',
         marketMid: mid.price,
+        notionalUsd,
+        inputSymbol,
+        outputSymbol,
+        inputDecimals,
+        outputDecimals,
+        chainlinkPrice: null,
+        poolDivergenceBps: null,
+        manipulationFlag: false,
+        chainlinkDevBps: null,
+        offchainPrice: null,
+        offchainDevBps: null,
+        chainlinkStalenessSecs: null,
+      };
+    }
+
+    // ── Branch 2.5: best-effort estimated mid (illiquid/multi-hop pair) ──
+    // No direct anchored pool, but we can bridge each side through its deepest
+    // token/WETH pool above the liquidity floor. Best-effort, not oracle-validated.
+    const estMid = await deps.getEstimatedMid(inputToken, outputToken, refBlock);
+    if (estMid !== null && estMid.price > 0) {
+      const notionalUsd = await bestEffortNotional(deps, args, refBlock);
+      return {
+        status: 'estimated',
+        marketMid: estMid.price,
         notionalUsd,
         inputSymbol,
         outputSymbol,
