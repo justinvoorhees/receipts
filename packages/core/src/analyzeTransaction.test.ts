@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
-import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice } from './analyzeTransaction.js';
+import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice, splitFabricFee } from './analyzeTransaction.js';
 
 const RPC = process.env.TCA_RPC_URL;
 
@@ -28,6 +28,27 @@ describe('baseIsOutputLeg', () => {
 	it('defaults to no inversion when both legs anchor equally (USDC↔DAI)', () => {
 		expect(baseIsOutputLeg(USDC, DAI)).toBe(false);
 		expect(baseIsOutputLeg(DAI, USDC)).toBe(false);
+	});
+});
+
+describe('splitFabricFee', () => {
+	it('attributes a >10bps Fabric-routed fee entirely to the integrator (Fabric earned 0)', () => {
+		// The WARP->ETH regression: 80.64 bps forwarded to a partner feeRecipient.
+		expect(splitFabricFee('fabric', 80.64)).toEqual({ integratorFeeBps: 80.64, fabricFeeBps: 0 });
+	});
+	it('leaves a <=10bps Fabric fee unattributed (ambiguous: Fabric surplus vs small integrator fee)', () => {
+		expect(splitFabricFee('fabric', 8)).toEqual({ integratorFeeBps: null, fabricFeeBps: null });
+		expect(splitFabricFee('fabric', 10)).toEqual({ integratorFeeBps: null, fabricFeeBps: null });
+	});
+	it('returns nulls for a zero/null fee', () => {
+		expect(splitFabricFee('fabric', 0)).toEqual({ integratorFeeBps: null, fabricFeeBps: null });
+		expect(splitFabricFee('fabric', null)).toEqual({ integratorFeeBps: null, fabricFeeBps: null });
+	});
+	it('does not attempt a split for non-Fabric aggregators (different fee model)', () => {
+		expect(splitFabricFee('odos', 80)).toEqual({ integratorFeeBps: null, fabricFeeBps: null });
+	});
+	it('is case-insensitive on the aggregator slug', () => {
+		expect(splitFabricFee('Fabric', 50)).toEqual({ integratorFeeBps: 50, fabricFeeBps: 0 });
 	});
 });
 

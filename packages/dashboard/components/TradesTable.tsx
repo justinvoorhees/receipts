@@ -576,7 +576,7 @@ function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | numbe
 	return `${provider} Fee`;
 }
 
-export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps: string | number | null }): {
+export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps: string | number | null; feeRecipient?: string | null }): {
 	label: string;
 	href?: string | undefined;
 	tooltip?: string | undefined;
@@ -601,6 +601,8 @@ export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps
 	if (label === FABRIC_INTEGRATOR_FEE_LABEL) {
 		return {
 			label,
+			// Link to the persisted feeRecipient (the integrator's fee wallet) when available.
+			href: row.feeRecipient ? `https://basescan.org/address/${row.feeRecipient}` : undefined,
 			tooltip:
 				'Fabric’s own protocol fee is 0bps by default (max 10bps, surplus-sharing only). ' +
 				'A fee this size is an integrator’s feeBps, forwarded by the Fabric router to their feeRecipient — not Fabric revenue.',

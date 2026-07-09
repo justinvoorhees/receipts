@@ -395,10 +395,16 @@ describe('TradesTable', () => {
 		// Fabric is necessarily a partner/integrator's feeBps, not Fabric revenue.
 		const { getAggregatorFeeAttribution } = await import('./TradesTable');
 
-		const result = getAggregatorFeeAttribution({ aggregator: 'Fabric', aggFeeBps: 11.58 } as never);
+		const result = getAggregatorFeeAttribution({
+			aggregator: 'Fabric',
+			aggFeeBps: 11.58,
+			feeRecipient: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5',
+		} as never);
 		expect(result.label).toBe('Integrator Fee (Farcaster)');
 		expect(result.label).not.toMatch(/^Fabric Fee$/);
 		expect(result.tooltip).toMatch(/not Fabric revenue/);
+		// Links to the persisted integrator fee wallet.
+		expect(result.href).toBe('https://basescan.org/address/0x403560800cb7e03a06ebbc991dba0f6ac751a1c5');
 	});
 
 	it('labels a small Fabric-router fee neutrally (cannot distinguish Fabric surplus-share from a small partner fee)', async () => {
