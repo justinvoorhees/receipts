@@ -30,6 +30,15 @@ const WETH = '0x4200000000000000000000000000000000000006';
 /** Synthetic endpoint for native ETH (mirrors `NATIVE` in pricing.ts / endpoints.ts). */
 const NATIVE = 'native';
 
+/**
+ * Liquidity floor for the best-effort ("estimated") market mid. The deepest
+ * `token/WETH` pool backing a volatile side must clear this in-range
+ * `liquidity()` depth, else we refuse to quote a mid (tier stays `partial`).
+ * A depth of 0 (dead pool) is always rejected. Conservative default — tune up
+ * as we learn what depth is "trustworthy enough" for a given token.
+ */
+export const ESTIMATED_MID_MIN_LIQUIDITY = 1n;
+
 /** Known decimals — avoid RPC for common tokens. */
 const KNOWN_DECIMALS: ReadonlyMap<string, number> = new Map([
   [USDC, 6],
@@ -247,6 +256,73 @@ export async function getPairMidAtBlock(
   }
 
   return null;
+}
+
+export interface EstimatedMidReaders {
+  getDeepestPoolWithDepth: (a: string, b: string, block: bigint) => Promise<{ address: string; depth: bigint } | null>;
+  readSlot0: (pool: string, block: bigint) => Promise<bigint | null>;
+  readDecimals: (addr: string) => Promise<number>;
+}
+
+/** WETH-per-token (or USDC-per-WETH for the anchor) via the deepest pool, no floor. */
+async function midViaDeepest(
+  readers: EstimatedMidReaders,
+  tokenA: string,
+  tokenB: string,
+  block: bigint,
+): Promise<{ price: number; depth: bigint } | null> {
+  const disc = await readers.getDeepestPoolWithDepth(tokenA, tokenB, block);
+  if (!disc) return null;
+  const sqrt = await readers.readSlot0(disc.address, block);
+  if (sqrt === null || sqrt <= 0n) return null;
+  const inverted = tokenA.toLowerCase() > tokenB.toLowerCase();
+  const token0 = inverted ? tokenB : tokenA;
+  const token1 = inverted ? tokenA : tokenB;
+  const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
+  const raw = sqrtPriceX96ToPrice(sqrt, dec0, dec1); // token1 per token0
+  const price = inverted ? (raw > 0 ? 1 / raw : 0) : raw; // tokenB per tokenA
+  return { price, depth: disc.depth };
+}
+
+/** USD value of one unit of `token`, floor-gated for volatile tokens. */
+async function usdRef(
+  readers: EstimatedMidReaders,
+  token: string,
+  block: bigint,
+  wethUsd: number,
+  minLiquidity: bigint,
+): Promise<number | null> {
+  const t = token.toLowerCase();
+  if (t === USDC) return 1;
+  if (t === NATIVE || t === WETH) return wethUsd;
+  // Volatile: price via the floor-gated deepest token/WETH pool. NEVER the
+  // direct token/USDC pool (dead-pool trap).
+  const m = await midViaDeepest(readers, t, WETH, block); // WETH per token
+  if (m === null || m.depth < minLiquidity || m.price <= 0) return null;
+  return m.price * wethUsd;
+}
+
+/**
+ * Best-effort ("estimated") output-per-input market mid for a pair whose direct
+ * pool is illiquid/absent. Prices each side independently through its deepest
+ * `token/WETH` pool (Approach A) and returns the ratio. Returns null when either
+ * side can't be priced above the liquidity floor. NEVER the direct token/USDC
+ * pool. Reference block is the caller's (already N-1).
+ */
+export async function getEstimatedMidAtBlock(
+  readers: EstimatedMidReaders,
+  inputToken: string,
+  outputToken: string,
+  blockNumber: bigint,
+  minLiquidity: bigint,
+): Promise<PairMidResult | null> {
+  const anchor = await midViaDeepest(readers, WETH, USDC, blockNumber); // USDC per WETH
+  if (anchor === null || anchor.price <= 0) return null;
+  const wethUsd = anchor.price;
+  const usdIn = await usdRef(readers, inputToken, blockNumber, wethUsd, minLiquidity);
+  const usdOut = await usdRef(readers, outputToken, blockNumber, wethUsd, minLiquidity);
+  if (usdIn === null || usdOut === null || usdOut <= 0) return null;
+  return { price: usdIn / usdOut, poolAddress: 'bridged', poolKind: 'estimated' };
 }
 
 /**
