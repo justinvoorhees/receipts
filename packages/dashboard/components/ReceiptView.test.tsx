@@ -164,6 +164,34 @@ describe('Receipt partial state', () => {
 	});
 });
 
+describe('Receipt USD-per-base display for ETH/WETH-quoted pairs', () => {
+	it('renders ETH-quoted estimated prices in USD-per-base, not ETH-per-base', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const { formatExecutionPrice } = await import('./TradesTable');
+		const row = {
+			...fullUsdcWethRow,
+			aggregator: 'fabric', pricingStatus: 'estimated',
+			inputSymbol: 'WARP', outputSymbol: 'ETH',
+			inputToken: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', outputToken: 'native',
+			inputAmount: '202116011.45', outputAmount: '0.0778', notionalUsd: '134.96',
+			realizedPrice: '0.000000000385', marketMid: '0.000000000394', allInCostBps: '221',
+			chainlinkPrice: null, manipulationFlag: false,
+		};
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		const execUsd = 134.96 / 202116011.45;
+		expect(html).toContain(formatExecutionPrice(execUsd, 'WARP')); // USD-per-WARP, base = WARP
+		expect(html).not.toContain('= 1 ETH');
+		expect(html).not.toContain(formatExecutionPrice(0.000000000385, 'WARP')); // not the ETH figure
+	});
+
+	it('leaves stablecoin-quoted (USDC/WETH) price rows unchanged', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const { formatExecutionPrice } = await import('./TradesTable');
+		const html = renderToStaticMarkup(<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />);
+		expect(html).toContain(formatExecutionPrice('3000', 'WETH'));
+	});
+});
+
 describe('Receipt estimated pricing tier', () => {
 	const estimatedRow = {
 		...fullUsdcWethRow,
