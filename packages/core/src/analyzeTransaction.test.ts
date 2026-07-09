@@ -95,4 +95,19 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		const r = await analyzeTransaction('0x' + '00'.repeat(32), 8453, { rpcUrl: RPC! });
 		expect(r).toBeNull();
 	}, 60_000);
+
+	it('prices the WARP->ETH tx on the estimated tier (bridged mid + execution + delta)', async () => {
+		const r = await analyzeTransaction(
+			'0xa21e4d82b961726614ce6f310e30e29a4b55b8eca1d6a46621c3adaf8edf6ab1',
+			8453,
+			{ rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+		expect(r!.pricingStatus).toBe('estimated');
+		expect(r!.realizedPrice).not.toBeNull(); // execution price now populated
+		expect(r!.marketMid).not.toBeNull(); // bridged via WARP/WETH
+		expect(r!.allInCostBps).not.toBeNull(); // price delta follows
+		// Oracle fields stay null on the estimated tier.
+		expect(r!.chainlinkPrice).toBeNull();
+	}, 30_000);
 });

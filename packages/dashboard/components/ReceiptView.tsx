@@ -73,6 +73,39 @@ function priceUnitSymbol(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol' | 
 	return row.outputSymbol;
 }
 
+const STABLE_SYMBOLS = new Set(['USDC', 'USDbC', 'DAI']);
+const ETH_SYMBOLS = new Set(['WETH', 'ETH']);
+
+/**
+ * For an ETH/WETH-quoted pair (one leg is WETH/native ETH, neither leg a
+ * stablecoin), the stored realizedPrice/marketMid are ETH-per-base, not USD.
+ * Re-express the price rows in USD-per-base from stored fields. Returns null for
+ * stablecoin-quoted or unpriceable receipts (caller keeps the existing path).
+ */
+function usdPerBasePrices(row: Pick<ReceiptRow,
+	'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' |
+	'realizedPrice' | 'marketMid' | 'notionalUsd'>
+): { baseSymbol: string; execUsd: number; marketUsd: number | null } | null {
+	const inSym = row.inputSymbol;
+	const outSym = row.outputSymbol;
+	if (STABLE_SYMBOLS.has(inSym) || STABLE_SYMBOLS.has(outSym)) return null; // stable-quoted → already USD
+	const inIsEth = ETH_SYMBOLS.has(inSym);
+	const outIsEth = ETH_SYMBOLS.has(outSym);
+	if (inIsEth === outIsEth) return null; // need exactly one ETH leg; the OTHER is base
+	const baseSymbol = inIsEth ? outSym : inSym;
+	const baseAmount = Number(inIsEth ? row.outputAmount : row.inputAmount);
+	const notional = row.notionalUsd == null ? null : Number(row.notionalUsd);
+	const rp = row.realizedPrice == null ? null : Number(row.realizedPrice);
+	const mm = row.marketMid == null ? null : Number(row.marketMid);
+	if (notional == null || !Number.isFinite(notional) || !(baseAmount > 0)) return null;
+	const execUsd = notional / baseAmount;
+	const marketUsd =
+		rp != null && mm != null && Number.isFinite(rp) && Number.isFinite(mm) && rp !== 0
+			? execUsd * (mm / rp)
+			: null;
+	return { baseSymbol, execUsd, marketUsd };
+}
+
 const UNAVAILABLE = 'Unavailable for this pair';
 
 function Divider({ dashed = false, color }: { dashed?: boolean; color?: string }) {
@@ -261,6 +294,13 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 	// Partial receipts have no reference mid, so price/impact/slippage are null.
 	// Guard every numeric read against null instead of `Number(null) === 0`.
 	const isPartial = row.pricingStatus === 'partial';
+	const isEstimated = row.pricingStatus === 'estimated';
+	// Market Price / Price Delta render whenever a mid exists (full OR estimated).
+	const hasMarketPrice = row.marketMid != null;
+	const marketTooltip = isEstimated
+		? 'Best-effort reference from the deepest on-chain pool at block N-1; not oracle-validated.'
+		: 'Median of the traded pair’s reference pools at the trade’s block, cross-referenced against an on-chain price oracle';
+	const estMark = isEstimated ? <span className="ml-2 text-[var(--color-secondary)]">est.</span> : null;
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
@@ -270,6 +310,7 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 	const priceImpactRows = getPriceImpactRows(legs);
 	const pairTitle = receiptPairTitle(row);
 	const priceUnit = priceUnitSymbol(row);
+	const usdPrices = usdPerBasePrices(row);
 	const notionalSubvalue = formatSubvalueUsd(row.notionalUsd != null ? Number(row.notionalUsd) : NaN);
 
 	return (
@@ -343,17 +384,38 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 				</DetailRow>
 				<DetailRow
 					label="Realized Execution Price"
-					subvalue={isPartial ? undefined : formatSubvalueUsd(Number(row.realizedPrice))}
+					subvalue={
+						usdPrices
+							? formatSubvalueUsd(usdPrices.execUsd)
+							: row.realizedPrice == null
+								? undefined
+								: formatSubvalueUsd(Number(row.realizedPrice))
+					}
 				>
-					{isPartial ? UNAVAILABLE : formatExecutionPrice(row.realizedPrice, priceUnit)}
+					{usdPrices
+						? formatExecutionPrice(usdPrices.execUsd, usdPrices.baseSymbol)
+						: row.realizedPrice == null
+							? UNAVAILABLE
+							: formatExecutionPrice(row.realizedPrice, priceUnit)}
 				</DetailRow>
 				<DetailRow
 					label="Market Price"
-					tooltip="Median of the traded pair’s reference pools at the trade’s block, cross-referenced against an on-chain price oracle"
-					subvalue={isPartial ? undefined : formatSubvalueUsd(Number(row.marketMid))}
+					tooltip={marketTooltip}
+					subvalue={
+						hasMarketPrice
+							? usdPrices
+								? formatSubvalueUsd(usdPrices.marketUsd ?? NaN)
+								: formatSubvalueUsd(Number(row.marketMid))
+							: undefined
+					}
 				>
-					{isPartial ? UNAVAILABLE : formatExecutionPrice(row.marketMid, priceUnit)}
-					{!isPartial && row.manipulationFlag ? (
+					{hasMarketPrice
+						? usdPrices
+							? formatExecutionPrice(usdPrices.marketUsd, usdPrices.baseSymbol)
+							: formatExecutionPrice(row.marketMid, priceUnit)
+						: UNAVAILABLE}
+					{hasMarketPrice ? estMark : null}
+					{hasMarketPrice && row.manipulationFlag ? (
 						<span
 							className="ml-2"
 							style={{ color: 'var(--color-yellow)' }}
@@ -365,9 +427,14 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 				</DetailRow>
 				<DetailRow
 					label="Price Delta"
-					subvalue={isPartial ? undefined : priceDeltaComparison(row.marketMid, row.realizedPrice)}
+					subvalue={hasMarketPrice ? priceDeltaComparison(row.marketMid, row.realizedPrice) : undefined}
 				>
-					{isPartial ? UNAVAILABLE : formatDelta(row.marketMid, row.realizedPrice)}
+					{hasMarketPrice
+						? usdPrices && usdPrices.marketUsd != null
+							? formatDelta(usdPrices.marketUsd, usdPrices.execUsd)
+							: formatDelta(row.marketMid, row.realizedPrice)
+						: UNAVAILABLE}
+					{hasMarketPrice ? estMark : null}
 				</DetailRow>
 				<DetailRow label="Gas Cost">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}

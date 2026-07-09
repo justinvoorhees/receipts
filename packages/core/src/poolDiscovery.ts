@@ -252,12 +252,12 @@ async function readLiquidity(
  * NEVER throws: individual factory / liquidity reads are wrapped so a transient
  * RPC failure on one candidate just drops that candidate.
  */
-export async function getDeepestPoolForPair(
+export async function getDeepestPoolWithDepth(
   client: PublicClient,
   tokenA: string,
   tokenB: string,
   blockNumber?: bigint,
-): Promise<DiscoveredPool | null> {
+): Promise<{ pool: DiscoveredPool; depth: bigint } | null> {
   const a = tokenA.toLowerCase() as `0x${string}`;
   const b = tokenB.toLowerCase() as `0x${string}`;
 
@@ -313,6 +313,20 @@ export async function getDeepestPoolForPair(
     }
   }
 
+  return best;
+}
+
+/**
+ * Same discovery/ranking as `getDeepestPoolWithDepth` but returns only the pool
+ * (back-compat for callers that don't need depth).
+ */
+export async function getDeepestPoolForPair(
+  client: PublicClient,
+  tokenA: string,
+  tokenB: string,
+  blockNumber?: bigint,
+): Promise<DiscoveredPool | null> {
+  const best = await getDeepestPoolWithDepth(client, tokenA, tokenB, blockNumber);
   return best?.pool ?? null;
 }
 

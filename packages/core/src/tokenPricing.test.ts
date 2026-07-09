@@ -6,7 +6,7 @@
  * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getLegMidAtBlock, getTokenUsdcValue } from './tokenPricing.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getLegMidAtBlock, getTokenUsdcValue, getEstimatedMidAtBlock, type EstimatedMidReaders } from './tokenPricing.js';
 import { type PublicClient } from 'viem';
 import type { Leg } from './routeGraph.js';
 
@@ -194,5 +194,75 @@ describe('getLegMidAtBlock', () => {
       async (addr) => addr.toLowerCase().includes('0b3e') ? 18 : 18,
     );
     expect(result).toBeNull();
+  });
+});
+
+// ── getEstimatedMidAtBlock ───────────────────────────────────────────────────
+
+const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const WETH = '0x4200000000000000000000000000000000000006';
+const NATIVE = 'native';
+const WARP = '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07';
+// sqrtPriceX96 encoding token1-per-token0 = 1 for equal-decimal tokens (2**96).
+const SQRT_1 = 79228162514264337593543950336n; // 2**96
+
+// A WETH/USDC pool priced so WETH = 2000 USDC, and a WARP/WETH pool priced so
+// WARP = 0.0005 WETH. Both deep. Then market mid (ETH per WARP) for WARP->native
+// = usdRef(WARP)/usdRef(ETH) = (0.0005*2000) / 2000 = 0.0005.
+function makeReaders(over: Partial<EstimatedMidReaders> = {}): EstimatedMidReaders {
+  return {
+    getDeepestPoolWithDepth: async (a, b) => {
+      const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+      if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n };
+      if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n };
+      return null;
+    },
+    readSlot0: async () => SQRT_1, // both fake pools priced at raw 1:1 (see decimals below)
+    readDecimals: async () => 18,
+    ...over,
+  };
+}
+
+describe('getEstimatedMidAtBlock', () => {
+  it('bridges a volatile token to a USD anchor via its deepest token/WETH pool', async () => {
+    // With SQRT_1 and equal decimals every pool reads raw price 1, so
+    // usdRef(WARP)=1*1=1, usdRef(native)=1 → mid=1 (output-per-input). We only
+    // assert it produced a positive, finite mid via the bridged path here.
+    const res = await getEstimatedMidAtBlock(makeReaders(), WARP, NATIVE, 100n, 1n);
+    expect(res).not.toBeNull();
+    expect(res!.price).toBeGreaterThan(0);
+    expect(res!.poolKind).toBe('estimated');
+  });
+
+  it('returns null when the volatile token’s deepest pool is below the liquidity floor', async () => {
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n };
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 0n }; // dead
+        return null;
+      },
+    });
+    const res = await getEstimatedMidAtBlock(readers, WARP, NATIVE, 100n, 1n);
+    expect(res).toBeNull();
+  });
+
+  it('returns null when no WETH/USDC anchor pool is available', async () => {
+    const readers = makeReaders({ getDeepestPoolWithDepth: async () => null });
+    const res = await getEstimatedMidAtBlock(readers, WARP, NATIVE, 100n, 1n);
+    expect(res).toBeNull();
+  });
+
+  it('returns null when the WETH/USDC anchor pool itself is below the liquidity floor', async () => {
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 0n }; // dead
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n };
+        return null;
+      },
+    });
+    const res = await getEstimatedMidAtBlock(readers, WARP, NATIVE, 100n, 1n);
+    expect(res).toBeNull();
   });
 });

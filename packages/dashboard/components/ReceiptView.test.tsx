@@ -163,3 +163,79 @@ describe('Receipt partial state', () => {
 		expect(html).toContain('Aggregator Fee');
 	});
 });
+
+describe('Receipt USD-per-base display for ETH/WETH-quoted pairs', () => {
+	it('renders ETH-quoted estimated prices in USD-per-base, not ETH-per-base', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const { formatExecutionPrice } = await import('./TradesTable');
+		const row = {
+			...fullUsdcWethRow,
+			aggregator: 'fabric', pricingStatus: 'estimated',
+			inputSymbol: 'WARP', outputSymbol: 'ETH',
+			inputToken: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', outputToken: 'native',
+			inputAmount: '202116011.45', outputAmount: '0.0778', notionalUsd: '134.96',
+			realizedPrice: '0.000000000385', marketMid: '0.000000000394', allInCostBps: '221',
+			chainlinkPrice: null, manipulationFlag: false,
+		};
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		const execUsd = 134.96 / 202116011.45;
+		expect(html).toContain(formatExecutionPrice(execUsd, 'WARP')); // USD-per-WARP, base = WARP
+		expect(html).not.toContain('= 1 ETH');
+		expect(html).not.toContain(formatExecutionPrice(0.000000000385, 'WARP')); // not the ETH figure
+	});
+
+	it('leaves stablecoin-quoted (USDC/WETH) price rows unchanged', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const { formatExecutionPrice } = await import('./TradesTable');
+		const html = renderToStaticMarkup(<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />);
+		expect(html).toContain(formatExecutionPrice('3000', 'WETH'));
+	});
+});
+
+describe('Receipt estimated pricing tier', () => {
+	const estimatedRow = {
+		...fullUsdcWethRow,
+		aggregator: 'fabric',
+		pricingStatus: 'estimated',
+		// best-effort mid + realized price present, but no oracle fields
+		realizedPrice: '0.00000068',
+		marketMid: '0.00000069',
+		allInCostBps: '14',
+		chainlinkPrice: null,
+		manipulationFlag: false,
+	};
+
+	it('renders Execution, Market, and Delta on an estimated receipt with a best-effort marker', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={estimatedRow as never} hash={estimatedRow.txHash} />,
+		);
+		// The three rows are present (not "Unavailable for this pair").
+		expect(html).toContain('Realized Execution Price');
+		expect(html).toContain('Market Price');
+		expect(html).toContain('Price Delta');
+		// Best-effort marker + honest tooltip, and NOT the oracle-validated copy.
+		expect(html).toContain('est.');
+		expect(html).toContain('not oracle-validated');
+		expect(html).not.toContain('cross-referenced against an on-chain price oracle');
+		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(0);
+	});
+
+	it('shows Execution Price on a fully partial receipt but leaves Market/Delta unavailable', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const partialRow = {
+			...fullUsdcWethRow,
+			pricingStatus: 'partial',
+			realizedPrice: '0.00000068',
+			marketMid: null,
+			allInCostBps: null,
+		};
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		// Execution Price now renders (previously "Unavailable for this pair").
+		expect(html).toContain('Realized Execution Price');
+		// Execution Price renders (realizedPrice present); only Market + Delta are unavailable.
+		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(2);
+	});
+});
