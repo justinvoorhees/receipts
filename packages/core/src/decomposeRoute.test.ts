@@ -27,6 +27,7 @@ const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed80
 const TRADER = '0x00000000000000000000000000000000000000a1';
 const POOL_A = '0x00000000000000000000000000000000000000b1';
 const u256 = (n: bigint) => '0x' + n.toString(16).padStart(64, '0');
+const pad32 = (addr: string) => '0x' + addr.replace(/^0x/, '').toLowerCase().padStart(64, '0');
 
 /** Build a minimal ERC-20 Transfer log entry for a synthetic trace. */
 function transferLog(
@@ -610,5 +611,36 @@ describe('extractNativeTransfers', () => {
       { token: WETH, from: POOL_A, to: TRADER, value: 5n },
       { token: WETH, from: TRADER, to: POOL_A, value: 11n }, // nested frame collected
     ]);
+  });
+});
+
+describe('native-ETH decomposition (Step 3a)', () => {
+  const nativeTrace = {
+    type: 'CALL', from: TRADER, to: POOL_A, value: '0x0',
+    logs: [
+      { address: USDC, topics: [TRANSFER_TOPIC, pad32(TRADER), pad32(POOL_A)], data: u256(2_000000n) },
+    ],
+    calls: [
+      { type: 'CALL', from: POOL_A, to: TRADER, value: u256(1_000000000000000000n) }, // 1 ETH out
+    ],
+  };
+  const input = {
+    trace: nativeTrace, txHash: '0xabc', trader: TRADER, direction: 'sell_weth', settledIn: 'ETH',
+    allInCostBps: 0, notionalUsdc: 2, realizedPrice: 2000, gasCostUsd: 0, aggregator: 'unknown',
+    blockNumber: 100n, rpcUrl: 'http://invalid', dustUsdc: 1e-6, structuralFloorUsd: 0,
+    structuralFloorBps: 0.5, recognizeV3Forks: true, impureOnVenueThirdToken: true,
+  } as never;
+
+  it('decomposes a USDC→native-ETH single hop into one costed leg', async () => {
+    const result = await decomposeRoute(input, {
+      trace: nativeTrace as never,
+      feeReader: async () => ({ bps: 30, defaulted: false }),
+    });
+    expect(result.legs).toHaveLength(1);
+    expect(result.legs[0]!.leg.venue).toBe(POOL_A);
+    expect(result.legs[0]!.leg.tokenIn).toBe(USDC);
+    expect(result.legs[0]!.leg.tokenOut).toBe(WETH); // native modeled as WETH
+    expect(typeof result.legs[0]!.lpFeeBps).toBe('number');
+    expect(result.routeShape === 'single' || result.routeShape === 'linear').toBe(true);
   });
 });

@@ -577,10 +577,15 @@ export async function decomposeRoute(
 		v3FactoryReader,
 	);
 
+	// Step 3a: Model native ETH value transfers as WETH so the ERC-20-only route
+	// graph can chain native-settled legs (e.g. a Uniswap V4 pool paying ETH).
+	const nativeTransfers = extractNativeTransfers(trace);
+	const rawTransfersWithNative = [...rawTransfers, ...nativeTransfers];
+
 	// Step 3b: Resolve V4 settlement proxies — rewrite transfers so V4 PM
 	// appears as the source of outgoing tokens instead of the executor
 	const { transfers, extendedDenylist } = resolveV4Settlement(
-		rawTransfers, venues, input.trader, DENYLIST,
+		rawTransfersWithNative, venues, input.trader, DENYLIST,
 	);
 
 	// Step 4: Build route graph
