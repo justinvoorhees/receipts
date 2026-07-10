@@ -256,7 +256,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 			{ venue: '0x4200000000000000000000000000000000000006', type: 'unwrap', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
 		] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
-		expect(html).toContain('Uni v3');
+		expect(html).toContain('Uniswap v3');
 		expect(html).toContain('Unwrap (WETH→ETH)');
 		expect(html).not.toContain('No Route Found');
 	});
@@ -269,9 +269,9 @@ describe('Receipt route rendering (native/fallback)', () => {
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('Pools Touched');
 		// This venue address is the real Uniswap V4 PoolManager on Base, which
-		// Task 6's KNOWN_VENUE_LABELS maps to the friendlier "Uniswap V4" label
-		// (taking priority over the generic univ4 -> "Uni v4" fallback).
-		expect(html).toContain('Uniswap V4');
+		// KNOWN_VENUE_LABELS maps to the friendlier "Uniswap v4" label
+		// (taking priority over the generic univ4 -> "Uniswap v4" fallback).
+		expect(html).toContain('Uniswap v4');
 		expect(html).not.toContain('Liquidity Provider Fee');
 	});
 
@@ -281,5 +281,96 @@ describe('Receipt route rendering (native/fallback)', () => {
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('No Route Found');
 		expect(html).not.toContain('>Route<');
+	});
+});
+
+// Regression coverage for the leg "context" (token-pair) label in the Cost
+// Breakdown: TOKEN_SYMBOLS (imported from TradesTable) is a static map that
+// does not contain every token, so the leg-context resolver must prefer the
+// receipt's own resolved input/output symbols before falling back to it.
+describe('Receipt leg context — endpoint token resolution', () => {
+	// The real WARP->ETH route (tx 0xa21e4d82b961726614ce6f310e30e29a4b55b8eca1d6a46621c3adaf8edf6ab1,
+	// verified live against RPC): WARP/WETH (Uniswap v3) -> WETH/USDC (PancakeSwap v3)
+	// -> USDC/WETH (Uniswap v4 PoolManager), with NO separate unwrap leg — the v4
+	// pool pays native ETH directly to the taker.
+	const warpEthRow = {
+		...fullUsdcWethRow,
+		aggregator: 'fabric',
+		pricingStatus: 'estimated',
+		inputSymbol: 'WARP', outputSymbol: 'ETH',
+		inputToken: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', outputToken: 'native',
+		routeLegs: [
+			{ venue: '0x53932cbd6cddbb907ce1bb108496c7bd8aaa5dce', type: 'univ3',
+				tokenIn: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				feeTierBps: 100, notionalUsdc: 136.09, lpFeeBps: 100.83, priceImpactBps: null },
+			{ venue: '0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38', type: 'pancakev3',
+				tokenIn: '0x4200000000000000000000000000000000000006',
+				tokenOut: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				feeTierBps: 1, notionalUsdc: 136.07, lpFeeBps: 1.01, priceImpactBps: null },
+			{ venue: '0x498581ff718922c3f8e6a244956af099b2652b2b', type: 'univ4',
+				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				feeTierBps: 5, notionalUsdc: 136.07, lpFeeBps: 5.04, priceImpactBps: null },
+		],
+	};
+
+	// The Cost Breakdown's "Liquidity Provider Fee" list (rendered by LegRow,
+	// ReceiptView.tsx ~line 309) is the one under test here. The separate
+	// "Price Impact" list further down the page is populated by TradesTable's
+	// getPriceImpactRows — a different, out-of-scope code path — so assertions
+	// are scoped to the LP Fee section to avoid coupling to that unrelated list.
+	function lpFeeSection(html: string): string {
+		return html.slice(html.indexOf('Liquidity Provider Fee'), html.indexOf('Aggregator Fee'));
+	}
+
+	it('resolves the leading leg\'s WARP token via the receipt\'s own inputSymbol, not a short address', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={warpEthRow as never} hash={warpEthRow.txHash} />);
+		const lpSection = lpFeeSection(html);
+		// WARP is absent from TradesTable's static TOKEN_SYMBOLS map, so without
+		// the fix this would render a shortened hex address (e.g. "0xd915…62b0").
+		expect(lpSection).toContain('WARP/WETH');
+		expect(lpSection).not.toContain('0xd915');
+	});
+
+	it('labels the terminal leg\'s native-ETH settlement as ETH, not the internal WETH stand-in', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={warpEthRow as never} hash={warpEthRow.txHash} />);
+		const lpSection = lpFeeSection(html);
+		// The last leg (Uniswap v4 PoolManager) pays native ETH directly — there is no
+		// separate unwrap row here — so its true settlement token is ETH, matching
+		// the receipt's own outputSymbol, not the WETH address core uses internally
+		// to model the native transfer through the ERC-20-only route graph.
+		expect(lpSection).toContain('USDC/ETH');
+		expect(lpSection).not.toContain('USDC/WETH');
+		// The middle leg genuinely trades WETH (into the v4 pool) — unaffected.
+		expect(lpSection).toContain('WETH/USDC');
+	});
+
+	it('keeps a WETH-producing leg labeled WETH when a real unwrap step follows it', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		// Same shape as the "informational unwrap row" case above, but this time
+		// asserting the swap leg's own context string, not just the unwrap label.
+		// Here core did NOT model native ETH as a WETH stand-in — WETH really is
+		// this leg's output, and the separate unwrap row below it is what produces
+		// the final ETH — so relabeling it here would be less accurate, not more.
+		const row = {
+			...fullUsdcWethRow,
+			inputSymbol: 'WARP', outputSymbol: 'ETH',
+			inputToken: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', outputToken: 'native',
+			routeLegs: [
+				{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
+					tokenIn: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07',
+					tokenOut: '0x4200000000000000000000000000000000000006',
+					feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2 },
+				{ venue: '0x4200000000000000000000000000000000000006', type: 'unwrap',
+					tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native',
+					feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
+			],
+		};
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain('WARP/WETH');
+		expect(html).not.toContain('WARP/ETH');
 	});
 });

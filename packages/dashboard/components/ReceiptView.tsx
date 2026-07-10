@@ -282,6 +282,62 @@ function BkdRow({
 	);
 }
 
+const NATIVE = 'native';
+const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
+
+/**
+ * Resolves a leg's tokenIn/tokenOut to a display symbol for the Cost Breakdown
+ * "context" string, correcting two ways the static TOKEN_SYMBOLS map (which
+ * doesn't contain every token) can mislabel a leg:
+ *
+ *  1. Endpoint tokens: when a leg's token is the receipt's own resolved input
+ *     or output token (e.g. WARP — absent from the static map), prefer the
+ *     receipt's own inputSymbol/outputSymbol over the static map/short-address
+ *     fallback.
+ *  2. Terminal native-ETH legs: core's decomposeRoute models any native ETH
+ *     value transfer using the WETH address internally, so an ERC-20-only
+ *     route graph can chain native-settled legs (e.g. a Uniswap V4 pool that
+ *     pays ETH directly). When a separate `unwrap` step follows, that WETH
+ *     label is correct — the pool really did trade WETH, and the unwrap row
+ *     shows the ETH conversion. But when NO unwrap step follows (V4 paying
+ *     native ETH straight to the taker), the WETH stand-in on the last leg
+ *     IS the true, final settlement and should read as the receipt's own
+ *     outputSymbol (e.g. ETH), not WETH. Symmetric on the input side for a
+ *     native-ETH-input trade with no leading `wrap` step.
+ */
+function legPairContext(
+	leg: RouteLeg,
+	index: number,
+	legsLength: number,
+	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
+): string {
+	const endpointSymbols = new Map<string, string>();
+	if (row.inputToken && row.inputToken.toLowerCase() !== NATIVE) {
+		endpointSymbols.set(row.inputToken.toLowerCase(), row.inputSymbol);
+	}
+	if (row.outputToken && row.outputToken.toLowerCase() !== NATIVE) {
+		endpointSymbols.set(row.outputToken.toLowerCase(), row.outputSymbol);
+	}
+	const resolve = (address: string): string => endpointSymbols.get(address.toLowerCase()) ?? tokenSymbol(address);
+
+	const isFirst = index === 0;
+	const isLast = index === legsLength - 1;
+	const inputIsNativeStandIn =
+		isFirst &&
+		leg.type !== 'wrap' &&
+		row.inputToken?.toLowerCase() === NATIVE &&
+		leg.tokenIn?.toLowerCase() === WETH_ADDRESS;
+	const outputIsNativeStandIn =
+		isLast &&
+		leg.type !== 'unwrap' &&
+		row.outputToken?.toLowerCase() === NATIVE &&
+		leg.tokenOut?.toLowerCase() === WETH_ADDRESS;
+
+	const inSymbol = inputIsNativeStandIn ? row.inputSymbol : resolve(leg.tokenIn);
+	const outSymbol = outputIsNativeStandIn ? row.outputSymbol : resolve(leg.tokenOut);
+	return `${inSymbol}/${outSymbol}`;
+}
+
 // Shared row for the Cost Breakdown "Liquidity Provider Fee" / "Pools Touched"
 // lists — same venue/label/context, differing only in the value column and
 // (for the uncosted "Pools Touched" list) an extra guard against legs missing
@@ -289,12 +345,16 @@ function BkdRow({
 function LegRow({
 	leg,
 	index,
+	legsLength,
+	row,
 	value,
 	color,
 	requirePair = false,
 }: {
 	leg: RouteLeg;
 	index: number;
+	legsLength: number;
+	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>;
 	value: string;
 	color?: string | undefined;
 	requirePair?: boolean;
@@ -306,7 +366,7 @@ function LegRow({
 		<BkdRow
 			label={getVenueLabel(leg)}
 			href={`https://basescan.org/address/${leg.venue}`}
-			context={hideContext ? undefined : `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`}
+			context={hideContext ? undefined : legPairContext(leg, index, legsLength, row)}
 			value={value}
 			color={color}
 			secondary
@@ -497,6 +557,8 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 									key={`${leg.venue}-${index}`}
 									leg={leg}
 									index={index}
+									legsLength={legs.length}
+									row={row}
 									value={lpText}
 									color={lpColor}
 								/>
@@ -507,7 +569,15 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 					<>
 						<BkdHeading label="Pools Touched" plain />
 						{legs.map((leg, index) => (
-							<LegRow key={`${leg.venue}-${index}`} leg={leg} index={index} value="–" requirePair />
+							<LegRow
+								key={`${leg.venue}-${index}`}
+								leg={leg}
+								index={index}
+								legsLength={legs.length}
+								row={row}
+								value="–"
+								requirePair
+							/>
 						))}
 					</>
 				)}

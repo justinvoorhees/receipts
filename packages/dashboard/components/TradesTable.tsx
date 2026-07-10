@@ -481,7 +481,7 @@ const KNOWN_VENUE_LABELS: Record<string, string> = {
 	'0x3eb210eaa4026f62d027fafaba1fa5592febb06a': 'Fabric OTC',
 	'0x69e68e18f53889bdc7589e9f2defbf88e2d32de7': 'Fabric OTC',
 	'0x73f0859f844f042cd699f35bb5fe13a120f95c0f': 'Fabric OTC',
-	'0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap V4',
+	'0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap v4',
 	'0xb94b22332abf5f89877a14cc88f2abc48c34b3df': 'Fabric OTC',
 	'0xb1383dc47d9971fc999c3a9088f79e744b376e97': 'Hydrex',
 	'0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76': 'UniPool',
@@ -539,10 +539,10 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	if (leg.type === 'curve_stableng') return 'Curve StableNG';
 	if (leg.type === 'maverickv2') return 'Maverick v2';
 	if (leg.type === 'aerodrome') return 'Aerodrome';
-	if (leg.type === 'univ4') return 'Uni v4';
-	if (leg.type === 'pancakev3') return 'Pancake v3';
-	if (leg.type === 'univ3') return 'Uni v3';
-	if (leg.type === 'univ2') return 'Uni v2';
+	if (leg.type === 'univ4') return 'Uniswap v4';
+	if (leg.type === 'pancakev3') return 'PancakeSwap v3';
+	if (leg.type === 'univ3') return 'Uniswap v3';
+	if (leg.type === 'univ2') return 'Uniswap v2';
 	if (leg.type === 'unwrap') return 'Unwrap (WETH→ETH)';
 	if (leg.type === 'wrap') return 'Wrap (ETH→WETH)';
 	if (leg.type === 'rfq' || leg.type === 'unknown') return 'Unknown Pool';
