@@ -238,3 +238,57 @@ describe('buildRouteGraph', () => {
     expect(g.reconstructed).toBe(false);
   });
 });
+
+describe('tryBuildChain output-token recurrence', () => {
+  const trader = '0x00000000000000000000000000000000000000a1';
+  const WARP = '0x00000000000000000000000000000000000000c1';
+  const WETH = '0x4200000000000000000000000000000000000006';
+  const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+  const p1 = '0x00000000000000000000000000000000000000d1';
+  const p2 = '0x00000000000000000000000000000000000000d2';
+  const p3 = '0x00000000000000000000000000000000000000d3';
+
+  it('reconstructs a linear route whose output token (WETH) recurs mid-chain', () => {
+    // WARP -> WETH -> USDC -> WETH(native modeled as WETH); trader out = WETH
+    const transfers = [
+      { token: WARP, from: trader, to: p1, value: 100n },
+      { token: WETH, from: p1, to: p2, value: 5n },
+      { token: USDC, from: p2, to: p3, value: 200n },
+      { token: WETH, from: p3, to: trader, value: 4n },
+    ];
+    const venues = new Map([
+      [p1, { type: 'univ3' as const }],
+      [p2, { type: 'univ3' as const }],
+      [p3, { type: 'univ4' as const }],
+    ]);
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set() });
+    expect(g.shape).toBe('linear');
+    expect(g.reconstructed).toBe(true);
+    expect(g.legs.map((l) => l.venue)).toEqual([p1, p2, p3]);
+    expect(g.inputToken).toBe(WARP);
+    expect(g.outputToken).toBe(WETH);
+  });
+
+  it('does not mislabel a fully-consumed chain that ends off the output token as linear', () => {
+    // A -> B -> C consumes all legs but the trader's output token is C already;
+    // construct a case where the greedy chain ends at a non-output token.
+    const A = '0x00000000000000000000000000000000000000e1';
+    const B = '0x00000000000000000000000000000000000000e2';
+    const C = '0x00000000000000000000000000000000000000e3';
+    const vA = '0x00000000000000000000000000000000000000f1';
+    const vB = '0x00000000000000000000000000000000000000f2';
+    // Trader sends A and D, receives C: input picked by largest magnitude.
+    // Legs: A->B (vA), B->C (vB). Trader output is C. This SHOULD be linear
+    // (ends at C). Invert to force an off-output end:
+    const transfers = [
+      { token: A, from: trader, to: vA, value: 100n },
+      { token: B, from: vA, to: vB, value: 100n },
+      { token: C, from: vB, to: trader, value: 100n },
+    ];
+    const venues = new Map([[vA, { type: 'univ3' as const }], [vB, { type: 'univ3' as const }]]);
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set() });
+    // This is a genuine linear A->B->C ending at output C.
+    expect(g.shape).toBe('linear');
+    expect(g.legs.map((l) => l.venue)).toEqual([vA, vB]);
+  });
+});

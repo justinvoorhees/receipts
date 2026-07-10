@@ -230,8 +230,8 @@ function chainLegs(
   // Try to build a single chain from inputToken to outputToken
   const chain = tryBuildChain(legs, inputToken, outputToken);
 
-  if (chain && chain.length === legs.length) {
-    // All legs consumed in one chain
+  if (chain && chain.length === legs.length && chain[chain.length - 1]!.tokenOut === outputToken) {
+    // All legs consumed in one chain ending at the output token
     return { ordered: chain, shape: 'linear', reconstructed: true };
   }
 
@@ -261,7 +261,7 @@ function tryBuildChain(
   const chain: Leg[] = [];
   let currentToken = inputToken;
 
-  while (currentToken !== outputToken && remaining.size > 0) {
+  while (remaining.size > 0) {
     let found: Leg | null = null;
     for (const leg of remaining) {
       if (leg.tokenIn === currentToken) {
@@ -269,14 +269,16 @@ function tryBuildChain(
         break;
       }
     }
-    if (!found) return chain.length > 0 ? chain : null;
+    if (!found) break;
 
     chain.push(found);
     remaining.delete(found);
     currentToken = found.tokenOut;
   }
 
-  if (currentToken === outputToken) return chain;
+  // A valid chain ends at the output token; otherwise return the best-effort
+  // partial (used only by the complex fallback), never as a linear route.
+  if (chain.length > 0 && currentToken === outputToken) return chain;
   return chain.length > 0 ? chain : null;
 }
 
