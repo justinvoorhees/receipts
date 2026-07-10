@@ -198,9 +198,11 @@ export async function analyzeTransaction(
 			inputAmountRaw: endpoints.inputAmountRaw,
 			outputAmountRaw: endpoints.outputAmountRaw,
 		});
-		const isFull = pricing.status === 'full';
 		// A market mid exists on both the oracle-validated (full) and best-effort
-		// (estimated) tiers; the Execution/Market/Delta rows key off THIS, not isFull.
+		// (estimated) tiers. The Execution/Market/Delta rows and the cost
+		// decomposition (execution/slippage/recon/per-leg price-impact) all key off
+		// THIS, not the oracle-validated `full` status — so the estimated tier
+		// surfaces the full breakdown, and only the mid-less `partial` tier nulls it.
 		const priced = pricing.marketMid != null;
 
 		// Human amounts (decimals from pricing) and realized output-per-input price.
@@ -278,7 +280,11 @@ export async function analyzeTransaction(
 			flags.push(`SETTLEMENT_EVENT_MISSING: no distinctive event from ${sig.settlementContract}`);
 
 		// Compact per-leg representation for storage. Price-impact is a mid-derived
-		// field: null it when we only have a partial (LP + Agg) picture.
+		// field: it is meaningful whenever a market mid exists (the full AND
+		// estimated tiers), and only genuinely absent on the partial tier (no mid
+		// at all — LP + Agg only). Gate on `priced`, not `isFull`, so the estimated
+		// tier surfaces the decomposition instead of nulling values decomposeRoute
+		// actually computed. Oracle-derived fields stay tier-gated separately.
 		const routeLegs = route.legs.map((l) => ({
 			venue: l.leg.venue,
 			type: l.leg.type,
@@ -287,7 +293,7 @@ export async function analyzeTransaction(
 			feeTierBps: l.feeTierBps,
 			notionalUsdc: l.notionalUsdc,
 			lpFeeBps: l.lpFeeBps,
-			priceImpactBps: isFull ? l.priceImpactBps : null,
+			priceImpactBps: priced ? l.priceImpactBps : null,
 		}));
 
 		return {
@@ -314,16 +320,16 @@ export async function analyzeTransaction(
 			marketMid: priced ? toDisplayPrice(marketMid, baseIsOutput) : null,
 			allInCostBps,
 			pricingStatus: pricing.status,
-			executionBps: isFull ? route.executionBps : null,
+			executionBps: priced ? route.executionBps : null,
 			lpFeeBps: route.lpFeeBps,
 			aggFeeBps: route.aggFeeBps,
-			slippageBps: isFull ? route.slippageBps : null,
+			slippageBps: priced ? route.slippageBps : null,
 			gasCostUsd,
 			routePure: route.routeShape === 'single',
 			routeShape: route.routeShape,
 			hopCount: route.hopCount,
 			routeLegs,
-			reconResidualBps: isFull ? route.reconResidualBps : null,
+			reconResidualBps: priced ? route.reconResidualBps : null,
 			decompConfidence: route.confidence,
 			feeRecipient: route.feeRecipient,
 			feeSinkSource: route.feeSinkSource,

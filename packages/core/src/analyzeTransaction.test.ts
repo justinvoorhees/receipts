@@ -107,14 +107,22 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(r!.realizedPrice).not.toBeNull(); // execution price now populated
 		expect(r!.marketMid).not.toBeNull(); // bridged via WARP/WETH
 		expect(r!.allInCostBps).not.toBeNull(); // price delta follows
+		// The cost decomposition is surfaced whenever a market mid exists — on the
+		// estimated tier too, not just the oracle-validated full tier. It reconciles
+		// with allInCostBps (same mid computation) even though the oracle is absent.
+		expect(r!.executionBps).not.toBeNull();
+		expect(r!.slippageBps).not.toBeNull();
+		expect(r!.reconResidualBps).not.toBeNull();
 		// Oracle fields stay null on the estimated tier.
 		expect(r!.chainlinkPrice).toBeNull();
 		// Route now decomposes to a linear 3-hop (native-ETH exit modeled as WETH).
-		const legs = r!.routeLegs as { venue: string; type: string; lpFeeBps: number | null }[];
+		const legs = r!.routeLegs as { venue: string; type: string; lpFeeBps: number | null; priceImpactBps: number | null }[];
 		const venues = legs.map((l) => l.venue.toLowerCase());
 		expect(venues).toContain('0x53932cbd6cddbb907ce1bb108496c7bd8aaa5dce'); // Uni V3 WARP/WETH
 		expect(venues).toContain('0x498581ff718922c3f8e6a244956af099b2652b2b'); // Uni V4 PM (USDC/native-ETH)
 		expect(legs.filter((l) => typeof l.lpFeeBps === 'number').length).toBeGreaterThanOrEqual(3);
+		// Per-leg price impact is surfaced on the estimated tier (previously nulled).
+		expect(legs.filter((l) => typeof l.priceImpactBps === 'number').length).toBeGreaterThanOrEqual(1);
 		expect(r!.routeShape).toBe('linear');
 		// No wrap/unwrap in this route (V4 pays native ETH directly).
 		expect(legs.some((l) => l.type === 'wrap' || l.type === 'unwrap')).toBe(false);

@@ -348,6 +348,24 @@ describe('Receipt leg context — endpoint token resolution', () => {
 		expect(lpSection).toContain('WETH/USDC');
 	});
 
+	it('surfaces the cost decomposition on the estimated tier instead of the "unavailable" placeholder', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		// Post-fix, an estimated-tier receipt carries the per-leg price impact (and
+		// slippage) that decomposeRoute computed — core only nulls them on the
+		// mid-less `partial` tier. The Cost Breakdown must therefore render the
+		// Price Impact rows with real values, not the all-"Null"/unavailable state.
+		const impacts = [39.4, 0.95, 0.76];
+		const estimatedWithImpact = {
+			...warpEthRow,
+			routeLegs: warpEthRow.routeLegs.map((l, i) => ({ ...l, priceImpactBps: impacts[i] })),
+		};
+		const html = renderToStaticMarkup(<ReceiptView trade={estimatedWithImpact as never} hash={warpEthRow.txHash} />);
+		// The section is surfaced, not gated to the "unavailable" placeholder.
+		expect(html).not.toContain('Price Impact / Slippage unavailable for this pair');
+		// Per-leg price impact renders real values, not the pre-fix all-"Null" state.
+		expect(html).not.toContain('Null');
+	});
+
 	it('keeps a WETH-producing leg labeled WETH when a real unwrap step follows it', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
 		// Same shape as the "informational unwrap row" case above, but this time
