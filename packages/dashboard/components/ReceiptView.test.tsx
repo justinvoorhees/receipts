@@ -246,3 +246,40 @@ describe('Receipt estimated pricing tier', () => {
 		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(2);
 	});
 });
+
+describe('Receipt route rendering (native/fallback)', () => {
+	const base = { ...fullUsdcWethRow };
+	it('renders costed pool legs plus an informational unwrap row', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const row = { ...base, routeLegs: [
+			{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3', tokenIn: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', tokenOut: '0x4200000000000000000000000000000000000006', feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2 },
+			{ venue: '0x4200000000000000000000000000000000000006', type: 'unwrap', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
+		] };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain('Uni v3');
+		expect(html).toContain('Unwrap (WETH→ETH)');
+		expect(html).not.toContain('No Route Found');
+	});
+
+	it('renders a Pools Touched section when no leg is costed', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const row = { ...base, pricingStatus: 'partial', routeLegs: [
+			{ venue: '0x498581ff718922c3f8e6a244956af099b2652b2b', type: 'univ4', tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
+		] };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain('Pools Touched');
+		// This venue address is the real Uniswap V4 PoolManager on Base, which
+		// Task 6's KNOWN_VENUE_LABELS maps to the friendlier "Uniswap V4" label
+		// (taking priority over the generic univ4 -> "Uni v4" fallback).
+		expect(html).toContain('Uniswap V4');
+		expect(html).not.toContain('Liquidity Provider Fee');
+	});
+
+	it('renders "No Route Found" when there are no legs', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const row = { ...base, pricingStatus: 'partial', routeLegs: [] };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain('No Route Found');
+		expect(html).not.toContain('>Route<');
+	});
+});
