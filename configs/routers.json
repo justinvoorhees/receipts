@@ -85,6 +85,15 @@
 			"_verified": "Confirmed as deployed contract via live execution in v1."
 		},
 		{
+			"name": "Nordstern",
+			"address": "0x663dc15d3c1ac63ff12e45ab68fea3f0a883c251",
+			"version": "router-v2",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_verified": "Second Nordstern router address. Verified on-chain (tx 0xb169b2e5…): calls Nordstern's v1 settlement contract 0xc87de04e… and emits its distinctive event topic 0x97d8fe…. Basescan surfaces the DeBridge>IceCreamSwap liquidity source; settlement is Nordstern."
+		},
+		{
 			"name": "Relay",
 			"address": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
 			"version": "RelayApprovalProxyV3",

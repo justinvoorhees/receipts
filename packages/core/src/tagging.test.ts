@@ -28,6 +28,14 @@ describe('labelAddress', () => {
 		expect(r.label).toBe('Odos');
 	});
 
+	it('names the second Nordstern router address (aggregators use multiple routers)', () => {
+		// 0x663dc15d… routes through Nordstern's v1 settlement contract 0xc87de04e…
+		// and emits its distinctive event topic (tx 0xb169b2e5…). Verified on-chain.
+		const r = labelAddress('0x663dc15d3c1ac63ff12e45ab68fea3f0a883c251');
+		expect(r.kind).toBe('router');
+		expect(r.label).toBe('Nordstern');
+	});
+
 	it('passes unknown addresses through as raw', () => {
 		const r = labelAddress('0xdeadbeef');
 		expect(r.kind).toBe('unknown');
