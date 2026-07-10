@@ -109,5 +109,14 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(r!.allInCostBps).not.toBeNull(); // price delta follows
 		// Oracle fields stay null on the estimated tier.
 		expect(r!.chainlinkPrice).toBeNull();
+		// Route now decomposes to a linear 3-hop (native-ETH exit modeled as WETH).
+		const legs = r!.routeLegs as { venue: string; type: string; lpFeeBps: number | null }[];
+		const venues = legs.map((l) => l.venue.toLowerCase());
+		expect(venues).toContain('0x53932cbd6cddbb907ce1bb108496c7bd8aaa5dce'); // Uni V3 WARP/WETH
+		expect(venues).toContain('0x498581ff718922c3f8e6a244956af099b2652b2b'); // Uni V4 PM (USDC/native-ETH)
+		expect(legs.filter((l) => typeof l.lpFeeBps === 'number').length).toBeGreaterThanOrEqual(3);
+		expect(r!.routeShape).toBe('linear');
+		// No wrap/unwrap in this route (V4 pays native ETH directly).
+		expect(legs.some((l) => l.type === 'wrap' || l.type === 'unwrap')).toBe(false);
 	}, 30_000);
 });
