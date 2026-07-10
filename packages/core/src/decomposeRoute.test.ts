@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decomposeRoute } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers } from './decomposeRoute.js';
 import type { DecomposeTradeInput } from './decompose-trade.js';
 
 // Load trace fixtures (avoid JSON import attribute issues with NodeNext)
@@ -22,6 +22,11 @@ const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH = '0x4200000000000000000000000000000000000006';
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+
+// Test constants for extractNativeTransfers
+const TRADER = '0x00000000000000000000000000000000000000a1';
+const POOL_A = '0x00000000000000000000000000000000000000b1';
+const u256 = (n: bigint) => '0x' + n.toString(16).padStart(64, '0');
 
 /** Build a minimal ERC-20 Transfer log entry for a synthetic trace. */
 function transferLog(
@@ -585,5 +590,25 @@ describe('decomposeRoute', () => {
       expect(result.routeShape).toBe('complex');
     });
   });
+});
 
+describe('extractNativeTransfers', () => {
+  it('collects value-moving CALL frames as WETH transfers, skipping delegate/static/reverted/zero', () => {
+    const trace = {
+      type: 'CALL', from: TRADER, to: POOL_A, value: '0x0',
+      calls: [
+        { type: 'CALL', from: POOL_A, to: TRADER, value: u256(5n) },
+        { type: 'DELEGATECALL', from: POOL_A, to: TRADER, value: u256(9n) },
+        { type: 'CALL', from: POOL_A, to: TRADER, value: u256(7n), error: 'execution reverted' },
+        { type: 'STATICCALL', from: POOL_A, to: TRADER, value: u256(3n) },
+        { type: 'CALL', from: POOL_A, to: TRADER, value: '0x0',
+          calls: [{ type: 'CALL', from: TRADER, to: POOL_A, value: u256(11n) }] },
+      ],
+    };
+    const out = extractNativeTransfers(trace as never);
+    expect(out).toEqual([
+      { token: WETH, from: POOL_A, to: TRADER, value: 5n },
+      { token: WETH, from: TRADER, to: POOL_A, value: 11n }, // nested frame collected
+    ]);
+  });
 });

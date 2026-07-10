@@ -67,6 +67,7 @@ interface TraceNode {
 	input?: `0x${string}`;
 	output?: `0x${string}`;
 	type?: string;
+	error?: string;
 	logs?: {
 		address: `0x${string}`;
 		data: `0x${string}`;
@@ -123,6 +124,26 @@ function collectTraceLogs(trace: TraceNode): LogLike[] {
 		if (node.calls) {
 			for (const child of node.calls) visit(child);
 		}
+	};
+	visit(trace);
+	return out;
+}
+
+/** Extract native ETH value transfers from a callTracer tree, modeled as WETH
+ *  transfers so the ERC-20-only route graph can see native-settled legs. Skips
+ *  delegate/static calls (no value), reverted frames, and zero-value frames. */
+export function extractNativeTransfers(trace: TraceNode): { token: string; from: string; to: string; value: bigint }[] {
+	const out: { token: string; from: string; to: string; value: bigint }[] = [];
+	const visit = (node: TraceNode) => {
+		const type = node.type ?? '';
+		const moves = type === 'CALL' || type === 'CALLCODE';
+		if (moves && !node.error && node.value && node.from && node.to) {
+			const value = BigInt(node.value);
+			if (value > 0n) {
+				out.push({ token: WETH, from: node.from.toLowerCase(), to: node.to.toLowerCase(), value });
+			}
+		}
+		if (node.calls) for (const child of node.calls) visit(child);
 	};
 	visit(trace);
 	return out;
