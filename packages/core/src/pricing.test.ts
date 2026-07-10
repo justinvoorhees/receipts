@@ -312,6 +312,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
         return { address: '0xpool', kind: 'univ3' };
       },
       readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
+      readLiquidity: async () => 1_000_000n, // healthy pool
       readDecimals: async () => 18, // dec0 === dec1 → rawPrice is exactly 4
     };
   }
@@ -342,6 +343,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
     const readers: PoolMidReaders = {
       getDeepestPool: async () => null,
       readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
+      readLiquidity: async () => 1_000_000n,
       readDecimals: async () => 18,
     };
     const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
@@ -352,6 +354,32 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
     const readers: PoolMidReaders = {
       getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
       readSlot0: async () => null,
+      readLiquidity: async () => 1_000_000n,
+      readDecimals: async () => 18,
+    };
+    const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
+    expect(mid).toBeNull();
+  });
+
+  it('returns null for an empty pool (liquidity below floor) — its slot0 price is a garbage mid', async () => {
+    // The CLAWNCH bug: a 0-liquidity direct pool was accepted as a `full` mid.
+    const readers: PoolMidReaders = {
+      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
+      readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
+      readLiquidity: async () => 0n,
+      readDecimals: async () => 18,
+    };
+    const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
+    expect(mid).toBeNull();
+  });
+
+  it('returns null when slot0 is pinned at the max-tick boundary (empty/one-sided pool)', async () => {
+    // Real CLAWNCH pool 0x8DB5…: sqrtPriceX96 = MAX_SQRT_RATIO-1, liquidity 0.
+    const MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342n;
+    const readers: PoolMidReaders = {
+      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
+      readSlot0: async () => MAX_SQRT_RATIO - 1n,
+      readLiquidity: async () => 1_000_000n, // even with "liquidity", a boundary price is unusable
       readDecimals: async () => 18,
     };
     const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);

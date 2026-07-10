@@ -27,7 +27,7 @@
 import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 import { getBenchmarkMid, type BenchmarkResult } from './benchmarkPrice.js';
-import { getDeepestPoolForPair, getDeepestPoolWithDepth, readSlot0 } from './poolDiscovery.js';
+import { getDeepestPoolForPair, getDeepestPoolWithDepth, readSlot0, readLiquidity } from './poolDiscovery.js';
 import {
   makeRpcDecimalsCache,
   sqrtPriceX96ToPrice,
@@ -128,6 +128,15 @@ const ERC20_SYMBOL_ABI = parseAbi(['function symbol() view returns (string)']);
  * `PublicClient` so the orientation/inversion math below is directly
  * testable with pure fakes (no RPC, no viem mocking required).
  */
+/**
+ * Uniswap V3 `sqrtPriceX96` bounds. A pool whose slot0 is pinned at (or within
+ * one of) either bound has run to its last usable tick — it's empty / one-sided,
+ * and its slot0 "price" is a garbage extreme, not a usable mid (see the CLAWNCH
+ * case: a 0-liquidity USDC/pool at MAX_SQRT_RATIO produced a ~1e-27 mid).
+ */
+const MIN_SQRT_RATIO = 4295128739n;
+const MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342n;
+
 export interface PoolMidReaders {
   /** Deepest initialized pool for the already address-sorted (token0, token1) pair. */
   getDeepestPool: (
@@ -137,6 +146,9 @@ export interface PoolMidReaders {
   ) => Promise<{ address: string; kind: string } | null>;
   /** Raw `slot0` sqrtPriceX96 read for a given pool address. */
   readSlot0: (poolAddress: string, blockNumber: bigint) => Promise<bigint | null>;
+  /** In-range `liquidity()` for a pool at a block; null on revert. Used to reject
+   *  empty pools whose slot0 price is not a usable mid. */
+  readLiquidity: (poolAddress: string, blockNumber: bigint) => Promise<bigint | null>;
   readDecimals: (address: string) => Promise<number>;
 }
 
@@ -171,6 +183,14 @@ export async function defaultGetPairMid(
   const sqrtPriceX96 = await readers.readSlot0(pool.address, blockNumber);
   if (sqrtPriceX96 === null) return null;
 
+  // Reject an empty / one-sided pool: its slot0 price is a garbage extreme, not
+  // a usable mid. Two signals — a price pinned at a tick boundary, or liquidity
+  // below the floor. Returning null here lets priceReceipt fall through to the
+  // bridged `estimated` mid instead of quoting a bogus `full` mid.
+  if (sqrtPriceX96 <= MIN_SQRT_RATIO + 1n || sqrtPriceX96 >= MAX_SQRT_RATIO - 1n) return null;
+  const liquidity = await readers.readLiquidity(pool.address, blockNumber);
+  if (liquidity === null || liquidity < ESTIMATED_MID_MIN_LIQUIDITY) return null;
+
   const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
   const rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1); // token1 per token0
   const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
@@ -190,6 +210,7 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
   const poolReaders: PoolMidReaders = {
     getDeepestPool: (token0, token1, blockNumber) => getDeepestPoolForPair(client, token0, token1, blockNumber),
     readSlot0: (poolAddress, blockNumber) => readSlot0(client, poolAddress as `0x${string}`, blockNumber),
+    readLiquidity: (poolAddress, blockNumber) => readLiquidity(client, poolAddress as `0x${string}`, blockNumber),
     readDecimals: decCache,
   };
 

@@ -218,7 +218,7 @@ export async function readV4Slot0(
  * Returns the liquidity (uint128) or null on revert/error. Used only to RANK
  * candidate pools by depth — never for pricing.
  */
-async function readLiquidity(
+export async function readLiquidity(
   client: PublicClient,
   poolAddress: `0x${string}`,
   blockNumber?: bigint,

@@ -25,7 +25,7 @@ import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { priceReceipt } from './pricing.js';
 import { labelAddress } from './tagging.js';
 import { decomposeRoute, createDefaultMidReader } from './decomposeRoute.js';
-import { signedDeviationBps } from './priceMath.js';
+import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
 import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSignatures.js';
 
@@ -213,10 +213,19 @@ export async function analyzeTransaction(
 		// All-in cost via the same signed-deviation approach buildSmokeRow uses, in
 		// output-per-input convention: (mid − realized)/mid. Positive = cost.
 		const marketMid = pricing.marketMid; // output-per-input, or null when partial
-		const allInCostBps =
+		const allInCostBpsRaw =
 			marketMid != null && marketMid > 0 && realizedPrice != null
 				? signedDeviationBps('sell_weth', marketMid, realizedPrice)
 				: null;
+		// Safety net: a mid-derived deviation beyond the plausibility cap means the
+		// reference mid is garbage (e.g. an empty boundary-tick pool that slipped
+		// through pool selection) — degrade to a mid-less `partial` picture instead
+		// of surfacing an absurd cost. defaultGetPairMid now rejects the known
+		// CLAWNCH case upstream; this is the belt to that suspenders, gating every
+		// mid-derived field (marketMid, allInCost, and the whole decomposition).
+		const midImplausible = priced && isImplausibleDeviationBps(allInCostBpsRaw);
+		const midReliable = priced && !midImplausible;
+		const allInCostBps = midReliable ? allInCostBpsRaw : null;
 
 		// Gas valued in USD via ETH/USD (best-effort; independent of the traded pair).
 		const ethUsd = await bestEffortEthUsd(rpcUrl, blockNumber);
@@ -275,6 +284,10 @@ export async function analyzeTransaction(
 		const settlementEventSeen = sig ? settlementEventPresent(receiptLogs, sig) : false;
 
 		const flags = [...route.flags];
+		if (midImplausible)
+			flags.push(
+				`IMPLAUSIBLE_MID: deviation ${allInCostBpsRaw?.toExponential(2)}bps exceeds the plausibility cap — reference mid discarded, degraded to partial`,
+			);
 		if (!sig) flags.push(`NO_SIGNATURE: unknown aggregator '${aggSlug}'`);
 		if (sig && !settlementEventSeen)
 			flags.push(`SETTLEMENT_EVENT_MISSING: no distinctive event from ${sig.settlementContract}`);
@@ -293,7 +306,7 @@ export async function analyzeTransaction(
 			feeTierBps: l.feeTierBps,
 			notionalUsdc: l.notionalUsdc,
 			lpFeeBps: l.lpFeeBps,
-			priceImpactBps: priced ? l.priceImpactBps : null,
+			priceImpactBps: midReliable ? l.priceImpactBps : null,
 		}));
 
 		return {
@@ -317,19 +330,19 @@ export async function analyzeTransaction(
 			// receipts (USDC→WETH) show USD-per-WETH like seed rows instead of a tiny
 			// inverse.
 			realizedPrice: toDisplayPrice(realizedPrice, baseIsOutput),
-			marketMid: priced ? toDisplayPrice(marketMid, baseIsOutput) : null,
+			marketMid: midReliable ? toDisplayPrice(marketMid, baseIsOutput) : null,
 			allInCostBps,
-			pricingStatus: pricing.status,
-			executionBps: priced ? route.executionBps : null,
+			pricingStatus: midReliable ? pricing.status : 'partial',
+			executionBps: midReliable ? route.executionBps : null,
 			lpFeeBps: route.lpFeeBps,
 			aggFeeBps: route.aggFeeBps,
-			slippageBps: priced ? route.slippageBps : null,
+			slippageBps: midReliable ? route.slippageBps : null,
 			gasCostUsd,
 			routePure: route.routeShape === 'single',
 			routeShape: route.routeShape,
 			hopCount: route.hopCount,
 			routeLegs,
-			reconResidualBps: priced ? route.reconResidualBps : null,
+			reconResidualBps: midReliable ? route.reconResidualBps : null,
 			decompConfidence: route.confidence,
 			feeRecipient: route.feeRecipient,
 			feeSinkSource: route.feeSinkSource,
