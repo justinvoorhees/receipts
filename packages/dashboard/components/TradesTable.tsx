@@ -429,21 +429,23 @@ export function getPriceImpactRows(legs: Pick<RouteLeg, 'venue' | 'type' | 'toke
 	color: string | undefined;
 	valueTooltip?: string | undefined;
 }[] {
-	return legs.map((leg) => {
-		const rawImpact = leg.priceImpactBps;
-		const isNullImpact = rawImpact == null;
-		const impact = isNullImpact
-			? { text: 'Null', color: undefined }
-			: formatDialogBps(-rawImpact);
-		return {
-			label: getVenueLabel(leg),
-			href: `https://basescan.org/address/${leg.venue}`,
-			context: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
-			value: impact.text,
-			color: impact.color,
-			valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
-		};
-	});
+	return legs
+		.filter((leg) => leg.type !== 'wrap' && leg.type !== 'unwrap')
+		.map((leg) => {
+			const rawImpact = leg.priceImpactBps;
+			const isNullImpact = rawImpact == null;
+			const impact = isNullImpact
+				? { text: 'Null', color: undefined }
+				: formatDialogBps(-rawImpact);
+			return {
+				label: getVenueLabel(leg),
+				href: `https://basescan.org/address/${leg.venue}`,
+				context: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
+				value: impact.text,
+				color: impact.color,
+				valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
+			};
+		});
 }
 
 function getNullPriceImpactTooltip(leg: Pick<RouteLeg, 'type' | 'venue'>): string {
@@ -505,8 +507,9 @@ export function normalizeRouteLegs(routeLegs: unknown): RouteLeg[] {
 }
 
 export function routePath(legs: RouteLeg[]): string {
-	if (legs.length === 0) return '–';
-	const tokens = [tokenSymbol(legs[0]!.tokenIn), ...legs.map((leg) => tokenSymbol(leg.tokenOut))];
+	const swaps = legs.filter((l) => l.type !== 'wrap' && l.type !== 'unwrap');
+	if (swaps.length === 0) return '–';
+	const tokens = [tokenSymbol(swaps[0]!.tokenIn), ...swaps.map((leg) => tokenSymbol(leg.tokenOut))];
 	return tokens.join('->');
 }
 
@@ -540,6 +543,8 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	if (leg.type === 'pancakev3') return 'Pancake v3';
 	if (leg.type === 'univ3') return 'Uni v3';
 	if (leg.type === 'univ2') return 'Uni v2';
+	if (leg.type === 'unwrap') return 'Unwrap (WETH→ETH)';
+	if (leg.type === 'wrap') return 'Wrap (ETH→WETH)';
 	if (leg.type === 'rfq' || leg.type === 'unknown') return 'Unknown Pool';
 	return leg.type.toUpperCase();
 }

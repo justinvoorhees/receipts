@@ -49,7 +49,7 @@ export interface RouteLeg {
 	tokenOut: string;
 	feeTierBps: number;
 	notionalUsdc: number;
-	lpFeeBps: number;
+	lpFeeBps: number | null;
 	priceImpactBps: number | null;
 }
 

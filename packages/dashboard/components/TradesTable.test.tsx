@@ -556,3 +556,20 @@ describe('TradesTable', () => {
 		expect(html).toContain(expected);
 	});
 });
+
+describe('wrap/unwrap venue handling', () => {
+	it('labels wrap and unwrap legs', async () => {
+		const { getVenueLabel } = await import('./TradesTable');
+		expect(getVenueLabel({ type: 'unwrap' })).toBe('Unwrap (WETH→ETH)');
+		expect(getVenueLabel({ type: 'wrap' })).toBe('Wrap (ETH→WETH)');
+	});
+	it('excludes wrap/unwrap legs from price-impact rows', async () => {
+		const { getPriceImpactRows } = await import('./TradesTable');
+		const rows = getPriceImpactRows([
+			{ venue: '0xpool', type: 'univ3', tokenIn: '0xusdc', tokenOut: '0xweth', priceImpactBps: 5 },
+			{ venue: '0x4200000000000000000000000000000000000006', type: 'unwrap', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native', priceImpactBps: null },
+		] as never);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]!.label).not.toContain('Unwrap');
+	});
+});
