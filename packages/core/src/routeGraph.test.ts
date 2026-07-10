@@ -269,17 +269,17 @@ describe('tryBuildChain output-token recurrence', () => {
     expect(g.outputToken).toBe(WETH);
   });
 
-  it('does not mislabel a fully-consumed chain that ends off the output token as linear', () => {
-    // A -> B -> C consumes all legs but the trader's output token is C already;
-    // construct a case where the greedy chain ends at a non-output token.
+  it('leaves an ordinary linear route (output token only at the end) unaffected by the fix', () => {
+    // Regression guard: a plain linear A -> B -> C route where the output
+    // token (C) appears only at the very end must still reconstruct as linear.
+    // The end-token guard added to the linear check and the greedy walk are
+    // no-ops here because the walk terminates exactly at C.
     const A = '0x00000000000000000000000000000000000000e1';
     const B = '0x00000000000000000000000000000000000000e2';
     const C = '0x00000000000000000000000000000000000000e3';
     const vA = '0x00000000000000000000000000000000000000f1';
     const vB = '0x00000000000000000000000000000000000000f2';
-    // Trader sends A and D, receives C: input picked by largest magnitude.
-    // Legs: A->B (vA), B->C (vB). Trader output is C. This SHOULD be linear
-    // (ends at C). Invert to force an off-output end:
+    // Legs: A->B (vA), B->C (vB). Trader input A, output C.
     const transfers = [
       { token: A, from: trader, to: vA, value: 100n },
       { token: B, from: vA, to: vB, value: 100n },

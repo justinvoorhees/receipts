@@ -244,8 +244,16 @@ function chainLegs(
     return { ordered: legs, shape: 'split', reconstructed: cleanSplit };
   }
 
-  // Complex / stalled — return best-effort
-  return { ordered: chain ?? legs, shape: 'complex', reconstructed: false };
+  // Complex / stalled — best-effort ordering. Truncate the greedy walk at the
+  // first arrival at the output token so the non-reconstructed display path is
+  // byte-identical to the pre-greedy-walk behavior; the walk past the output
+  // token exists only to decide linear-acceptance above.
+  let complexOrdered = chain ?? legs;
+  if (chain) {
+    const stop = chain.findIndex((l) => l.tokenOut === outputToken);
+    if (stop >= 0) complexOrdered = chain.slice(0, stop + 1);
+  }
+  return { ordered: complexOrdered, shape: 'complex', reconstructed: false };
 }
 
 /**
