@@ -166,6 +166,23 @@ describe('TradesTable', () => {
 		]);
 	});
 
+	it('resolves endpoint + native-ETH leg symbols from the receipt when a row is passed', async () => {
+		const { getPriceImpactRows } = await import('./TradesTable');
+		// Real WARP->ETH route: WARP is absent from the static TOKEN_SYMBOLS map,
+		// and the terminal Uniswap v4 leg pays native ETH directly (tokenOut is
+		// the WETH stand-in, outputToken is 'native', no unwrap step).
+		const rows = getPriceImpactRows(
+			[
+				{ venue: '0x53932cbd6cddbb907ce1bb108496c7bd8aaa5dce', type: 'univ3', tokenIn: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', tokenOut: '0x4200000000000000000000000000000000000006', priceImpactBps: null },
+				{ venue: '0x72ab388e2e2f6facef59e3c3fa2c4e29011c2d38', type: 'pancakev3', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', priceImpactBps: null },
+				{ venue: '0x498581ff718922c3f8e6a244956af099b2652b2b', type: 'univ4', tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', tokenOut: '0x4200000000000000000000000000000000000006', priceImpactBps: null },
+			] as never,
+			{ inputToken: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', outputToken: 'native', inputSymbol: 'WARP', outputSymbol: 'ETH' } as never,
+		);
+
+		expect(rows.map((r) => r.context)).toEqual(['WARP/WETH', 'WETH/USDC', 'USDC/ETH']);
+	});
+
 	it('formats Coinbase Wrapped Staked ETH with its token symbol', async () => {
 		const { getPriceImpactRows } = await import('./TradesTable');
 

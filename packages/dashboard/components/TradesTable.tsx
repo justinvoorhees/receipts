@@ -421,7 +421,70 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	};
 }
 
-export function getPriceImpactRows(legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps'>[]): {
+const NATIVE = 'native';
+const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
+
+/**
+ * Resolves a leg's tokenIn/tokenOut to a display symbol for a Cost Breakdown
+ * "context" string, correcting two ways the static TOKEN_SYMBOLS map (which
+ * doesn't contain every token) can mislabel a leg:
+ *
+ *  1. Endpoint tokens: when a leg's token is the receipt's own resolved input
+ *     or output token (e.g. WARP — absent from the static map), prefer the
+ *     receipt's own inputSymbol/outputSymbol over the static map/short-address
+ *     fallback.
+ *  2. Terminal native-ETH legs: core's decomposeRoute models any native ETH
+ *     value transfer using the WETH address internally, so an ERC-20-only
+ *     route graph can chain native-settled legs (e.g. a Uniswap v4 pool that
+ *     pays ETH directly). When a separate `unwrap` step follows, that WETH
+ *     label is correct — the pool really did trade WETH, and the unwrap row
+ *     shows the ETH conversion. But when NO unwrap step follows (v4 paying
+ *     native ETH straight to the taker), the WETH stand-in on the last leg
+ *     IS the true, final settlement and should read as the receipt's own
+ *     outputSymbol (e.g. ETH), not WETH. Symmetric on the input side for a
+ *     native-ETH-input trade with no leading `wrap` step.
+ *
+ * `index`/`legsLength` are the leg's position in the FULL route (before any
+ * wrap/unwrap filtering), so the first/last native detection stays correct
+ * even for callers (e.g. getPriceImpactRows) that filter step legs out.
+ */
+export function legPairContext(
+	leg: Pick<RouteLeg, 'type' | 'tokenIn' | 'tokenOut'>,
+	index: number,
+	legsLength: number,
+	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
+): string {
+	const endpointSymbols = new Map<string, string>();
+	if (row.inputToken && row.inputToken.toLowerCase() !== NATIVE) {
+		endpointSymbols.set(row.inputToken.toLowerCase(), row.inputSymbol);
+	}
+	if (row.outputToken && row.outputToken.toLowerCase() !== NATIVE) {
+		endpointSymbols.set(row.outputToken.toLowerCase(), row.outputSymbol);
+	}
+	const resolve = (address: string): string => endpointSymbols.get(address.toLowerCase()) ?? tokenSymbol(address);
+
+	const isFirst = index === 0;
+	const isLast = index === legsLength - 1;
+	const inputIsNativeStandIn =
+		isFirst &&
+		leg.type !== 'wrap' &&
+		row.inputToken?.toLowerCase() === NATIVE &&
+		leg.tokenIn?.toLowerCase() === WETH_ADDRESS;
+	const outputIsNativeStandIn =
+		isLast &&
+		leg.type !== 'unwrap' &&
+		row.outputToken?.toLowerCase() === NATIVE &&
+		leg.tokenOut?.toLowerCase() === WETH_ADDRESS;
+
+	const inSymbol = inputIsNativeStandIn ? row.inputSymbol : resolve(leg.tokenIn);
+	const outSymbol = outputIsNativeStandIn ? row.outputSymbol : resolve(leg.tokenOut);
+	return `${inSymbol}/${outSymbol}`;
+}
+
+export function getPriceImpactRows(
+	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps'>[],
+	row?: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
+): {
 	label: string;
 	href: string;
 	context: string;
@@ -430,8 +493,9 @@ export function getPriceImpactRows(legs: Pick<RouteLeg, 'venue' | 'type' | 'toke
 	valueTooltip?: string | undefined;
 }[] {
 	return legs
-		.filter((leg) => leg.type !== 'wrap' && leg.type !== 'unwrap')
-		.map((leg) => {
+		.map((leg, index) => ({ leg, index }))
+		.filter(({ leg }) => leg.type !== 'wrap' && leg.type !== 'unwrap')
+		.map(({ leg, index }) => {
 			const rawImpact = leg.priceImpactBps;
 			const isNullImpact = rawImpact == null;
 			const impact = isNullImpact
@@ -440,7 +504,9 @@ export function getPriceImpactRows(legs: Pick<RouteLeg, 'venue' | 'type' | 'toke
 			return {
 				label: getVenueLabel(leg),
 				href: `https://basescan.org/address/${leg.venue}`,
-				context: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
+				context: row
+					? legPairContext(leg, index, legs.length, row)
+					: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
 				value: impact.text,
 				color: impact.color,
 				valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
