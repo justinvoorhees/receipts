@@ -1,6 +1,6 @@
 'use client';
 import { ReceiptSearch } from './ReceiptSearch';
-import type { ReceiptRow } from '../lib/queries';
+import type { ReceiptRow, RouteLeg } from '../lib/queries';
 import {
 	formatProvider,
 	providerColor,
@@ -282,6 +282,38 @@ function BkdRow({
 	);
 }
 
+// Shared row for the Cost Breakdown "Liquidity Provider Fee" / "Pools Touched"
+// lists — same venue/label/context, differing only in the value column and
+// (for the uncosted "Pools Touched" list) an extra guard against legs missing
+// a token pair.
+function LegRow({
+	leg,
+	index,
+	value,
+	color,
+	requirePair = false,
+}: {
+	leg: RouteLeg;
+	index: number;
+	value: string;
+	color?: string | undefined;
+	requirePair?: boolean;
+}) {
+	const isStep = leg.type === 'wrap' || leg.type === 'unwrap';
+	const hasPair = leg.tokenIn && leg.tokenOut;
+	const hideContext = requirePair ? isStep || !hasPair : isStep;
+	return (
+		<BkdRow
+			label={getVenueLabel(leg)}
+			href={`https://basescan.org/address/${leg.venue}`}
+			context={hideContext ? undefined : `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`}
+			value={value}
+			color={color}
+			secondary
+		/>
+	);
+}
+
 export function ReceiptView({ trade, hash }: { trade: ReceiptRow | null; hash: string }) {
 	const error = trade === null ? 'Transaction not found.' : undefined;
 
@@ -458,18 +490,15 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 					<>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						{legs.map((leg, index) => {
-							const isStep = leg.type === 'wrap' || leg.type === 'unwrap';
 							const { text: lpText, color: lpColor } =
 								leg.lpFeeBps == null ? { text: '–', color: undefined } : formatDialogBps(-leg.lpFeeBps);
 							return (
-								<BkdRow
+								<LegRow
 									key={`${leg.venue}-${index}`}
-									label={getVenueLabel(leg)}
-									href={`https://basescan.org/address/${leg.venue}`}
-									context={isStep ? undefined : `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`}
+									leg={leg}
+									index={index}
 									value={lpText}
 									color={lpColor}
-									secondary
 								/>
 							);
 						})}
@@ -477,20 +506,9 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 				) : (
 					<>
 						<BkdHeading label="Pools Touched" plain />
-						{legs.map((leg, index) => {
-							const isStep = leg.type === 'wrap' || leg.type === 'unwrap';
-							const hasPair = leg.tokenIn && leg.tokenOut;
-							return (
-								<BkdRow
-									key={`${leg.venue}-${index}`}
-									label={getVenueLabel(leg)}
-									href={`https://basescan.org/address/${leg.venue}`}
-									context={isStep || !hasPair ? undefined : `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`}
-									value="–"
-									secondary
-								/>
-							);
-						})}
+						{legs.map((leg, index) => (
+							<LegRow key={`${leg.venue}-${index}`} leg={leg} index={index} value="–" requirePair />
+						))}
 					</>
 				)}
 

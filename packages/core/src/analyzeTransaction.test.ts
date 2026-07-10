@@ -119,4 +119,45 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		// No wrap/unwrap in this route (V4 pays native ETH directly).
 		expect(legs.some((l) => l.type === 'wrap' || l.type === 'unwrap')).toBe(false);
 	}, 30_000);
+
+	it('decomposes a native-ETH-INPUT (ETH->USDC) trade with no spurious leg from the outer EOA->router frame', async () => {
+		// Odos ETH->USDC on Base, block 48452452: EOA sends native ETH directly to
+		// the Odos router, which wraps to WETH and swaps WETH->USDC on a Uni V2
+		// pool. `extractNativeTransfers` walks every value-moving CALL frame,
+		// INCLUDING the outer EOA->router frame — the concern (per
+		// native-eth-decomposition-followups) was that this could inject a
+		// spurious/duplicate WETH node into the route graph. It doesn't: the
+		// outer EOA->router transfer collapses into the informational wrap step
+		// (native->WETH), and exactly one costed leg (the real WETH->USDC pool)
+		// comes out the other side.
+		const r = await analyzeTransaction(
+			'0xf87c9ea6a765d1e52c96156fdefa6ac8340ec7509c81359f2e57a34220ef31bd',
+			8453,
+			{ rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+		expect(r!.inputSymbol).toBe('ETH');
+		expect(r!.outputSymbol).toBe('USDC');
+		expect(r!.routeShape).toBe('single');
+		expect(r!.decompConfidence).toBe('high');
+
+		const legs = r!.routeLegs as { venue: string; type: string; tokenIn: string; tokenOut: string; lpFeeBps: number | null }[];
+		// Exactly two legs total: the informational wrap + one costed pool leg.
+		// If the outer EOA->router native-value frame leaked in as its own node,
+		// this would be 3+.
+		expect(legs).toHaveLength(2);
+
+		const wrapLeg = legs.find((l) => l.type === 'wrap');
+		expect(wrapLeg).toBeDefined();
+		expect(wrapLeg!.tokenIn).toBe('native');
+		expect(wrapLeg!.tokenOut.toLowerCase()).toBe(WETH);
+		expect(wrapLeg!.lpFeeBps).toBeNull();
+
+		const costedLegs = legs.filter((l) => typeof l.lpFeeBps === 'number');
+		expect(costedLegs).toHaveLength(1);
+		expect(costedLegs[0]!.venue.toLowerCase()).toBe('0xab067c01c7f5734da168c699ae9d23a4512c9fdb'); // Uni V2 WETH/USDC
+		expect(costedLegs[0]!.tokenIn.toLowerCase()).toBe(WETH);
+		expect(costedLegs[0]!.tokenOut.toLowerCase()).toBe(USDC.toLowerCase());
+		expect(costedLegs[0]!.lpFeeBps).toBeCloseTo(29.88, 1);
+	}, 30_000);
 });

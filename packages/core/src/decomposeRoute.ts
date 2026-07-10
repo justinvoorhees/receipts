@@ -193,7 +193,11 @@ function wrapUnwrapToLegEntry(
 
 /** Best-effort uncosted "pools touched" entries for a route that could not be
  *  costed. One entry per detected venue; token pair filled only for a clean
- *  1-in-1-out net flow. */
+ *  1-in-1-out net flow.
+ *  Invariant: `venues` keys must already be lowercase — this function does not
+ *  normalize them itself. `scanVenues` (and its augmenting helpers) always
+ *  lowercase venue addresses before inserting, so this holds for all current
+ *  callers. */
 export function venuesToUncostedLegs(
 	venues: Map<string, { type: VenueType }>,
 	transfers: { token: string; from: string; to: string; value: bigint }[],
