@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decomposeRoute, extractNativeTransfers } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps } from './decomposeRoute.js';
 import type { DecomposeTradeInput } from './decompose-trade.js';
 
 // Load trace fixtures (avoid JSON import attribute issues with NodeNext)
@@ -21,6 +21,8 @@ const PANCAKE_POOL = '0x7cb770d0513c30e0cb45e4899e4a2cbeed6f9830';
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH = '0x4200000000000000000000000000000000000006';
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const DEPOSIT_TOPIC = '0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c';
+const WITHDRAWAL_TOPIC = '0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65';
 const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 
 // Test constants for extractNativeTransfers
@@ -221,14 +223,16 @@ describe('decomposeRoute', () => {
       expect(result.confidence).toBe('high');
       expect(result.gasBps).toBeGreaterThan(0);
 
-      // Per-leg detail
-      expect(result.legs).toHaveLength(2);
-      // First leg: PancakeSwap V3 (USDC→VIRTUAL)
-      const leg0 = result.legs[0]!;
+      // Per-leg detail — fixture includes a real WETH wrap (Deposit) event,
+      // prepended as an informational (null-cost) leg ahead of the pool legs.
+      expect(result.legs).toHaveLength(3);
+      expect(result.legs[0]!.leg.type).toBe('wrap');
+      // First pool leg: PancakeSwap V3 (USDC→VIRTUAL)
+      const leg0 = result.legs[1]!;
       expect(leg0.leg.type).toBe('pancakev3');
       expect(leg0.feeTierBps).toBe(5);
-      // Second leg: V4 (VIRTUAL→WETH)
-      const leg1 = result.legs[1]!;
+      // Second pool leg: V4 (VIRTUAL→WETH)
+      const leg1 = result.legs[2]!;
       expect(leg1.leg.type).toBe('univ4');
       expect(leg1.feeTierBps).toBeCloseTo(4.5, 1);
     });
@@ -270,10 +274,11 @@ describe('decomposeRoute', () => {
       expect(result.lpFeeBps).toBeCloseTo(9.5, 1);
       expect(result.slippageBps).toBeCloseTo(input.allInCostBps - 9.5 - 0, 1);
 
-      // Each leg should now have priceImpactBps
-      expect(result.legs).toHaveLength(2);
-      const leg0 = result.legs[0]!;
-      const leg1 = result.legs[1]!;
+      // Each pool leg should now have priceImpactBps (wrap leg stays null-cost)
+      expect(result.legs).toHaveLength(3);
+      expect(result.legs[0]!.leg.type).toBe('wrap');
+      const leg0 = result.legs[1]!;
+      const leg1 = result.legs[2]!;
       expect(leg0.priceImpactBps).not.toBeNull();
       expect(leg1.priceImpactBps).not.toBeNull();
 
@@ -282,7 +287,7 @@ describe('decomposeRoute', () => {
 
       // Per-leg invariant: lpFeeBps + priceImpactBps ≈ leg total cost
       for (const leg of result.legs) {
-        if (leg.priceImpactBps === null) continue;
+        if (leg.priceImpactBps === null || leg.lpFeeBps === null) continue;
         const decIn = leg.leg.tokenIn === USDC ? 6 : 18;
         const decOut = leg.leg.tokenOut === USDC ? 6 : 18;
         const realized = (Number(leg.leg.amountOutRaw) / 10 ** decOut) /
@@ -352,8 +357,10 @@ describe('decomposeRoute', () => {
       // So confidence should be 'high'.
       expect(result.confidence).toBe('high');
 
-      // Per-leg detail
-      expect(result.legs).toHaveLength(2);
+      // Per-leg detail — fixture includes a real WETH wrap (Deposit) event,
+      // prepended as an informational (null-cost) leg ahead of the pool legs.
+      expect(result.legs).toHaveLength(3);
+      expect(result.legs[0]!.leg.type).toBe('wrap');
     });
   });
 
@@ -642,5 +649,45 @@ describe('native-ETH decomposition (Step 3a)', () => {
     expect(result.legs[0]!.leg.tokenOut).toBe(WETH); // native modeled as WETH
     expect(typeof result.legs[0]!.lpFeeBps).toBe('number');
     expect(result.routeShape === 'single' || result.routeShape === 'linear').toBe(true);
+  });
+});
+
+describe('wrap/unwrap informational steps', () => {
+  it('detectWrapUnwrapSteps returns one summed unwrap and one wrap', () => {
+    const logs = [
+      { address: WETH, topics: [WITHDRAWAL_TOPIC, pad32(TRADER)], data: u256(3n) },
+      { address: WETH, topics: [WITHDRAWAL_TOPIC, pad32(TRADER)], data: u256(4n) },
+      { address: WETH, topics: [DEPOSIT_TOPIC, pad32(TRADER)], data: u256(10n) },
+      { address: USDC, topics: [TRANSFER_TOPIC, pad32(TRADER), pad32(POOL_A)], data: u256(1n) },
+    ];
+    expect(detectWrapUnwrapSteps(logs)).toEqual([
+      { kind: 'wrap', amountRaw: 10n },
+      { kind: 'unwrap', amountRaw: 7n },
+    ]);
+  });
+
+  it('appends an unwrap leg (null cost) after the costed pool legs', async () => {
+    const traceWithUnwrap = {
+      type: 'CALL', from: TRADER, to: POOL_A, value: '0x0',
+      logs: [
+        { address: USDC, topics: [TRANSFER_TOPIC, pad32(TRADER), pad32(POOL_A)], data: u256(2_000000n) },
+        { address: WETH, topics: [WITHDRAWAL_TOPIC, pad32(POOL_A)], data: u256(1_000000000000000000n) },
+      ],
+      calls: [{ type: 'CALL', from: POOL_A, to: TRADER, value: u256(1_000000000000000000n) }],
+    };
+    const input = {
+      trace: traceWithUnwrap, txHash: '0xabc', trader: TRADER, direction: 'sell_weth', settledIn: 'ETH',
+      allInCostBps: 0, notionalUsdc: 2, realizedPrice: 2000, gasCostUsd: 0, aggregator: 'unknown',
+      blockNumber: 100n, rpcUrl: 'http://invalid', dustUsdc: 1e-6, structuralFloorUsd: 0,
+      structuralFloorBps: 0.5, recognizeV3Forks: true, impureOnVenueThirdToken: true,
+    } as never;
+    const result = await decomposeRoute(input, {
+      trace: traceWithUnwrap as never, feeReader: async () => ({ bps: 30, defaulted: false }),
+    });
+    const unwrap = result.legs.find((l) => l.leg.type === 'unwrap');
+    expect(unwrap).toBeDefined();
+    expect(unwrap!.lpFeeBps).toBeNull();
+    expect(result.legs[result.legs.length - 1]!.leg.type).toBe('unwrap'); // appended last
+    expect(result.legs.some((l) => typeof l.lpFeeBps === 'number')).toBe(true); // pool leg still costed
   });
 });

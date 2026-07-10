@@ -27,6 +27,8 @@ import { classifyKnownVenueAddress, classifyV3Factory } from './venueClassificat
 
 const PANCAKE_V3_SWAP_TOPIC = '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83';
 const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+const WETH_DEPOSIT_TOPIC = '0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c';
+const WETH_WITHDRAWAL_TOPIC = '0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65';
 
 const V4_SWAP_EVENT = parseAbiItem(
 	'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
@@ -90,7 +92,7 @@ export interface RouteDecomposeResult {
 	gasBps: number;
 	routeShape: RouteShape;
 	hopCount: number;
-	legs: (LegFeeInput & { lpFeeBps: number; priceImpactBps: number | null })[];
+	legs: (LegFeeInput & { lpFeeBps: number | null; priceImpactBps: number | null })[];
 	reconResidualBps: number | null;
 	confidence: 'high' | 'medium' | 'low';
 	flags: string[];
@@ -147,6 +149,46 @@ export function extractNativeTransfers(trace: TraceNode): { token: string; from:
 	};
 	visit(trace);
 	return out;
+}
+
+/** Detect WETH wrap (Deposit) / unwrap (Withdrawal) events. At most one of each,
+ *  amounts summed. Emitted as informational, zero-cost route steps. */
+export function detectWrapUnwrapSteps(
+	logs: readonly { address: string; topics: readonly string[]; data: string }[],
+): { kind: 'wrap' | 'unwrap'; amountRaw: bigint }[] {
+	let wrap = 0n, unwrap = 0n, sawWrap = false, sawUnwrap = false;
+	for (const log of logs) {
+		if (log.address.toLowerCase() !== WETH) continue;
+		const t0 = log.topics[0];
+		if (t0 === WETH_DEPOSIT_TOPIC) { wrap += BigInt(log.data); sawWrap = true; }
+		else if (t0 === WETH_WITHDRAWAL_TOPIC) { unwrap += BigInt(log.data); sawUnwrap = true; }
+	}
+	const steps: { kind: 'wrap' | 'unwrap'; amountRaw: bigint }[] = [];
+	if (sawWrap) steps.push({ kind: 'wrap', amountRaw: wrap });
+	if (sawUnwrap) steps.push({ kind: 'unwrap', amountRaw: unwrap });
+	return steps;
+}
+
+/** Build a display-only leg entry for a wrap/unwrap step (null costs). */
+function wrapUnwrapToLegEntry(
+	step: { kind: 'wrap' | 'unwrap'; amountRaw: bigint },
+): LegFeeInput & { lpFeeBps: number | null; priceImpactBps: number | null } {
+	const isWrap = step.kind === 'wrap';
+	return {
+		leg: {
+			venue: WETH,
+			type: step.kind,
+			tokenIn: isWrap ? 'native' : WETH,
+			tokenOut: isWrap ? WETH : 'native',
+			amountInRaw: step.amountRaw,
+			amountOutRaw: step.amountRaw,
+		},
+		feeTierBps: 0,
+		notionalUsdc: 0,
+		notionalApprox: true,
+		lpFeeBps: null,
+		priceImpactBps: null,
+	};
 }
 
 /** Simple decimals lookup for known tokens. */
@@ -577,6 +619,12 @@ export async function decomposeRoute(
 		v3FactoryReader,
 	);
 
+	// Wrap/unwrap informational steps: detected once from logs, appended
+	// (never chained/costed) at both return sites below.
+	const wrapUnwrapSteps = detectWrapUnwrapSteps(logs);
+	const wrapEntries = wrapUnwrapSteps.filter((s) => s.kind === 'wrap').map(wrapUnwrapToLegEntry);
+	const unwrapEntries = wrapUnwrapSteps.filter((s) => s.kind === 'unwrap').map(wrapUnwrapToLegEntry);
+
 	// Step 3a: Model native ETH value transfers as WETH so the ERC-20-only route
 	// graph can chain native-settled legs (e.g. a Uniswap V4 pool paying ETH).
 	const nativeTransfers = extractNativeTransfers(trace);
@@ -761,7 +809,7 @@ export async function decomposeRoute(
 			gasBps,
 			routeShape: graph.shape,
 			hopCount,
-			legs: legsWithLp,
+			legs: [...wrapEntries, ...legsWithLp, ...unwrapEntries],
 			reconResidualBps,
 			confidence,
 			flags: [...base.flags, ...routeFlags],
@@ -783,7 +831,7 @@ export async function decomposeRoute(
 		gasBps,
 		routeShape: graph.shape,
 		hopCount: graph.legs.length,
-		legs: legsWithLp,
+		legs: [...wrapEntries, ...legsWithLp, ...unwrapEntries],
 		reconResidualBps: null,
 		confidence: 'low',
 		flags: [...base.flags, ...routeFlags],
