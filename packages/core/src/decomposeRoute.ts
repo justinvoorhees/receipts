@@ -191,6 +191,38 @@ function wrapUnwrapToLegEntry(
 	};
 }
 
+/** Best-effort uncosted "pools touched" entries for a route that could not be
+ *  costed. One entry per detected venue; token pair filled only for a clean
+ *  1-in-1-out net flow. */
+export function venuesToUncostedLegs(
+	venues: Map<string, { type: VenueType }>,
+	transfers: { token: string; from: string; to: string; value: bigint }[],
+): (LegFeeInput & { lpFeeBps: null; priceImpactBps: null })[] {
+	const net = new Map<string, Map<string, bigint>>();
+	for (const t of transfers) {
+		const from = t.from.toLowerCase(), to = t.to.toLowerCase(), tok = t.token.toLowerCase();
+		if (!net.has(from)) net.set(from, new Map());
+		if (!net.has(to)) net.set(to, new Map());
+		net.get(from)!.set(tok, (net.get(from)!.get(tok) ?? 0n) - t.value);
+		net.get(to)!.set(tok, (net.get(to)!.get(tok) ?? 0n) + t.value);
+	}
+	const out: (LegFeeInput & { lpFeeBps: null; priceImpactBps: null })[] = [];
+	for (const [addr, info] of venues) {
+		const m = net.get(addr.toLowerCase());
+		let tokenIn = '', tokenOut = '';
+		if (m) {
+			const recv = [...m].filter(([, d]) => d > 0n).map(([t]) => t);
+			const sent = [...m].filter(([, d]) => d < 0n).map(([t]) => t);
+			if (recv.length === 1 && sent.length === 1) { tokenIn = recv[0]!; tokenOut = sent[0]!; }
+		}
+		out.push({
+			leg: { venue: addr, type: info.type, tokenIn, tokenOut, amountInRaw: 0n, amountOutRaw: 0n },
+			feeTierBps: 0, notionalUsdc: 0, notionalApprox: true, lpFeeBps: null, priceImpactBps: null,
+		});
+	}
+	return out;
+}
+
 /** Simple decimals lookup for known tokens. */
 function decimalsOf(token: string): number {
 	if (token === USDC) return 6;
@@ -831,7 +863,11 @@ export async function decomposeRoute(
 		gasBps,
 		routeShape: graph.shape,
 		hopCount: graph.legs.length,
-		legs: [...wrapEntries, ...legsWithLp, ...unwrapEntries],
+		legs: [
+			...wrapEntries,
+			...(legsWithLp.length > 0 ? legsWithLp : venuesToUncostedLegs(venues, transfers)),
+			...unwrapEntries,
+		],
 		reconResidualBps: null,
 		confidence: 'low',
 		flags: [...base.flags, ...routeFlags],

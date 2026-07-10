@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs } from './decomposeRoute.js';
 import type { DecomposeTradeInput } from './decompose-trade.js';
 
 // Load trace fixtures (avoid JSON import attribute issues with NodeNext)
@@ -689,5 +689,34 @@ describe('wrap/unwrap informational steps', () => {
     expect(unwrap!.lpFeeBps).toBeNull();
     expect(result.legs[result.legs.length - 1]!.leg.type).toBe('unwrap'); // appended last
     expect(result.legs.some((l) => typeof l.lpFeeBps === 'number')).toBe(true); // pool leg still costed
+  });
+});
+
+describe('venuesToUncostedLegs (pools-touched fallback)', () => {
+  it('emits one uncosted entry per venue with best-effort token pair', () => {
+    const venues = new Map([[POOL_A, { type: 'univ3' as const }]]);
+    const transfers = [
+      { token: USDC, from: TRADER, to: POOL_A, value: 2n },
+      { token: WETH, from: POOL_A, to: TRADER, value: 1n },
+    ];
+    const out = venuesToUncostedLegs(venues, transfers);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.leg.venue).toBe(POOL_A);
+    expect(out[0]!.leg.type).toBe('univ3');
+    expect(out[0]!.leg.tokenIn).toBe(USDC);
+    expect(out[0]!.leg.tokenOut).toBe(WETH);
+    expect(out[0]!.lpFeeBps).toBeNull();
+  });
+
+  it('leaves token pair empty for an ambiguous multi-token venue', () => {
+    const venues = new Map([[POOL_A, { type: 'univ4' as const }]]);
+    const transfers = [
+      { token: USDC, from: TRADER, to: POOL_A, value: 2n },
+      { token: WETH, from: TRADER, to: POOL_A, value: 5n }, // two net-received tokens
+      { token: WETH, from: POOL_A, to: TRADER, value: 1n },
+    ];
+    const out = venuesToUncostedLegs(venues, transfers);
+    expect(out[0]!.leg.tokenIn).toBe('');
+    expect(out[0]!.leg.tokenOut).toBe('');
   });
 });
