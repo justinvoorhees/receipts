@@ -349,10 +349,11 @@ export function ShareButton({ path }: { path?: string } = {}) {
 	);
 }
 
-export function formatExecutionPrice(value: unknown, unitSymbol = 'WETH'): string {
+export function formatExecutionPrice(value: unknown, baseSymbol = 'WETH', quoteSymbol?: string): string {
 	const n = value == null ? null : Number(value);
 	if (n == null || Number.isNaN(n)) return '–';
-	return `${trimNumber(n, 12)} = 1 ${unitSymbol}`;
+	const left = quoteSymbol ? `${trimNumber(n, 18)} ${quoteSymbol}` : trimNumber(n, 18);
+	return `${left} = 1 ${baseSymbol}`;
 }
 
 export function formatDialogBps(value: number | null): { text: string; color: string | undefined } {

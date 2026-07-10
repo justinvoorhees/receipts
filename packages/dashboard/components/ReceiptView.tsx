@@ -40,11 +40,13 @@ export function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown)
 	return 'Above Market';
 }
 
-// Pricing convention: quote token first, e.g. a USDC→WETH swap (input USDC,
-// output WETH) shows "WETH→USDC" — i.e. outputSymbol→inputSymbol. Populated
+// The title reads as the swap direction — inputSymbol→outputSymbol — so it
+// always matches the Token In / Token Out rows below it (USDC→WETH shows
+// "USDC→WETH", WARP→ETH shows "WARP→ETH"). Price rows are separately quoted
+// USD-per-base and are unaffected by this ordering. input/output are populated
 // consistently for seed and computed rows, so we never parse `direction`.
 function receiptPairTitle(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): string {
-	return `${row.outputSymbol}→${row.inputSymbol}`;
+	return `${row.inputSymbol}→${row.outputSymbol}`;
 }
 
 const NAMED_CHAINS: Record<number, string> = {
@@ -59,22 +61,26 @@ function chainLabel(chainId: number): string {
 	return NAMED_CHAINS[chainId] ?? `Chain ${chainId}`;
 }
 
-// Price rows are quoted as "<price> = 1 <base>". The base is the non-notional
-// leg — the side whose amount × realizedPrice reconstructs the USD notional
-// (WETH for USDC/WETH, in either direction). Falls back to the output token.
-function priceUnitSymbol(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' | 'realizedPrice' | 'notionalUsd'>): string {
-	const rp = row.realizedPrice == null ? null : Number(row.realizedPrice);
-	const notional = row.notionalUsd == null ? null : Number(row.notionalUsd);
-	if (rp != null && notional != null && Number.isFinite(rp) && Number.isFinite(notional) && rp > 0) {
-		const outDelta = Math.abs(Number(row.outputAmount) * rp - notional);
-		const inDelta = Math.abs(Number(row.inputAmount) * rp - notional);
-		return inDelta < outDelta ? row.inputSymbol : row.outputSymbol;
-	}
-	return row.outputSymbol;
-}
-
 const STABLE_SYMBOLS = new Set(['USDC', 'USDbC', 'DAI']);
 const ETH_SYMBOLS = new Set(['WETH', 'ETH']);
+
+// Mirrors core's anchorRank: stablecoins outrank ETH/WETH, which outrank
+// everything else. The stored realizedPrice/marketMid are quote-per-base,
+// where base = the leg with the LOWER anchor rank (the more "volatile" side).
+function symbolAnchorRank(symbol: string): number {
+	if (STABLE_SYMBOLS.has(symbol)) return 2;
+	if (ETH_SYMBOLS.has(symbol)) return 1;
+	return 0;
+}
+
+// Resolves the base/quote symbols for a receipt's price rows, matching the
+// orientation the DB already stores realizedPrice/marketMid in (quote-per-base).
+function pairBaseQuote(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): { base: string; quote: string } {
+	const baseIsOutput = symbolAnchorRank(row.outputSymbol) < symbolAnchorRank(row.inputSymbol);
+	return baseIsOutput
+		? { base: row.outputSymbol, quote: row.inputSymbol }
+		: { base: row.inputSymbol, quote: row.outputSymbol };
+}
 
 /**
  * For an ETH/WETH-quoted pair (one leg is WETH/native ETH, neither leg a
@@ -85,14 +91,13 @@ const ETH_SYMBOLS = new Set(['WETH', 'ETH']);
 function usdPerBasePrices(row: Pick<ReceiptRow,
 	'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' |
 	'realizedPrice' | 'marketMid' | 'notionalUsd'>
-): { baseSymbol: string; execUsd: number; marketUsd: number | null } | null {
+): { execUsd: number; marketUsd: number | null } | null {
 	const inSym = row.inputSymbol;
 	const outSym = row.outputSymbol;
 	if (STABLE_SYMBOLS.has(inSym) || STABLE_SYMBOLS.has(outSym)) return null; // stable-quoted → already USD
 	const inIsEth = ETH_SYMBOLS.has(inSym);
 	const outIsEth = ETH_SYMBOLS.has(outSym);
 	if (inIsEth === outIsEth) return null; // need exactly one ETH leg; the OTHER is base
-	const baseSymbol = inIsEth ? outSym : inSym;
 	const baseAmount = Number(inIsEth ? row.outputAmount : row.inputAmount);
 	const notional = row.notionalUsd == null ? null : Number(row.notionalUsd);
 	const rp = row.realizedPrice == null ? null : Number(row.realizedPrice);
@@ -103,7 +108,7 @@ function usdPerBasePrices(row: Pick<ReceiptRow,
 		rp != null && mm != null && Number.isFinite(rp) && Number.isFinite(mm) && rp !== 0
 			? execUsd * (mm / rp)
 			: null;
-	return { baseSymbol, execUsd, marketUsd };
+	return { execUsd, marketUsd };
 }
 
 const UNAVAILABLE = 'Unavailable for this pair';
@@ -300,7 +305,6 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 	const marketTooltip = isEstimated
 		? 'Best-effort reference from the deepest on-chain pool at block N-1; not oracle-validated.'
 		: 'Median of the traded pair’s reference pools at the trade’s block, cross-referenced against an on-chain price oracle';
-	const estMark = isEstimated ? <span className="ml-2 text-[var(--color-secondary)]">est.</span> : null;
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
@@ -309,7 +313,7 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 	const execution = getExecutionBreakdown(row);
 	const priceImpactRows = getPriceImpactRows(legs);
 	const pairTitle = receiptPairTitle(row);
-	const priceUnit = priceUnitSymbol(row);
+	const { base, quote } = pairBaseQuote(row);
 	const usdPrices = usdPerBasePrices(row);
 	const notionalSubvalue = formatSubvalueUsd(row.notionalUsd != null ? Number(row.notionalUsd) : NaN);
 
@@ -383,7 +387,7 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 					{formatTokenOut(row)}
 				</DetailRow>
 				<DetailRow
-					label="Realized Execution Price"
+					label="Execution Price"
 					subvalue={
 						usdPrices
 							? formatSubvalueUsd(usdPrices.execUsd)
@@ -392,11 +396,9 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 								: formatSubvalueUsd(Number(row.realizedPrice))
 					}
 				>
-					{usdPrices
-						? formatExecutionPrice(usdPrices.execUsd, usdPrices.baseSymbol)
-						: row.realizedPrice == null
-							? UNAVAILABLE
-							: formatExecutionPrice(row.realizedPrice, priceUnit)}
+					{row.realizedPrice == null
+						? UNAVAILABLE
+						: formatExecutionPrice(row.realizedPrice, base, quote)}
 				</DetailRow>
 				<DetailRow
 					label="Market Price"
@@ -410,11 +412,8 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 					}
 				>
 					{hasMarketPrice
-						? usdPrices
-							? formatExecutionPrice(usdPrices.marketUsd, usdPrices.baseSymbol)
-							: formatExecutionPrice(row.marketMid, priceUnit)
+						? formatExecutionPrice(row.marketMid, base, quote)
 						: UNAVAILABLE}
-					{hasMarketPrice ? estMark : null}
 					{hasMarketPrice && row.manipulationFlag ? (
 						<span
 							className="ml-2"
@@ -434,7 +433,6 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 							? formatDelta(usdPrices.marketUsd, usdPrices.execUsd)
 							: formatDelta(row.marketMid, row.realizedPrice)
 						: UNAVAILABLE}
-					{hasMarketPrice ? estMark : null}
 				</DetailRow>
 				<DetailRow label="Gas Cost">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}

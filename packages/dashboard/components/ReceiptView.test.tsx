@@ -79,13 +79,14 @@ describe('Receipt header', () => {
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
-		// Pair title uses outputSymbol→inputSymbol convention.
-		expect(html).toContain('WETH→USDC');
+		// Pair title reads as the swap direction (input→output), matching Token In/Out.
+		expect(html).toContain('USDC→WETH');
+		expect(html).not.toContain('WETH→USDC');
 		// Token In / Token Out render the generalized symbols + amounts.
 		expect(html).toContain('1000 USDC');
 		expect(html).toContain('0.33 WETH');
-		// Price expressed per output token (WETH), chain derived from chainId.
-		expect(html).toContain('= 1 WETH');
+		// Price expressed token-denominated, quote-per-base (USDC = 1 WETH).
+		expect(html).toContain('3000 USDC = 1 WETH');
 		expect(html).toContain('Base');
 		// Full receipts still show the priced sections.
 		expect(html).not.toContain('unavailable for this pair');
@@ -152,8 +153,8 @@ describe('Receipt partial state', () => {
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
 		);
-		// Pair title shows the exotic pair (outputSymbol→inputSymbol).
-		expect(html).toMatch(/BBB→AAA|AAA→BBB/);
+		// Pair title shows the exotic pair in swap direction (input→output).
+		expect(html).toContain('AAA→BBB');
 		// Token symbols/amounts still render.
 		expect(html).toContain('1000 AAA');
 		expect(html).toContain('5 BBB');
@@ -164,10 +165,9 @@ describe('Receipt partial state', () => {
 	});
 });
 
-describe('Receipt USD-per-base display for ETH/WETH-quoted pairs', () => {
-	it('renders ETH-quoted estimated prices in USD-per-base, not ETH-per-base', async () => {
+describe('Receipt token-denominated price rows', () => {
+	it('renders ETH-quoted prices token-denominated with the quote symbol', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
-		const { formatExecutionPrice } = await import('./TradesTable');
 		const row = {
 			...fullUsdcWethRow,
 			aggregator: 'fabric', pricingStatus: 'estimated',
@@ -178,17 +178,23 @@ describe('Receipt USD-per-base display for ETH/WETH-quoted pairs', () => {
 			chainlinkPrice: null, manipulationFlag: false,
 		};
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
-		const execUsd = 134.96 / 202116011.45;
-		expect(html).toContain(formatExecutionPrice(execUsd, 'WARP')); // USD-per-WARP, base = WARP
-		expect(html).not.toContain('= 1 ETH');
-		expect(html).not.toContain(formatExecutionPrice(0.000000000385, 'WARP')); // not the ETH figure
+		// Main line is now token-denominated ETH-per-WARP, quote symbol on the left.
+		expect(html).toContain('0.000000000385 ETH = 1 WARP');
+		expect(html).toContain('0.000000000394 ETH = 1 WARP');
+		// The USD figure (previously shown on the main line) no longer appears there —
+		// it still lives in the sub-value, so assert its presence rather than absence.
+		expect(html).not.toContain('0.000000000385 = 1 WARP');
+		expect(html).toContain('$0.00'); // USD sub-value still rendered (rounds to $0.00 at this scale)
+		// Header pair title reads as the swap direction (input→output), matching
+		// Token In/Out. It must NOT invert to ETH→WARP.
+		expect(html).toContain('WARP→ETH');
+		expect(html).not.toContain('ETH→WARP');
 	});
 
-	it('leaves stablecoin-quoted (USDC/WETH) price rows unchanged', async () => {
+	it('renders stablecoin-quoted (USDC/WETH) price rows with the USDC quote symbol', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
-		const { formatExecutionPrice } = await import('./TradesTable');
 		const html = renderToStaticMarkup(<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />);
-		expect(html).toContain(formatExecutionPrice('3000', 'WETH'));
+		expect(html).toContain('3000 USDC = 1 WETH');
 	});
 });
 
@@ -211,11 +217,12 @@ describe('Receipt estimated pricing tier', () => {
 			<ReceiptView trade={estimatedRow as never} hash={estimatedRow.txHash} />,
 		);
 		// The three rows are present (not "Unavailable for this pair").
-		expect(html).toContain('Realized Execution Price');
+		expect(html).toContain('Execution Price');
 		expect(html).toContain('Market Price');
 		expect(html).toContain('Price Delta');
-		// Best-effort marker + honest tooltip, and NOT the oracle-validated copy.
-		expect(html).toContain('est.');
+		// No visible "est." marker, but the honest best-effort tooltip is present,
+		// and NOT the oracle-validated copy.
+		expect(html).not.toContain('est.');
 		expect(html).toContain('not oracle-validated');
 		expect(html).not.toContain('cross-referenced against an on-chain price oracle');
 		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(0);
@@ -234,7 +241,7 @@ describe('Receipt estimated pricing tier', () => {
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
 		);
 		// Execution Price now renders (previously "Unavailable for this pair").
-		expect(html).toContain('Realized Execution Price');
+		expect(html).toContain('Execution Price');
 		// Execution Price renders (realizedPrice present); only Market + Delta are unavailable.
 		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(2);
 	});
