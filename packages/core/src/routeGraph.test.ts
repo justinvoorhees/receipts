@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRouteGraph } from './routeGraph.js';
+import { buildRouteGraph, chainLegs } from './routeGraph.js';
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH = '0x4200000000000000000000000000000000000006';
 const VIRTUAL = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
@@ -188,9 +188,12 @@ describe('buildRouteGraph', () => {
     expect(g.legs.every(l => l.tokenIn === USDC && l.tokenOut === WETH)).toBe(true);
   });
 
-  it('mixed split (one multi-hop branch) stays reconstructed=false (Fix 2 negative)', () => {
+  it('mixed split (one multi-hop branch) is a conserved DAG: reconstructed=true', () => {
     // One branch: USDC→WETH (direct). Another: USDC→VIRTUAL→WETH (multi-hop).
-    // This is NOT a clean direct-pair split — must stay reconstructed=false.
+    // This is NOT a clean direct-pair split (Fix 2's narrower rule), but it IS a
+    // conserved, acyclic DAG — USDC is a pure source, WETH a pure sink, and
+    // VIRTUAL's inflow (2e18 from poolHop1) exactly matches its outflow (2e18
+    // into poolHop2) — so general-DAG reconstruction now correctly accepts it.
     const poolDirect = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const poolHop1 = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
     const poolHop2 = '0xcccccccccccccccccccccccccccccccccccccccc';
@@ -212,7 +215,7 @@ describe('buildRouteGraph', () => {
       denylist: new Set(),
     });
     expect(g.shape).toBe('split');
-    expect(g.reconstructed).toBe(false);
+    expect(g.reconstructed).toBe(true);
   });
 
   it('C1 regression: multi-token venue yields complex, not guessed leg', () => {
@@ -290,5 +293,41 @@ describe('tryBuildChain output-token recurrence', () => {
     // This is a genuine linear A->B->C ending at output C.
     expect(g.shape).toBe('linear');
     expect(g.legs.map((l) => l.venue)).toEqual([vA, vB]);
+  });
+});
+
+describe('chainLegs — general DAG reconstruction', () => {
+  const leg = (tokenIn: string, tokenOut: string, inRaw: bigint, outRaw: bigint) => ({
+    venue: `0x${tokenIn}${tokenOut}`, type: 'univ3' as const, tokenIn, tokenOut,
+    amountInRaw: inRaw, amountOutRaw: outRaw,
+  });
+
+  it('reconstructs a convergent multi-hop split (LFI→WETH→USDC→GITLAWB + LFI→USDC)', () => {
+    // Flow: 100 LFI splits → 60 via WETH, 40 direct → 100 USDC → GITLAWB
+    const legs = [
+      leg('lfi', 'weth', 60n, 6n),
+      leg('weth', 'usdc', 6n, 60n),
+      leg('lfi', 'usdc', 40n, 40n),
+      leg('usdc', 'gitlawb', 100n, 100n),
+    ];
+    const r = chainLegs(legs, 'lfi', 'gitlawb');
+    expect(r.reconstructed).toBe(true);
+    expect(r.ordered).toHaveLength(4);
+    // topo order: every leg's tokenIn is produced by an earlier leg or is the input
+    const produced = new Set(['lfi']);
+    for (const l of r.ordered) { expect(produced.has(l.tokenIn)).toBe(true); produced.add(l.tokenOut); }
+  });
+
+  it('rejects a non-conserved flow (intermediate token leaks)', () => {
+    // 100 USDC → 100 WETH-received, but only 40 WETH sent onward (60 leaks)
+    const legs = [ leg('usdc', 'weth', 100n, 100n), leg('weth', 'dai', 40n, 40n) ];
+    const r = chainLegs(legs, 'usdc', 'dai');
+    expect(r.reconstructed).toBe(false);
+  });
+
+  it('rejects a cyclic flow', () => {
+    const legs = [ leg('usdc', 'weth', 10n, 10n), leg('weth', 'usdc', 10n, 10n), leg('usdc', 'dai', 10n, 10n) ];
+    const r = chainLegs(legs, 'usdc', 'dai');
+    expect(r.reconstructed).toBe(false);
   });
 });

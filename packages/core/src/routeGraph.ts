@@ -210,7 +210,7 @@ function buildLegs(
 /**
  * Chain legs into order starting from inputToken → … → outputToken.
  */
-function chainLegs(
+export function chainLegs(
   legs: Leg[],
   inputToken: string,
   outputToken: string,
@@ -230,30 +230,123 @@ function chainLegs(
   // Try to build a single chain from inputToken to outputToken
   const chain = tryBuildChain(legs, inputToken, outputToken);
 
-  if (chain && chain.length === legs.length && chain[chain.length - 1]!.tokenOut === outputToken) {
+  if (
+    chain &&
+    chain.length === legs.length &&
+    chain[chain.length - 1]!.tokenOut === outputToken &&
+    linearFlowValid(legs, inputToken, outputToken)
+  ) {
     // All legs consumed in one chain ending at the output token
     return { ordered: chain, shape: 'linear', reconstructed: true };
   }
 
-  // Check for split: multiple first-legs starting from inputToken
+  // Clean direct-pair split: every leg swaps inputToken→outputToken directly.
   const firstLegs = legs.filter(l => l.tokenIn === inputToken);
-  if (firstLegs.length > 1) {
-    // Clean direct-pair split: every leg swaps inputToken→outputToken directly.
-    // Deeper / nested / mixed splits stay reconstructed=false (low confidence).
-    const cleanSplit = legs.every(l => l.tokenIn === inputToken && l.tokenOut === outputToken);
-    return { ordered: legs, shape: 'split', reconstructed: cleanSplit };
+  if (firstLegs.length > 1 && legs.every(l => l.tokenIn === inputToken && l.tokenOut === outputToken)) {
+    return { ordered: legs, shape: 'split', reconstructed: true };
   }
 
-  // Complex / stalled — best-effort ordering. Truncate the greedy walk at the
-  // first arrival at the output token so the non-reconstructed display path is
-  // byte-identical to the pre-greedy-walk behavior; the walk past the output
-  // token exists only to decide linear-acceptance above.
+  // General DAG: any conserved, acyclic input→output flow, including convergent
+  // multi-hop splits (paths that reconverge at a shared token). Costs are
+  // notional-weighted in decomposeRoute so per-leg attribution reconciles.
+  const dag = reconstructDag(legs, inputToken, outputToken);
+  if (dag) {
+    return { ordered: dag, shape: firstLegs.length > 1 ? 'split' : 'complex', reconstructed: true };
+  }
+
+  // Complex / stalled — best-effort ordering (unchanged non-reconstructed path).
   let complexOrdered = chain ?? legs;
   if (chain) {
     const stop = chain.findIndex((l) => l.tokenOut === outputToken);
     if (stop >= 0) complexOrdered = chain.slice(0, stop + 1);
   }
   return { ordered: complexOrdered, shape: 'complex', reconstructed: false };
+}
+
+/** Conservation tolerance: intermediate-token inflow vs outflow may differ by
+ *  ≤0.1% (rounding/dust between pools). Fee-on-transfer tokens exceed this and
+ *  correctly stay non-reconstructed. */
+function conserved(inflow: bigint, outflow: bigint): boolean {
+  const diff = inflow > outflow ? inflow - outflow : outflow - inflow;
+  const max = inflow > outflow ? inflow : outflow;
+  return max === 0n ? true : diff * 1000n <= max;
+}
+
+/**
+ * Guard for the pre-existing tryBuildChain "linear" fast path: tryBuildChain
+ * only checks token-identity linkage (tokenOut[i] === tokenIn[i+1]), not
+ * amounts or true cycles, so it can misclassify a non-conserved or cyclic flow
+ * as a complete linear walk whenever the walk happens to consume every leg and
+ * land on outputToken. This adds the missing amount/cycle validation without
+ * touching tryBuildChain's walk itself:
+ *  - inputToken must be a pure source (never produced by any leg) — this is
+ *    what actually distinguishes a genuine cycle back to the input from a
+ *    legitimate walk.
+ *  - every OTHER token, except outputToken, must conserve inflow≈outflow.
+ *    outputToken is deliberately exempted: an existing, intentional feature
+ *    lets the output token recur mid-chain (e.g. WARP→WETH→USDC→WETH) where
+ *    the mid-chain leg re-spends part of an earlier WETH receipt — that is
+ *    not a leak, it's the same token legitimately passing through twice.
+ */
+function linearFlowValid(legs: Leg[], inputToken: string, outputToken: string): boolean {
+  const inflow = new Map<string, bigint>();
+  const outflow = new Map<string, bigint>();
+  for (const l of legs) {
+    outflow.set(l.tokenIn, (outflow.get(l.tokenIn) ?? 0n) + l.amountInRaw);
+    inflow.set(l.tokenOut, (inflow.get(l.tokenOut) ?? 0n) + l.amountOutRaw);
+  }
+  if ((inflow.get(inputToken) ?? 0n) !== 0n) return false;
+  const tokens = new Set<string>([...inflow.keys(), ...outflow.keys()]);
+  for (const t of tokens) {
+    if (t === inputToken || t === outputToken) continue;
+    if (!conserved(inflow.get(t) ?? 0n, outflow.get(t) ?? 0n)) return false;
+  }
+  return true;
+}
+
+/**
+ * Reconstruct a general DAG: returns legs topologically ordered when the flow is
+ * a conserved, acyclic path from inputToken (pure source) to outputToken (pure
+ * sink); null otherwise. Amounts are compared per token in that token's own raw
+ * units (cross-token amounts are never mixed).
+ */
+function reconstructDag(legs: Leg[], inputToken: string, outputToken: string): Leg[] | null {
+  const inflow = new Map<string, bigint>();  // token → total received (Σ amountOutRaw ending there)
+  const outflow = new Map<string, bigint>(); // token → total sent (Σ amountInRaw starting there)
+  for (const l of legs) {
+    outflow.set(l.tokenIn, (outflow.get(l.tokenIn) ?? 0n) + l.amountInRaw);
+    inflow.set(l.tokenOut, (inflow.get(l.tokenOut) ?? 0n) + l.amountOutRaw);
+  }
+  const tokens = new Set<string>([...inflow.keys(), ...outflow.keys()]);
+  for (const t of tokens) {
+    const inn = inflow.get(t) ?? 0n;
+    const out = outflow.get(t) ?? 0n;
+    if (t === inputToken) { if (inn !== 0n) return null; continue; } // pure source
+    if (t === outputToken) { if (out !== 0n) return null; continue; } // pure sink
+    if (!conserved(inn, out)) return null; // intermediate must balance
+  }
+  if ((outflow.get(inputToken) ?? 0n) <= 0n) return null; // input must send
+  if ((inflow.get(outputToken) ?? 0n) <= 0n) return null; // output must receive
+
+  // Greedy topological placement: place a leg once its tokenIn is available
+  // (the input token, or a token produced by an already-placed leg). Leftover
+  // legs ⇒ a cycle or a disconnected component ⇒ not reconstructable.
+  const placed: Leg[] = [];
+  const remaining = new Set(legs);
+  const available = new Set<string>([inputToken]);
+  let progress = true;
+  while (remaining.size > 0 && progress) {
+    progress = false;
+    for (const l of [...remaining]) {
+      if (available.has(l.tokenIn)) {
+        placed.push(l);
+        remaining.delete(l);
+        available.add(l.tokenOut);
+        progress = true;
+      }
+    }
+  }
+  return remaining.size === 0 ? placed : null;
 }
 
 /**
