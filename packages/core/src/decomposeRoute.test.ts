@@ -541,6 +541,168 @@ describe('decomposeRoute', () => {
     });
   });
 
+  describe('convergent DAG: split-then-merge reconciliation (Task 3 coverage)', () => {
+    // Three-leg convergent DAG for a USDC->WETH trade:
+    //   leg1: USDC --(poolC, univ3 5bps)--> VIRTUAL
+    //   leg2: VIRTUAL --(poolD, univ3 5bps)--> WETH
+    //   leg3: USDC --(poolE, univ3 30bps)--> WETH   (direct, parallel to leg1+leg2)
+    // Flow splits at USDC (leg1 + leg3 both draw from the trader) and reconverges
+    // at WETH (leg2 + leg3 both pay the trader). VIRTUAL is a pure intermediate —
+    // poolC's VIRTUAL-out feeds poolD's VIRTUAL-in exactly (never touches the
+    // trader) — so the DAG conserves and reconstructDag() places [leg1, leg2, leg3]
+    // as a 'split'-shaped route (two legs share tokenIn=USDC).
+    //
+    // Raw amounts and stub mids were derived (see below) so each leg's realized
+    // price sits close to its own mid — per-leg total cost ~= fee tier +/- 1-2bps
+    // of genuine impact — and allInCostBps is set to the notional-weighted sum of
+    // (lpFeeBps + priceImpactBps) so the trade-level reconciliation residual is
+    // near zero by construction (the only slack is bigint rounding-to-the-nearest-
+    // wei noise, far under the 5bps tolerance).
+    //
+    // Derivation (human units):
+    //   leg1: 1.2 USDC in @ mid 1.53 VIRTUAL/USDC, cost 4bps (fee 5, impact -1)
+    //     -> realized 1.529388 -> 1.8352656 VIRTUAL out
+    //   leg2: 1.8352656 VIRTUAL in @ mid 0.00036 WETH/VIRTUAL, cost 6bps (fee 5, impact +1)
+    //     -> realized 0.0003599784 -> 0.00066029... WETH out
+    //   leg3: 0.8 USDC in @ mid 1/1800 WETH/USDC, cost 28bps (fee 30, impact -2)
+    //     -> realized 0.000554 -> 0.0004432 WETH out
+    //   notional1=1.2 (USDC endpoint), notional3=0.8 (USDC endpoint),
+    //   notional2=leg2 WETH-out * realizedPrice(1800) ~= 1.18854 (slightly below
+    //   1.2 because leg1's own cost shaves a hair off the value flowing into leg2)
+    //   lpFeeBps = (5*1.2 + 5*1.18854 + 30*0.8) / 2.0 ~= 17.9713
+    //   weighted impacts: leg1 -0.6, leg2 +0.5943, leg3 -0.8 -> sum ~= -0.80573
+    //   allInCostBps = 17.9713 + (-0.80573) + 0 (aggFeeBps) ~= 17.16562
+    const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+    const poolC = '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`;
+    const poolD = '0xdddddddddddddddddddddddddddddddddddddddd' as `0x${string}`;
+    const poolE = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as `0x${string}`;
+
+    // Locally-scoped Swap log with a full zero-filled data payload (5 words:
+    // amount0, amount1, sqrtPriceX96, liquidity, tick) so decodeV3LikeSwaps (used
+    // internally by decomposeTrade's Step 1, not just decomposeRoute's own venue
+    // scan) successfully decodes it and adds the pool to venueAddresses — the
+    // module-level `v3SwapLog` helper uses `data: '0x'`, which decodeEventLog
+    // rejects, leaving the pool unclassified and triggering a live RPC probe
+    // (fee()/getReserves() against rpcUrl 'unused') that hangs the test.
+    function swapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`, `0x${string}`, `0x${string}`] } {
+      return {
+        address: pool,
+        data: '0x' + '00'.repeat(160) as `0x${string}`,
+        topics: [UNI_V3_SWAP_TOPIC as `0x${string}`, '0x' + '00'.repeat(32) as `0x${string}`, '0x' + '00'.repeat(32) as `0x${string}`],
+      };
+    }
+
+    const syntheticTrace = {
+      from: syntheticTrader,
+      to: '0xffffffffffffffffffffffffffffffffffffffff' as `0x${string}`,
+      input: '0x' as `0x${string}`,
+      logs: [
+        // Swap events register poolC/D/E as univ3 venues (drives both the route
+        // graph's venue map here AND decomposeTrade's own venue-vs-fee-sink gate,
+        // so none of the three pools are misclassified as agg-fee sinks).
+        swapLog(poolC),
+        swapLog(poolD),
+        swapLog(poolE),
+        // leg1: trader -> poolC (USDC in), poolC -> poolD (VIRTUAL out = leg2 in)
+        transferLog(USDC as `0x${string}`, syntheticTrader, poolC, 1_200000n),
+        transferLog(VIRTUAL as `0x${string}`, poolC, poolD, 1_835265600000000000n),
+        // leg2: poolD -> trader (WETH out)
+        transferLog(WETH as `0x${string}`, poolD, syntheticTrader, 660299198630400n),
+        // leg3: trader -> poolE (USDC in), poolE -> trader (WETH out), direct
+        transferLog(USDC as `0x${string}`, syntheticTrader, poolE, 800000n),
+        transferLog(WETH as `0x${string}`, poolE, syntheticTrader, 443200000000000n),
+      ],
+      calls: [],
+    };
+
+    const input: DecomposeTradeInput = {
+      trace: syntheticTrace as any,
+      txHash: '0x0000000000000000000000000000000000000000000000000000000000000001',
+      trader: syntheticTrader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: 17.1656156726039,
+      notionalUsdc: 2.0,
+      realizedPrice: 1800,
+      gasCostUsd: 0,
+      aggregator: 'Unknown',
+      blockNumber: 1n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+    };
+
+    it('reconciles LP, price-impact, and residual for a split+merge convergent DAG', async () => {
+      // Note: decomposeTrade's Step 1 (invoked internally, no dep injection) does
+      // real RPC probing (fee()/token0()/token1()) against rpcUrl 'unused' for
+      // each unrecognized V3-like pool. With 3 synthetic pools that latency runs
+      // past the 5s default — bump the timeout rather than dropping a leg.
+      const stubMids: Record<string, number> = {
+        [`${USDC}:${VIRTUAL}`]: 1.53,      // leg1 mid: VIRTUAL per USDC
+        [`${VIRTUAL}:${WETH}`]: 0.00036,   // leg2 mid: WETH per VIRTUAL
+        [`${USDC}:${WETH}`]: 1 / 1800,     // leg3 mid: WETH per USDC (direct)
+      };
+
+      const result = await decomposeRoute(input, {
+        trace: syntheticTrace as any,
+        feeReader: async (addr) => {
+          if (addr === poolC) return { bps: 5, defaulted: false };
+          if (addr === poolD) return { bps: 5, defaulted: false };
+          if (addr === poolE) return { bps: 30, defaulted: false };
+          return { bps: 0, defaulted: false };
+        },
+        midReader: async (leg) => {
+          const key = `${leg.tokenIn}:${leg.tokenOut}`;
+          const price = stubMids[key];
+          if (price === undefined) return null;
+          return { price, poolAddress: 'stub', poolKind: 'stub' };
+        },
+      });
+
+      // Route reconstructed as a convergent DAG (not the orphan/stalled fallback).
+      expect(['split', 'complex']).toContain(result.routeShape);
+      expect(result.lpFeeBps).not.toBeNull();
+      expect(result.slippageBps).not.toBeNull();
+      expect(result.flags.some(f => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
+
+      // Exactly 3 costed legs (no wrap/unwrap in this synthetic trace), all priced.
+      expect(result.legs).toHaveLength(3);
+      for (const leg of result.legs) {
+        expect(typeof leg.priceImpactBps).toBe('number');
+      }
+
+      // LP roll-up: Sigma(feeTier x legNotional) / tradeNotional (see derivation above).
+      expect(result.lpFeeBps).toBeCloseTo(17.9713, 3);
+
+      // aggFeeBps is 0 for this clean synthetic trace (poolC/D/E are all tagged
+      // as venues by their Swap logs, so decomposeTrade's fee-sink scan skips them
+      // entirely) -> slippageBps reduces to the notional-weighted sum of impacts.
+      expect(result.aggFeeBps).toBeCloseTo(0, 6);
+      expect(result.slippageBps).toBeCloseTo(-0.80573, 3);
+
+      // Per-leg notional-weighted price impact, in reconstructDag's topological
+      // placement order [leg1 (poolC), leg2 (poolD), leg3 (poolE)].
+      const [leg1, leg2, leg3] = result.legs;
+      expect(leg1!.leg.venue).toBe(poolC);
+      expect(leg2!.leg.venue).toBe(poolD);
+      expect(leg3!.leg.venue).toBe(poolE);
+      expect(leg1!.priceImpactBps).toBeCloseTo(-0.6, 2);
+      expect(leg2!.priceImpactBps).toBeCloseTo(0.5943, 3);
+      expect(leg3!.priceImpactBps).toBeCloseTo(-0.8, 2);
+
+      // Reconciliation: allInCostBps was calibrated to the notional-weighted sum
+      // of lpFeeBps + priceImpactBps + aggFeeBps, so the residual should be ~0
+      // (only bigint rounding-to-the-nearest-wei noise remains) — well inside the
+      // documented RECON_TOL_BPS(5) gate.
+      expect(result.reconResidualBps).not.toBeNull();
+      expect(Math.abs(result.reconResidualBps!)).toBeLessThan(0.01);
+
+      // Tight residual -> high confidence.
+      expect(result.confidence).toBe('high');
+    }, 15000);
+  });
+
   describe('non-reconstructed fallback (Design Decision 7)', () => {
     // Synthetic trace: two orphan legs that don't chain from inputToken to
     // outputToken. This exercises the !reconstructed branch without RPC.
