@@ -198,4 +198,18 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(costedLegs[0]!.tokenOut.toLowerCase()).toBe(USDC.toLowerCase());
 		expect(costedLegs[0]!.lpFeeBps).toBeCloseTo(29.88, 1);
 	}, 30_000);
+
+	it('decomposes a convergent multi-hop split (LFI->GITLAWB) with per-leg impact + slippage', async () => {
+		const r = await analyzeTransaction(
+			'0xe4b9514743e4f211b456f14c69fd3c4abddf68a620becbdcb1ffa7771c42f4b7',
+			8453,
+			{ rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+		// Previously ROUTE_NOT_DECOMPOSED (null slippage + all-null per-leg impact).
+		expect(r!.slippageBps).not.toBeNull();
+		const legs = r!.routeLegs as { priceImpactBps: number | null }[];
+		expect(legs.filter((l) => typeof l.priceImpactBps === 'number').length).toBeGreaterThanOrEqual(1);
+		expect((r!.normalizeFlags as string[]).some((f) => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
+	}, 30_000);
 });
