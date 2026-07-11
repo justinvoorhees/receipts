@@ -183,6 +183,21 @@ describe('TradesTable', () => {
 		expect(rows.map((r) => r.context)).toEqual(['WARP/WETH', 'WETH/USDC', 'USDC/ETH']);
 	});
 
+	it('uses core-stored leg symbols for an intermediate hop token (USDT), not a hash', async () => {
+		const { getPriceImpactRows } = await import('./TradesTable');
+		// USDT is neither an endpoint nor in the static TOKEN_SYMBOLS map — without
+		// the stored per-leg symbol it would render as a shortened address.
+		const USDT = '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2';
+		const rows = getPriceImpactRows(
+			[
+				{ venue: '0xp1', type: 'univ3', tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', tokenOut: USDT, tokenInSymbol: 'USDC', tokenOutSymbol: 'USDT', priceImpactBps: null },
+				{ venue: '0xp2', type: 'pancakev3', tokenIn: USDT, tokenOut: '0x4200000000000000000000000000000000000006', tokenInSymbol: 'USDT', tokenOutSymbol: 'WETH', priceImpactBps: null },
+			] as never,
+			{ inputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', outputToken: '0x4200000000000000000000000000000000000006', inputSymbol: 'USDC', outputSymbol: 'WETH' } as never,
+		);
+		expect(rows.map((r) => r.context)).toEqual(['USDC/USDT', 'USDT/WETH']);
+	});
+
 	it('formats Coinbase Wrapped Staked ETH with its token symbol', async () => {
 		const { getPriceImpactRows } = await import('./TradesTable');
 

@@ -51,6 +51,11 @@ export interface RouteLeg {
 	notionalUsdc: number;
 	lpFeeBps: number | null;
 	priceImpactBps: number | null;
+	// Display symbols resolved + stored by core (analyzeTransaction). Optional:
+	// absent on rows persisted before this was added, and on a leg token whose
+	// on-chain symbol() read failed — both fall back to address-based resolution.
+	tokenInSymbol?: string;
+	tokenOutSymbol?: string;
 }
 
 /**

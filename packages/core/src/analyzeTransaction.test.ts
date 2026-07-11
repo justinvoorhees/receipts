@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
-import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice, splitFabricFee } from './analyzeTransaction.js';
+import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice, splitFabricFee, attachLegSymbols } from './analyzeTransaction.js';
 
 const RPC = process.env.TCA_RPC_URL;
 
@@ -49,6 +49,32 @@ describe('splitFabricFee', () => {
 	});
 	it('is case-insensitive on the aggregator slug', () => {
 		expect(splitFabricFee('Fabric', 50)).toEqual({ integratorFeeBps: 50, fabricFeeBps: 0 });
+	});
+});
+
+describe('attachLegSymbols', () => {
+	const symbolFor = (a: string): string | undefined =>
+		({ '0xusdc': 'USDC', '0x4200000000000000000000000000000000000006': 'WETH', native: 'ETH' })[a.toLowerCase()];
+
+	it('attaches resolved symbols per leg (case-insensitive on address)', () => {
+		const legs = [{ venue: '0xp1', type: 'univ3', tokenIn: '0xUSDC', tokenOut: '0x4200000000000000000000000000000000000006', lpFeeBps: 5 }];
+		const out = attachLegSymbols(legs, symbolFor);
+		expect(out[0]).toMatchObject({ tokenInSymbol: 'USDC', tokenOutSymbol: 'WETH' });
+		// original leg fields are preserved untouched
+		expect(out[0]).toMatchObject({ venue: '0xp1', type: 'univ3', lpFeeBps: 5 });
+	});
+
+	it('omits the symbol field when the resolver cannot resolve a token (falls back downstream)', () => {
+		const legs = [{ venue: '0xp2', type: 'univ3', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: '0xEXOTIC' }];
+		const out = attachLegSymbols(legs, symbolFor);
+		expect(out[0]!.tokenInSymbol).toBe('WETH');
+		expect('tokenOutSymbol' in out[0]!).toBe(false);
+	});
+
+	it('resolves the native sentinel to ETH', () => {
+		const legs = [{ venue: '0xp3', type: 'unwrap', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native' }];
+		const out = attachLegSymbols(legs, symbolFor);
+		expect(out[0]!.tokenOutSymbol).toBe('ETH');
 	});
 });
 
@@ -116,7 +142,11 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		// Oracle fields stay null on the estimated tier.
 		expect(r!.chainlinkPrice).toBeNull();
 		// Route now decomposes to a linear 3-hop (native-ETH exit modeled as WETH).
-		const legs = r!.routeLegs as { venue: string; type: string; lpFeeBps: number | null; priceImpactBps: number | null }[];
+		const legs = r!.routeLegs as { venue: string; type: string; lpFeeBps: number | null; priceImpactBps: number | null; tokenInSymbol?: string; tokenOutSymbol?: string }[];
+		// Per-leg token symbols are resolved and stored (incl. the WARP endpoint,
+		// absent from the dashboard's static map).
+		expect(legs.some((l) => l.tokenInSymbol === 'WARP' || l.tokenOutSymbol === 'WARP')).toBe(true);
+		expect(legs.every((l) => l.tokenInSymbol && l.tokenOutSymbol)).toBe(true);
 		const venues = legs.map((l) => l.venue.toLowerCase());
 		expect(venues).toContain('0x53932cbd6cddbb907ce1bb108496c7bd8aaa5dce'); // Uni V3 WARP/WETH
 		expect(venues).toContain('0x498581ff718922c3f8e6a244956af099b2652b2b'); // Uni V4 PM (USDC/native-ETH)

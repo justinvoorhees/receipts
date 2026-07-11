@@ -449,7 +449,7 @@ const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
  * even for callers (e.g. getPriceImpactRows) that filter step legs out.
  */
 export function legPairContext(
-	leg: Pick<RouteLeg, 'type' | 'tokenIn' | 'tokenOut'>,
+	leg: Pick<RouteLeg, 'type' | 'tokenIn' | 'tokenOut' | 'tokenInSymbol' | 'tokenOutSymbol'>,
 	index: number,
 	legsLength: number,
 	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
@@ -461,7 +461,11 @@ export function legPairContext(
 	if (row.outputToken && row.outputToken.toLowerCase() !== NATIVE) {
 		endpointSymbols.set(row.outputToken.toLowerCase(), row.outputSymbol);
 	}
-	const resolve = (address: string): string => endpointSymbols.get(address.toLowerCase()) ?? tokenSymbol(address);
+	// Prefer the symbol core resolved + stored on the leg (covers intermediate
+	// hop tokens like USDT); then the receipt's own endpoints (for rows persisted
+	// before leg symbols existed); then the static map / short address.
+	const resolve = (address: string, stored?: string): string =>
+		stored ?? endpointSymbols.get(address.toLowerCase()) ?? tokenSymbol(address);
 
 	const isFirst = index === 0;
 	const isLast = index === legsLength - 1;
@@ -476,13 +480,13 @@ export function legPairContext(
 		row.outputToken?.toLowerCase() === NATIVE &&
 		leg.tokenOut?.toLowerCase() === WETH_ADDRESS;
 
-	const inSymbol = inputIsNativeStandIn ? row.inputSymbol : resolve(leg.tokenIn);
-	const outSymbol = outputIsNativeStandIn ? row.outputSymbol : resolve(leg.tokenOut);
+	const inSymbol = inputIsNativeStandIn ? row.inputSymbol : resolve(leg.tokenIn, leg.tokenInSymbol);
+	const outSymbol = outputIsNativeStandIn ? row.outputSymbol : resolve(leg.tokenOut, leg.tokenOutSymbol);
 	return `${inSymbol}/${outSymbol}`;
 }
 
 export function getPriceImpactRows(
-	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps'>[],
+	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol'>[],
 	row?: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
 ): {
 	label: string;

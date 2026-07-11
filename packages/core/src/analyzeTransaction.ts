@@ -22,7 +22,7 @@ import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
 import type { Direction } from './decoder.js';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
-import { priceReceipt } from './pricing.js';
+import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
 import { labelAddress } from './tagging.js';
 import { decomposeRoute, createDefaultMidReader } from './decomposeRoute.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
@@ -101,6 +101,27 @@ export function toDisplayPrice(price: number | null, baseIsOutput: boolean): num
 	if (price == null) return null;
 	if (!baseIsOutput) return price;
 	return price > 0 ? 1 / price : null;
+}
+
+/**
+ * Attach a display symbol to each leg's tokenIn/tokenOut. `symbolFor` returns a
+ * resolved symbol or `undefined`; when undefined the field is omitted so the
+ * dashboard falls back to its own resolution (endpoint map → static map → short
+ * address). Pure over the resolver so it's unit-testable without RPC.
+ */
+export function attachLegSymbols<T extends { tokenIn: string; tokenOut: string }>(
+	legs: T[],
+	symbolFor: (address: string) => string | undefined,
+): (T & { tokenInSymbol?: string; tokenOutSymbol?: string })[] {
+	return legs.map((l) => {
+		const tokenInSymbol = symbolFor(l.tokenIn);
+		const tokenOutSymbol = symbolFor(l.tokenOut);
+		return {
+			...l,
+			...(tokenInSymbol ? { tokenInSymbol } : {}),
+			...(tokenOutSymbol ? { tokenOutSymbol } : {}),
+		};
+	});
 }
 
 export interface Receipt {
@@ -298,7 +319,7 @@ export async function analyzeTransaction(
 		// at all — LP + Agg only). Gate on `priced`, not `isFull`, so the estimated
 		// tier surfaces the decomposition instead of nulling values decomposeRoute
 		// actually computed. Oracle-derived fields stay tier-gated separately.
-		const routeLegs = route.legs.map((l) => ({
+		const routeLegsBase = route.legs.map((l) => ({
 			venue: l.leg.venue,
 			type: l.leg.type,
 			tokenIn: l.leg.tokenIn,
@@ -308,6 +329,29 @@ export async function analyzeTransaction(
 			lpFeeBps: l.lpFeeBps,
 			priceImpactBps: midReliable ? l.priceImpactBps : null,
 		}));
+
+		// Resolve a display symbol for every leg token — including intermediate hops
+		// (e.g. USDT) that are neither an endpoint nor in the dashboard's static map,
+		// which would otherwise render as a hash. Seed native + the trade endpoints
+		// (no RPC), then read symbol() on-chain for the rest, best-effort: an
+		// unresolved token is omitted so the UI falls back to a short address.
+		const symbolMap = new Map<string, string>([
+			[NATIVE, 'ETH'],
+			[endpoints.inputToken.toLowerCase(), pricing.inputSymbol],
+			[endpoints.outputToken.toLowerCase(), pricing.outputSymbol],
+		]);
+		const symbolReader = createDefaultPricingDeps(rpcUrl).readSymbol;
+		for (const leg of routeLegsBase) {
+			for (const tok of [leg.tokenIn.toLowerCase(), leg.tokenOut.toLowerCase()]) {
+				if (symbolMap.has(tok)) continue;
+				try {
+					symbolMap.set(tok, await symbolReader(tok));
+				} catch {
+					/* leave unresolved → attachLegSymbols omits it → UI short-address fallback */
+				}
+			}
+		}
+		const routeLegs = attachLegSymbols(routeLegsBase, (a) => symbolMap.get(a.toLowerCase()));
 
 		return {
 			txHash: txHash.toLowerCase(),
