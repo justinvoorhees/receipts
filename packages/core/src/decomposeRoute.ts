@@ -800,7 +800,7 @@ export async function decomposeRoute(
 			// per-leg impact, so the plausibility guard is independent of notional size.
 			if (Math.abs(rawImpactBps) > PI_IMPLAUSIBLE_CAP_BPS) {
 				routeFlags.push(
-					`PI_IMPLAUSIBLE: leg ${leg.venue.slice(0, 10)} pi=${lwl.priceImpactBps.toFixed(1)} exceeds cap ${PI_IMPLAUSIBLE_CAP_BPS}`,
+					`PI_IMPLAUSIBLE: leg ${leg.venue.slice(0, 10)} pi=${rawImpactBps.toFixed(1)} exceeds cap ${PI_IMPLAUSIBLE_CAP_BPS}`,
 				);
 				lwl.priceImpactBps = null;
 				hasNullMid = true;
