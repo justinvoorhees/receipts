@@ -620,6 +620,23 @@ function resolveV4Settlement(
 	return { transfers: rewritten, extendedDenylist: extDenylist };
 }
 
+/**
+ * Per-leg price impact as a notional-weighted contribution to the trade-level
+ * cost, mirroring the LP-fee rollup weighting. For a linear leg (notional ≈ the
+ * trade notional) the weight is ≈1, so this reduces to the raw impact; for
+ * split/convergent legs it scales by the leg's share of the flow, so the raw
+ * sum of per-leg costs reconciles with the trade-level all-in.
+ */
+export function weightedPriceImpactBps(
+	legTotalCostBps: number,
+	feeTierBps: number,
+	legNotionalUsdc: number,
+	tradeNotionalUsdc: number,
+): number {
+	const raw = legTotalCostBps - feeTierBps;
+	return tradeNotionalUsdc > 0 ? raw * (legNotionalUsdc / tradeNotionalUsdc) : raw;
+}
+
 // ─── Main orchestrator ───
 
 export async function decomposeRoute(
@@ -774,11 +791,14 @@ export async function decomposeRoute(
 			// Positive = cost (less output than expected); negative = improvement.
 			const legTotalCostBps = (midResult.price - realizedPrice) / midResult.price * 10_000;
 
-			// Price impact = total cost − fee tier (LP fee is the "expected" cost)
-			lwl.priceImpactBps = legTotalCostBps - lwl.feeTierBps;
+			// Price impact = total cost − fee tier (LP fee is the "expected" cost),
+			// notional-weighted so per-leg costs reconcile for split/convergent DAGs.
+			const rawImpactBps = legTotalCostBps - lwl.feeTierBps;
+			lwl.priceImpactBps = weightedPriceImpactBps(legTotalCostBps, lwl.feeTierBps, lwl.notionalUsdc, input.notionalUsdc);
 
-			// Clamp implausible per-leg price-impact (stale-mid guard)
-			if (Math.abs(lwl.priceImpactBps) > PI_IMPLAUSIBLE_CAP_BPS) {
+			// Clamp implausible per-leg price-impact (stale-mid guard) on the RAW
+			// per-leg impact, so the plausibility guard is independent of notional size.
+			if (Math.abs(rawImpactBps) > PI_IMPLAUSIBLE_CAP_BPS) {
 				routeFlags.push(
 					`PI_IMPLAUSIBLE: leg ${leg.venue.slice(0, 10)} pi=${lwl.priceImpactBps.toFixed(1)} exceeds cap ${PI_IMPLAUSIBLE_CAP_BPS}`,
 				);

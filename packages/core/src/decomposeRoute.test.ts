@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps } from './decomposeRoute.js';
 import type { DecomposeTradeInput } from './decompose-trade.js';
 
 // Load trace fixtures (avoid JSON import attribute issues with NodeNext)
@@ -58,6 +58,17 @@ function v3SwapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${st
 
 const VIRTUAL = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
 const V4_POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+
+describe('weightedPriceImpactBps', () => {
+  it('equals the raw impact when the leg carries the full notional (linear)', () => {
+    // legTotal 30, fee 5 → raw impact 25; weight = 1000/1000 = 1
+    expect(weightedPriceImpactBps(30, 5, 1000, 1000)).toBeCloseTo(25, 10);
+  });
+  it('scales the impact by the leg notional share (split leg carries 40%)', () => {
+    // raw impact 25, weight = 400/1000 → 10
+    expect(weightedPriceImpactBps(30, 5, 400, 1000)).toBeCloseTo(10, 10);
+  });
+});
 
 describe('decomposeRoute', () => {
   it('refines v3-shaped route venues by pool factory', async () => {
