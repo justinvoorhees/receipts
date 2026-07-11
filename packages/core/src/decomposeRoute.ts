@@ -746,7 +746,7 @@ export async function decomposeRoute(
 		? (input.gasCostUsd / input.notionalUsdc) * 10_000
 		: 0;
 
-	if (graph.reconstructed && (graph.shape === 'single' || graph.shape === 'linear' || graph.shape === 'split')) {
+	if (graph.reconstructed) {
 		const lpFeeBps = rollup.lpFeeBps;
 		const slippageBps = input.allInCostBps - lpFeeBps - base.aggFeeBps;
 
@@ -874,7 +874,8 @@ export async function decomposeRoute(
 		};
 	}
 
-	// Else: split/complex/!reconstructed — cannot reliably separate LP/Slippage
+	// Else: !reconstructed (non-conserved, cyclic, or disconnected) — cannot
+	// reliably separate LP/Slippage
 	routeFlags.push(
 		`ROUTE_NOT_DECOMPOSED: shape=${graph.shape}, reconstructed=${graph.reconstructed}`,
 	);
