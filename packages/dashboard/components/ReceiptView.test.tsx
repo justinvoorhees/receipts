@@ -65,13 +65,14 @@ const fullUsdcWethRow = {
 };
 
 describe('Receipt header', () => {
-	it('renders the execution grade next to the pair title', async () => {
+	it('renders the hash header as a Basescan link, with no grade badge', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
-		expect(html).toContain('>A+<');
-		expect(html).toContain('Total Execution Quality is ≥0bps');
+		expect(html).toContain(`href="https://basescan.org/tx/${fullUsdcWethRow.txHash}"`);
+		expect(html).toContain('0x1234…5678'); // shortTxHash: 0x1234…5678
+		expect(html).not.toContain('>A+<');
 	});
 
 	it('renders a full USDC/WETH receipt with generalized token fields', async () => {
@@ -79,7 +80,7 @@ describe('Receipt header', () => {
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
-		// Pair title reads as the swap direction (input→output), matching Token In/Out.
+		// Pair detail row reads as the swap direction (input→output), matching Token In/Out.
 		expect(html).toContain('USDC→WETH');
 		expect(html).not.toContain('WETH→USDC');
 		// Token In / Token Out render the generalized symbols + amounts.
@@ -90,6 +91,26 @@ describe('Receipt header', () => {
 		expect(html).toContain('Base');
 		// Full receipts still show the priced sections.
 		expect(html).not.toContain('unavailable for this pair');
+	});
+
+	it('keeps the top divider and renders no close/delete controls outside the dialog', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		expect(html).toContain('h-px w-full shrink-0 bg-[var(--color-primary)]'); // top Divider present
+		expect(html).not.toContain('Close transaction details');
+		expect(html).not.toContain('>Delete<');
+	});
+
+	it('in dialog mode (onClose/onDelete passed), omits the top divider and renders the close button beside the header and a Delete button above Share', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={fullUsdcWethRow as never} onClose={() => {}} onDelete={() => {}} />,
+		);
+		expect(html).not.toContain('h-px w-full shrink-0 bg-[var(--color-primary)]'); // no top Divider
+		expect(html).toContain('aria-label="Close transaction details"');
+		expect(html).toContain('>Delete<');
+		expect(html).toContain('>Share<');
+		expect(html.indexOf('>Delete<')).toBeLessThan(html.indexOf('>Share<'));
 	});
 });
 

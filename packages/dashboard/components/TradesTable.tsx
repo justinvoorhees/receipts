@@ -64,16 +64,18 @@ export function TradesTable({
 		});
 	}, [rows, effectiveSort]);
 
-	// Per-row delete: confirm, then either defer to an injected handler (tests)
-	// or hit the DELETE route and refresh the server-rendered list.
-	const handleDelete = async (id: number) => {
-		if (typeof window !== 'undefined' && !window.confirm('Delete this receipt?')) return;
+	// Delete: confirm, then either defer to an injected handler (tests) or hit
+	// the DELETE route and refresh the server-rendered list. Returns whether the
+	// delete proceeded, so callers (e.g. the dialog) know whether to close.
+	const handleDelete = async (id: number): Promise<boolean> => {
+		if (typeof window !== 'undefined' && !window.confirm('Delete this receipt?')) return false;
 		if (onDelete) {
 			onDelete(id);
-			return;
+			return true;
 		}
 		await fetch(`/api/receipts?id=${id}`, { method: 'DELETE' });
 		router.refresh();
+		return true;
 	};
 
 	const onSort = (col: TradesSortColumn) => {
@@ -107,12 +109,12 @@ export function TradesTable({
 				</thead>
 				<tbody>
 					{sortedRows.map((r) => (
-						<DataRow key={r.id} row={r} onOpen={setSelectedRow} onDelete={handleDelete} />
+						<DataRow key={r.id} row={r} onOpen={setSelectedRow} />
 					))}
 				</tbody>
 			</table>
 			{selectedRow != null && (
-				<TransactionDetailsDialog row={selectedRow} onClose={() => setSelectedRow(null)} />
+				<TransactionDetailsDialog row={selectedRow} onClose={() => setSelectedRow(null)} onDelete={handleDelete} />
 			)}
 		</div>
 	);
@@ -152,7 +154,6 @@ function HeaderRow({
 			<th className={TH}>
 				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
 			</th>
-			<th className="p-0 pb-[10px] pl-[28px] align-baseline w-[24px]" aria-hidden="true" />
 		</tr>
 	);
 }
@@ -219,11 +220,9 @@ function formatAccuracySigned(costBps: number): string {
 function DataRow({
 	row,
 	onOpen,
-	onDelete,
 }: {
 	row: ReceiptRow;
 	onOpen: (row: ReceiptRow) => void;
-	onDelete: (id: number) => void;
 }) {
 	// Partial receipts have no cost model, so guard every cost field and render "–".
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
@@ -252,17 +251,6 @@ function DataRow({
 			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
 			<td className={`${COL} text-right`} style={slip.color ? { color: slip.color } : undefined}>{slip.text}</td>
-			<td className={`${COL} text-right`}>
-				<button
-					type="button"
-					aria-label="Delete receipt"
-					title="Delete receipt"
-					onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
-					className="cursor-pointer text-[var(--color-secondary)] opacity-0 transition-opacity hover:text-[var(--color-primary)] group-hover:opacity-100 focus-visible:opacity-100"
-				>
-					✕
-				</button>
-			</td>
 		</tr>
 	);
 }
@@ -273,7 +261,19 @@ function DataRow({
  * This component only owns the modal shell: scrim, scroll-lock, Escape /
  * click-outside close, and the close button.
  */
-export function TransactionDetailsDialog({ row, onClose }: { row: ReceiptRow; onClose: () => void }) {
+export function TransactionDetailsDialog({
+	row,
+	onClose,
+	onDelete,
+}: {
+	row: ReceiptRow;
+	onClose: () => void;
+	onDelete: (id: number) => Promise<boolean>;
+}) {
+	const handleDelete = async () => {
+		if (await onDelete(row.id)) onClose();
+	};
+
 	useEffect(() => {
 		const prev = document.body.style.overflow;
 		document.body.style.overflow = 'hidden';
@@ -303,19 +303,7 @@ export function TransactionDetailsDialog({ row, onClose }: { row: ReceiptRow; on
 					aria-label="Transaction receipt"
 					className="relative flex w-full max-w-[694px] flex-col gap-[40px] bg-[var(--color-surface-base)] px-[40px] pt-[40px] pb-[40px] text-[var(--color-primary)] shadow-[8px_0px_8px_rgba(15,15,15,0.06),-8px_0px_8px_rgba(15,15,15,0.06)]"
 				>
-					<button
-						type="button"
-						onClick={onClose}
-						aria-label="Close transaction details"
-						className="absolute right-[40px] top-[40px] z-10 flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-[2px] p-[8px] text-[var(--color-primary)] transition-colors hover:bg-[var(--color-surface-low)] active:bg-[var(--color-surface-low)]"
-					>
-						<span aria-hidden="true" className="relative block h-[18px] w-[18px]">
-							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 rotate-45 bg-current" />
-							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 -rotate-45 bg-current" />
-						</span>
-					</button>
-
-					<Receipt row={row} sharePath={`/receipts?tx=${row.txHash}`} />
+					<Receipt row={row} sharePath={`/receipts?tx=${row.txHash}`} onClose={onClose} onDelete={handleDelete} />
 				</section>
 			</div>
 		</div>

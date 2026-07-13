@@ -36,7 +36,7 @@ const sampleReceiptRow = {
 };
 
 describe('TradesTable', () => {
-	it('renders a delete control per row', async () => {
+	it('renders no per-row delete control (delete lives in the receipt dialog)', async () => {
 		const { TradesTable } = await import('./TradesTable');
 		const onDelete = vi.fn();
 		const rows = [
@@ -50,9 +50,7 @@ describe('TradesTable', () => {
 				onDelete={onDelete}
 			/>,
 		);
-		// One accessible delete affordance is rendered per row.
-		const matches = html.match(/aria-label="Delete receipt/g) ?? [];
-		expect(matches.length).toBe(rows.length);
+		expect(html).not.toContain('aria-label="Delete receipt');
 	});
 
 	it('does not render route hop badges', async () => {
@@ -263,7 +261,7 @@ describe('TradesTable', () => {
 		};
 
 		const html = renderToStaticMarkup(
-			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
+			<TransactionDetailsDialog row={row as never} onClose={() => {}} onDelete={async () => true} />,
 		);
 
 		// The Route summary row was removed from the receipt; leg token symbols are
@@ -557,7 +555,7 @@ describe('TradesTable', () => {
 			chainlinkPrice: '2970', chainlinkDevBps: '101', poolDivergenceBps: '3', manipulationFlag: true,
 		};
 		const html = renderToStaticMarkup(
-			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
+			<TransactionDetailsDialog row={row as never} onClose={() => {}} onDelete={async () => true} />,
 		);
 		// The generalized receipt keeps the manipulation badge (the Chainlink-specific
 		// Δ row was dropped when the dialog was generalized off ReceiptRow).
@@ -582,7 +580,7 @@ describe('TradesTable', () => {
 			reconResidualBps: null,
 		};
 		const html = renderToStaticMarkup(
-			<TransactionDetailsDialog row={row as never} onClose={() => {}} />,
+			<TransactionDetailsDialog row={row as never} onClose={() => {}} onDelete={async () => true} />,
 		);
 		expect(html).toContain('$');
 		expect(html).toContain(expected);

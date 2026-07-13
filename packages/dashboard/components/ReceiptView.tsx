@@ -21,8 +21,6 @@ import {
 	getPriceImpactRows,
 	getVenueLabel,
 	getAggregatorFeeAttribution,
-	executionGrade,
-	executionGradeTooltip,
 	ShareButton,
 } from './TradesTable';
 
@@ -348,7 +346,17 @@ export function ReceiptView({
 	);
 }
 
-export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: string }) {
+export function Receipt({
+	row,
+	sharePath,
+	onClose,
+	onDelete,
+}: {
+	row: ReceiptRow;
+	sharePath?: string;
+	onClose?: () => void;
+	onDelete?: () => void;
+}) {
 	const legs = normalizeRouteLegs(row.routeLegs);
 	const hasCostedLeg = legs.some((l) => typeof l.lpFeeBps === 'number');
 	// Partial receipts have no reference mid, so price/impact/slippage are null.
@@ -374,64 +382,45 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 
 	return (
 		<>
-			<Divider color="primary" />
-
-			<h2
-				className="font-['Sohne_Breit'] font-medium text-[30px] leading-[30px]"
-				style={{ fontFeatureSettings: '"calt" 0' }}
-			>
-				{shortTxHash(row.txHash)}
-			</h2>
+			{onClose == null && <Divider color="primary" />}
 
 			<div className="flex items-center justify-between">
-				<h2
-					className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
-					style={{ fontFeatureSettings: '"calt" 0' }}
-				>
-					{pairTitle}
+				<h2 className="w-fit">
+					<a
+						href={`https://basescan.org/tx/${row.txHash}`}
+						target="_blank"
+						rel="noreferrer"
+						className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+						style={{ fontFeatureSettings: '"calt" 0' }}
+					>
+						{shortTxHash(row.txHash)}
+					</a>
 				</h2>
-				{isPartial || costBps == null ? (
-					<span
-						className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] text-[var(--color-secondary)]"
-						style={{ fontFeatureSettings: '"calt" 0' }}
+				{onClose != null && (
+					<button
+						type="button"
+						onClick={onClose}
+						aria-label="Close transaction details"
+						className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-[2px] p-[8px] text-[var(--color-primary)] transition-colors hover:bg-[var(--color-surface-low)] active:bg-[var(--color-surface-low)]"
 					>
-						N/A
-					</span>
-				) : (
-					<span
-						className="group relative cursor-default font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
-						style={{ fontFeatureSettings: '"calt" 0' }}
-					>
-						{executionGrade(costBps)}
-						<div
-							role="tooltip"
-							className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left font-['Sohne_Mono'] text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-						>
-							{executionGradeTooltip(costBps)}
-						</div>
-					</span>
+						<span aria-hidden="true" className="relative block h-[18px] w-[18px]">
+							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 rotate-45 bg-current" />
+							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 -rotate-45 bg-current" />
+						</span>
+					</button>
 				)}
 			</div>
 
 			{/* Detail table */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
-				<DetailRow label="Txn Hash">
-					<a
-						href={`https://basescan.org/tx/${row.txHash}`}
-						target="_blank"
-						rel="noreferrer"
-						className="underline decoration-dotted underline-offset-[3px] hover:decoration-solid"
-					>
-						{shortTxHash(row.txHash)}
-					</a>
-				</DetailRow>
-				<DetailRow label="Chain">{chainLabel(row.chainId)}</DetailRow>
-				<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
 				<DetailRow label="Aggregator">
 					<span style={{ color: providerColor(row.aggregator.toLowerCase()) }}>
 						{formatProvider(row.aggregator.toLowerCase())}
 					</span>
 				</DetailRow>
+				<DetailRow label="Pair">{pairTitle}</DetailRow>
+				<DetailRow label="Chain">{chainLabel(row.chainId)}</DetailRow>
+				<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
 
 				<Divider dashed />
 
@@ -615,7 +604,19 @@ export function Receipt({ row, sharePath }: { row: ReceiptRow; sharePath?: strin
 				)}
 			</div>
 
-			<ShareButton {...(sharePath !== undefined ? { path: sharePath } : {})} />
+			<div className="flex flex-col gap-[10px]">
+				{onDelete != null && (
+					<button
+						type="button"
+						onClick={onDelete}
+						className="flex h-[40px] w-full shrink-0 cursor-pointer items-center justify-center bg-[var(--color-quaternary)] px-[20px] font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] text-[var(--color-white)]"
+						style={{ fontFeatureSettings: '"calt" 0' }}
+					>
+						Delete
+					</button>
+				)}
+				<ShareButton {...(sharePath !== undefined ? { path: sharePath } : {})} />
+			</div>
 		</>
 	);
 }
