@@ -5,3 +5,5 @@
  * get a `Receipt` (or `null`).
  */
 export { analyzeTransaction, type Receipt } from './analyzeTransaction.js';
+export { classifyTransaction } from './classifyTransaction.js';
+export type { AnalyzeFailure, RelayerDetail, FailureReason } from './endpoints.js';
