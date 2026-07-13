@@ -321,10 +321,11 @@ export function formatSubvalueUsd(value: number): string {
 // zero / non-finite so callers choose their own placeholder.
 export function formatUsdMagnitude(value: number): string | null {
 	if (!Number.isFinite(value) || value === 0) return null;
-	if (Math.abs(value) < 0.01) {
-		return value.toLocaleString('en-US', { maximumSignificantDigits: 6 });
+	const abs = Math.abs(value);
+	if (abs < 0.01) {
+		return abs.toLocaleString('en-US', { maximumSignificantDigits: 6 });
 	}
-	return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+	return abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function ShareButton({ path }: { path?: string } = {}) {

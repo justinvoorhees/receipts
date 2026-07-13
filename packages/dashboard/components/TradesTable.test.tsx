@@ -629,4 +629,10 @@ describe('formatSubvalueUsd sub-cent precision', () => {
 		expect(formatUsdMagnitude(2.25)).toBe('2.25');
 		expect(formatUsdMagnitude(0)).toBeNull();
 	});
+
+	it('formatUsdMagnitude returns an unsigned magnitude for negative input', async () => {
+		const { formatUsdMagnitude } = await import('./TradesTable');
+		expect(formatUsdMagnitude(-2.25)).toBe('2.25');
+		expect(formatUsdMagnitude(-0.000000667735)).toBe('0.000000667735');
+	});
 });
