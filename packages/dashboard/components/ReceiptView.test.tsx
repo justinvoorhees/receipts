@@ -392,3 +392,20 @@ describe('Receipt leg context — endpoint token resolution', () => {
 		expect(html).not.toContain('WARP/ETH');
 	});
 });
+
+describe('ReceiptView diagnosis', () => {
+	it('renders the DiagnosticCard when trade is null and a diagnosis is present', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={null} hash="0xabc" diagnosis={{ reason: 'NOT_DECODABLE' }} />,
+		);
+		expect(html).toContain('Not a decodable swap');
+	});
+
+	it('falls back to the field error when no diagnosis is supplied', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={null} hash="0xabc" />);
+		expect(html).toContain('Transaction not found.');
+		expect(html).not.toContain('Not a decodable swap');
+	});
+});

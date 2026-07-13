@@ -1,6 +1,8 @@
 'use client';
 import { ReceiptSearch } from './ReceiptSearch';
 import type { ReceiptRow, RouteLeg } from '../lib/queries';
+import type { AnalyzeFailure } from '@fabric-tca/core';
+import { DiagnosticCard } from './DiagnosticCard';
 import {
 	formatProvider,
 	providerColor,
@@ -318,14 +320,30 @@ function LegRow({
 	);
 }
 
-export function ReceiptView({ trade, hash }: { trade: ReceiptRow | null; hash: string }) {
-	const error = trade === null ? 'Transaction not found.' : undefined;
+export function ReceiptView({
+	trade,
+	hash,
+	diagnosis,
+}: {
+	trade: ReceiptRow | null;
+	hash: string;
+	diagnosis?: AnalyzeFailure;
+}) {
+	// When a computed diagnosis exists, show its short title inline; otherwise the
+	// legacy generic string. Only reached when trade is null.
+	const error =
+		trade === null
+			? diagnosis
+				? undefined // full detail rendered in the card below; keep the field red without duplicate text
+				: 'Transaction not found.'
+			: undefined;
+	const fieldError = trade === null && diagnosis ? ' ' : error; // ' ' keeps the field red without text
 
 	return (
 		<div className="flex flex-col gap-[40px] pb-10">
-			<ReceiptSearch hash={hash} {...(error !== undefined ? { error } : {})} />
-
+			<ReceiptSearch hash={hash} {...(fieldError !== undefined ? { error: fieldError } : {})} />
 			{trade != null && <Receipt row={trade} />}
+			{trade == null && diagnosis && <DiagnosticCard failure={diagnosis} />}
 		</div>
 	);
 }
