@@ -49,42 +49,44 @@ function collectTraceLogs(
 	return out;
 }
 
-export function extractEndpoints(args: { trace: TraceNode; trader: string }): Endpoints | null {
-	const trader = args.trader.toLowerCase();
-
-	const logs = collectTraceLogs(args.trace);
-	const transfers = decodeTransferLogs(logs as never);
-
-	const nets = new Map<string, bigint>();
-	for (const t of transfers) {
+/** address (lowercased) → (token or 'native' → signed net). */
+export function perAddressTokenDeltas(trace: TraceNode): Map<string, Map<string, bigint>> {
+	const per = new Map<string, Map<string, bigint>>();
+	const bump = (addr: string, token: string, v: bigint) => {
+		const a = addr.toLowerCase();
+		const m = per.get(a) ?? new Map<string, bigint>();
+		m.set(token, (m.get(token) ?? 0n) + v);
+		per.set(a, m);
+	};
+	const logs = collectTraceLogs(trace);
+	for (const t of decodeTransferLogs(logs as never)) {
 		const token = t.token.toLowerCase();
-		if (t.from.toLowerCase() === trader) {
-			nets.set(token, (nets.get(token) ?? 0n) - t.value);
-		}
-		if (t.to.toLowerCase() === trader) {
-			nets.set(token, (nets.get(token) ?? 0n) + t.value);
-		}
+		bump(t.from, token, -t.value);
+		bump(t.to, token, t.value);
 	}
-
-	const ethNet = collectNativeEthDeltas(args.trace as never).get(trader) ?? 0n;
-	if (ethNet !== 0n) {
-		nets.set(NATIVE, (nets.get(NATIVE) ?? 0n) + ethNet);
+	for (const [addr, v] of collectNativeEthDeltas(trace as never)) {
+		if (v !== 0n) bump(addr, NATIVE, v);
 	}
+	return per;
+}
 
+/** The clean 1-in/1-out predicate over a single address's net map. */
+export function cleanSwapFromNets(
+	nets: Map<string, bigint>,
+): { inputToken: string; outputToken: string; inputAmountRaw: bigint; outputAmountRaw: bigint } | null {
 	const nonzero = [...nets.entries()].filter(([, v]) => v !== 0n);
 	const negatives = nonzero.filter(([, v]) => v < 0n);
 	const positives = nonzero.filter(([, v]) => v > 0n);
-
 	if (negatives.length !== 1 || positives.length !== 1) return null;
-
 	const [inputToken, inputNet] = negatives[0]!;
 	const [outputToken, outputNet] = positives[0]!;
+	return { inputToken, outputToken, inputAmountRaw: -inputNet, outputAmountRaw: outputNet };
+}
 
-	return {
-		trader,
-		inputToken,
-		outputToken,
-		inputAmountRaw: -inputNet,
-		outputAmountRaw: outputNet,
-	};
+export function extractEndpoints(args: { trace: TraceNode; trader: string }): Endpoints | null {
+	const trader = args.trader.toLowerCase();
+	const nets = perAddressTokenDeltas(args.trace).get(trader) ?? new Map<string, bigint>();
+	const swap = cleanSwapFromNets(nets);
+	if (!swap) return null;
+	return { trader, ...swap };
 }

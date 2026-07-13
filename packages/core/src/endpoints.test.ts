@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractEndpoints } from './endpoints.js';
+import { extractEndpoints, perAddressTokenDeltas, cleanSwapFromNets } from './endpoints.js';
 
 // Same synthetic-Transfer-log pattern as normalizeSmokeTrade.test.ts: real
 // topic0 (keccak256 of Transfer(address,address,uint256)), 32-byte padded
@@ -67,5 +67,50 @@ describe('extractEndpoints', () => {
 		expect(e?.outputToken).toBe('native');
 		expect(e?.inputAmountRaw).toBe(1000n);
 		expect(e?.outputAmountRaw).toBe(2000n);
+	});
+});
+
+// Minimal callTracer log helper: an ERC-20 Transfer(from,to,value). Reuses
+// the module-level TRANSFER/pad/hex helpers above (same shape as the task
+// brief's standalone `word`/`pad`, renamed here only to avoid redeclaring
+// consts already defined at the top of this file).
+function transferLog(token: string, from: string, to: string, value: bigint) {
+	return { address: token, data: hex(value), topics: [TRANSFER, pad(from), pad(to)] };
+}
+
+const A = '0x' + 'a'.repeat(40);
+const B = '0x' + 'b'.repeat(40);
+const P = '0x' + 'c'.repeat(40); // pool
+const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const WETH = '0x4200000000000000000000000000000000000006';
+
+describe('perAddressTokenDeltas', () => {
+	it('sums signed per-address token deltas across a trace', () => {
+		const trace = {
+			logs: [transferLog(WETH, A, P, 100n), transferLog(USDC, P, A, 250n)],
+			calls: [],
+		} as never;
+		const per = perAddressTokenDeltas(trace);
+		expect(per.get(A.toLowerCase())!.get(WETH)).toBe(-100n);
+		expect(per.get(A.toLowerCase())!.get(USDC)).toBe(250n);
+		expect(per.get(P.toLowerCase())!.get(WETH)).toBe(100n);
+		expect(per.get(P.toLowerCase())!.get(USDC)).toBe(-250n);
+	});
+});
+
+describe('cleanSwapFromNets', () => {
+	it('returns input=negative leg, output=positive leg for a clean 1-in/1-out', () => {
+		const nets = new Map<string, bigint>([[WETH, -100n], [USDC, 250n]]);
+		expect(cleanSwapFromNets(nets)).toEqual({
+			inputToken: WETH, outputToken: USDC, inputAmountRaw: 100n, outputAmountRaw: 250n,
+		});
+	});
+	it('ignores zero-net tokens', () => {
+		const nets = new Map<string, bigint>([[WETH, -100n], [USDC, 250n], ['0xdead', 0n]]);
+		expect(cleanSwapFromNets(nets)?.inputToken).toBe(WETH);
+	});
+	it('returns null when not exactly 1 negative and 1 positive', () => {
+		expect(cleanSwapFromNets(new Map([[WETH, -100n]]))).toBeNull();
+		expect(cleanSwapFromNets(new Map([[WETH, -1n], [USDC, -2n], ['0xx', 3n]]))).toBeNull();
 	});
 });
