@@ -59,23 +59,22 @@ row value and the tooltip number in change 4. Extract a shared
 
 Discriminator: the side's per-unit USD price (`notionalUsd ÷ amount`).
 
-- **> $0.01/unit** (headline): render `amount` with **thousands separators on
-  the whole part (unlimited length)** and **decimals capped at 6 places**
-  (trailing zeros trimmed). Symbol never clamped.
-  - e.g. `1,000,000,000.123456 USDC`, `2.25005 USDC`, `0.00123 WETH`.
+- **> $0.01/unit** (headline): whole part unlimited length (**no thousands
+  separators**), **decimals capped at 6 places** (trailing zeros trimmed).
+  Symbol never clamped.
+  - e.g. `1000000000.123456 USDC`, `2.25005 USDC`, `0.00123 WETH`.
 - **< $0.01/unit** (memecoin): high decimal ceiling of **18 places** (wei-level;
   matches `formatExecutionPrice`'s existing `trimNumber(n, 18)`), applied to both
-  sides — this replaces today's asymmetric 6 (in) / 15 (out) caps. Whole part
-  still grouped with separators.
+  sides — this replaces today's asymmetric 6 (in) / 15 (out) caps. No separators.
 - **Unknown** per-unit price (missing/zero notional or amount): default to the
   **clamped** (headline, 6-decimal) path — layout-protective.
 
 Boundary: per-unit price `>= 0.01` uses the clamped path.
 
 Implementation note: `Number(amount).toLocaleString('en-US', {
-maximumFractionDigits: cap })` handles grouping, rounding, and trailing-zero
-trimming in one call (`cap` = 6 for headline/unknown, high ceiling for
-sub-cent).
+useGrouping: false, maximumFractionDigits: cap })` handles rounding and
+trailing-zero trimming in one call, with grouping disabled (`cap` = 6 for
+headline/unknown, 18 for sub-cent).
 
 ### 4. Price Delta comparison label → tooltip
 
@@ -121,15 +120,13 @@ ignored intentionally.
   unchanged; `0`/non-finite → `–`; dust notional gains precision.
 - `formatDelta` / `formatUsdMagnitude`: sub-cent delta precision; `>= $0.01`
   unchanged.
-- `formatTokenIn`/`formatTokenOut`: headline caps at 6 decimals with grouping;
-  memecoin keeps full precision; unknown price → clamped; symbol never dropped;
-  large whole numbers grouped and never truncated.
+- `formatTokenIn`/`formatTokenOut`: headline caps at 6 decimals (no separators);
+  memecoin keeps full precision (18 places); unknown price → clamped; symbol
+  never dropped; large whole numbers never truncated.
 - `priceDeltaComparison`: sub-cent tokenOut never `At Market`; exact tie →
   `Below Market`; non-sub-cent unchanged.
 - Price Delta row: renders the three tooltip strings with the correct `$X`
   delta and dotted-underline treatment.
-- Update existing assertion `toContain('1000 USDC')` → `1,000 USDC` (grouping is
-  an intended display change).
 
 ## Out of scope
 
