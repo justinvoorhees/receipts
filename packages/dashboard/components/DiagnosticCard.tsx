@@ -27,10 +27,9 @@ export const REASON_COPY: Record<FailureReason, { title: string; body: string }>
 export function DiagnosticCard({ failure }: { failure: AnalyzeFailure }) {
 	const copy = REASON_COPY[failure.reason];
 	const d = failure.detail;
-	const pair =
-		d && (d.inputSymbol || d.outputSymbol)
-			? `${d.inputSymbol ?? shortTxHash(d.inputToken)} → ${d.outputSymbol ?? shortTxHash(d.outputToken)}`
-			: null;
+	const pair = d
+		? `${d.inputSymbol ?? shortTxHash(d.inputToken)} → ${d.outputSymbol ?? shortTxHash(d.outputToken)}`
+		: null;
 
 	return (
 		<div
