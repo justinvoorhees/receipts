@@ -100,8 +100,11 @@ export async function classifyTransaction(
 Flow:
 
 1. **Format check** (no RPC): not `^0x[0-9a-fA-F]{64}$` → `INVALID_HASH`.
-2. **Fetch**: `getTransaction` rejects → `NOT_FOUND_ONCHAIN`. `debug_traceTransaction`
-   rejects (or any unexpected throw) → `ANALYZE_ERROR`.
+2. **Fetch**: `getTransaction` rejects with viem's `TransactionNotFoundError`
+   (the tx genuinely does not exist) → `NOT_FOUND_ONCHAIN`; any *other*
+   `getTransaction` rejection (transient/unreachable node) → `ANALYZE_ERROR`,
+   not a confidently-wrong "not found". `debug_traceTransaction` rejects (or
+   any unexpected throw) → `ANALYZE_ERROR`.
 3. `extractEndpoints({ trace, trader: tx.from })`:
    - non-null → this wasn't actually a failure; return `ANALYZE_ERROR` as a
      defensive fallback (callers only invoke `classifyTransaction` on a known
