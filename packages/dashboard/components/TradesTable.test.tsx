@@ -603,3 +603,30 @@ describe('wrap/unwrap venue handling', () => {
 		expect(rows[0]!.label).not.toContain('Unwrap');
 	});
 });
+
+describe('formatSubvalueUsd sub-cent precision', () => {
+	it('renders a sub-cent value at 6 significant figures', async () => {
+		const { formatSubvalueUsd } = await import('./TradesTable');
+		expect(formatSubvalueUsd(0.000000667735)).toBe('$0.000000667735');
+	});
+
+	it('keeps 2-decimal formatting at or above $0.01', async () => {
+		const { formatSubvalueUsd } = await import('./TradesTable');
+		expect(formatSubvalueUsd(1829.76)).toBe('$1,829.76');
+		expect(formatSubvalueUsd(2.25)).toBe('$2.25');
+		expect(formatSubvalueUsd(0.01)).toBe('$0.01');
+	});
+
+	it('returns – for zero and non-finite', async () => {
+		const { formatSubvalueUsd } = await import('./TradesTable');
+		expect(formatSubvalueUsd(0)).toBe('–');
+		expect(formatSubvalueUsd(NaN)).toBe('–');
+	});
+
+	it('formatUsdMagnitude returns unsigned string or null', async () => {
+		const { formatUsdMagnitude } = await import('./TradesTable');
+		expect(formatUsdMagnitude(0.000000667735)).toBe('0.000000667735');
+		expect(formatUsdMagnitude(2.25)).toBe('2.25');
+		expect(formatUsdMagnitude(0)).toBeNull();
+	});
+});
