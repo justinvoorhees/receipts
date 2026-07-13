@@ -1,4 +1,4 @@
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, TransactionNotFoundError } from 'viem';
 import { base } from 'viem/chains';
 import {
 	extractEndpoints,
@@ -30,8 +30,11 @@ export async function classifyTransaction(
 	let tx;
 	try {
 		tx = await rpc.getTransaction({ hash: txHash });
-	} catch {
-		return { reason: 'NOT_FOUND_ONCHAIN' };
+	} catch (err) {
+		// Only a genuine "tx does not exist" is NOT_FOUND; a transient/unreachable
+		// RPC is infra failure → ANALYZE_ERROR (mirrors the trace catch below).
+		if (err instanceof TransactionNotFoundError) return { reason: 'NOT_FOUND_ONCHAIN' };
+		return { reason: 'ANALYZE_ERROR' };
 	}
 
 	let trace: TraceNode;

@@ -10,6 +10,13 @@ describe('classifyTransaction format check (no RPC)', () => {
 		const r = await classifyTransaction('0x123', 8453, { rpcUrl: 'http://unused' });
 		expect(r.reason).toBe('INVALID_HASH');
 	});
+
+	it('maps an unreachable RPC to ANALYZE_ERROR, not NOT_FOUND_ONCHAIN', async () => {
+		// Well-formed hash, but the node refuses the connection: an infra failure
+		// must not masquerade as "transaction does not exist".
+		const r = await classifyTransaction('0x' + '1'.repeat(64), 8453, { rpcUrl: 'http://127.0.0.1:1' });
+		expect(r.reason).toBe('ANALYZE_ERROR');
+	}, 30000);
 });
 
 d('classifyTransaction e2e', () => {
