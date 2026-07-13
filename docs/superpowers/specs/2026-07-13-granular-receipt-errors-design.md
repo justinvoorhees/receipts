@@ -58,7 +58,7 @@ mislabeled as a property of the transaction.
 |---|---|---|---|
 | `INVALID_HASH` | Invalid transaction hash | "That doesn't look like a transaction hash — expected a 66-character `0x…` value." | — |
 | `NOT_FOUND_ONCHAIN` | Not found on Base | "No transaction with this hash exists on Base (chain 8453). Check the hash and that it's a Base transaction." | — |
-| `RELAYER_THIRD_PARTY` | Relay / third-party trade | "The sender relayed this swap on behalf of another address. Beneficiary-anchored decoding isn't supported yet." | beneficiary address + resolved pair (e.g. `WETH → USDC`) |
+| `RELAYER_THIRD_PARTY` | Relay / third-party trade | "The sender relayed this swap on behalf of another address. Beneficiary-anchored decoding isn't supported yet." | detected beneficiary (EOA) address + its pair (e.g. `USDC → ETH`) |
 | `NOT_DECODABLE` | Not a decodable swap | "We couldn't find a clean token-in / token-out swap for the sender. It may be a transfer, approval, LP action, or a multi-hop batch we don't decompose yet." | — |
 | `ANALYZE_ERROR` | Couldn't analyze | "Couldn't analyze this transaction — try again." | — |
 
@@ -106,32 +106,68 @@ Flow:
    - non-null → this wasn't actually a failure; return `ANALYZE_ERROR` as a
      defensive fallback (callers only invoke `classifyTransaction` on a known
      miss, so this branch is not expected in practice).
-   - null → delegate to `classifyEndpointFailure(trace, tx.from)`.
+   - null → find candidates with `findCleanSwapCandidates(trace, tx.from)`
+     (pure), fetch `getBytecode` for each candidate address to build an
+     EOA-flag map, then `selectBeneficiary(candidates, eoaFlags)` (pure).
+     - non-null beneficiary → `RELAYER_THIRD_PARTY`, resolve `detail` symbols
+       best-effort.
+     - null → `NOT_DECODABLE`.
 4. Symbol resolution for the relayer `detail` is best-effort (`readSymbol`);
    an unresolved symbol is omitted and the UI falls back to a short address.
 
-### Pure inner function (no RPC — the unit-tested core)
+### Why a two-step (candidates → EOA select), not "exactly one match"
+
+Verified against the real relayer tx `0xd6bb5ae0…`: a swap has **at least two**
+addresses with a clean 1-neg/1-pos net — the trader/beneficiary AND the
+counterparty (pool / RFQ filler / settlement contract), with mirrored legs. So
+"exactly one qualifying non-sender address" is wrong. In this tx the two clean
+addresses are:
+
+- `0xf70da978…` — **EOA**, USDC → native ETH — the true end user.
+- `0xbee3211a…` — **contract**, WETH → USDC — an intermediary settlement hop.
+
+The discriminator is EOA-vs-contract: the true beneficiary is an externally-owned
+account, not a pool/router. `code().length === 0` ⇒ EOA. (An empty `code` for an
+address that only received/sent tokens is the standard EOA test.)
+
+### Pure inner functions (no RPC — the unit-tested core)
 
 ```ts
-export function classifyEndpointFailure(
-  trace: TraceNode,
+export interface CleanSwap {
+  address: string;
+  inputToken: string;   // negative leg
+  outputToken: string;  // positive leg
+  inputAmountRaw: bigint;
+  outputAmountRaw: bigint;
+}
+
+/** Every address (including `trader`) whose net delta is a clean 1-in/1-out. */
+export function findCleanSwapCandidates(trace: TraceNode, trader: string): CleanSwap[];
+
+/** Pick the beneficiary from candidates given each address's EOA flag.
+ *  Excludes `trader`; prefers the sole EOA, else the sole candidate. */
+export function selectBeneficiary(
+  candidates: CleanSwap[],
   trader: string,
-): { reason: 'RELAYER_THIRD_PARTY' | 'NOT_DECODABLE'; detail?: RelayerDetail };
+  isEoa: (address: string) => boolean,
+): RelayerDetail | null;
 ```
 
-- Reuse the existing signed net-delta math from `extractEndpoints` /
-  `collectNativeEthDeltas`. Extract the shared per-address delta computation into
-  a helper (e.g. `perAddressTokenDeltas(trace)`) rather than duplicating the
-  transfer/native summing — `extractEndpoints` is refactored to consume the same
-  helper so the two stay in lockstep.
-- Apply the same "exactly one negative token and exactly one positive token"
-  test (`endpoints.ts:78`) to **every address other than `trader`**:
-  - Exactly one qualifying address → `RELAYER_THIRD_PARTY` with
-    `detail = { beneficiary, inputToken, outputToken }` (input = the negative
-    leg, output = the positive leg).
-  - Zero, or more than one, qualifying address → `NOT_DECODABLE`.
+- `findCleanSwapCandidates` reuses the signed net-delta math from
+  `extractEndpoints` / `collectNativeEthDeltas` via a shared
+  `perAddressTokenDeltas(trace)` helper and the extracted `cleanSwapFromNets`
+  predicate — `extractEndpoints` is refactored to consume both so the rules
+  can't drift.
+- `selectBeneficiary` selection rule (over candidates with `address !== trader`):
+  - `eoaCandidates` = candidates whose `isEoa(address)` is true.
+  - exactly one EOA candidate → that one (beneficiary).
+  - else exactly one candidate total → that one (covers a smart-contract-wallet
+    / AA beneficiary where no plain EOA exists).
+  - else (zero, or multiple ambiguous) → `null` ⇒ `NOT_DECODABLE`.
+- `detail = { beneficiary: address, inputToken, outputToken }` from the selected
+  candidate's legs.
 - The known Relay router (`0xccc88a9d…`, RelayApprovalProxyV3) is a corroborating
-  signal only; the net-flow scan is the general detector and works for any
+  signal only; the candidate/EOA scan is the general detector and works for any
   relayer / account-abstraction / P2P sender.
 
 ## Plumbing (Option A — page classifies on DB miss)
@@ -176,19 +212,24 @@ map lives with `DiagnosticCard` in the dashboard. Core emits only the machine
 
 ## Testing
 
-- **`classifyEndpointFailure` (pure, no RPC):** the substance of the feature.
-  - Relayer fixture (the `0xd6bb5ae0…` shape): `tx.from` has no clean swap; a
-    single other address (`0xbee3…`) nets WETH→USDC → `RELAYER_THIRD_PARTY` with
-    the right beneficiary + tokens.
-  - Plain transfer / approval (no address with a clean 1-in/1-out) →
-    `NOT_DECODABLE`.
-  - Two independent swappers (two qualifying addresses) → `NOT_DECODABLE`
-    (ambiguous, not a single beneficiary).
-  - `trader` itself excluded from the scan.
-  - Build fixtures from trimmed real traces where practical, mirroring existing
-    `__fixtures__` usage.
+- **`findCleanSwapCandidates` (pure, no RPC):**
+  - Relayer fixture (the `0xd6bb5ae0…` shape): returns two candidates — the EOA
+    user (USDC→native ETH) and a contract intermediary (WETH→USDC) — plus none
+    for `tx.from` (relayer nets nothing).
+  - Plain transfer / approval fixture: returns `[]` (no clean 1-in/1-out).
+  - A normal direct swap: `tx.from` itself appears as a candidate.
+- **`selectBeneficiary` (pure, no RPC — the crux):**
+  - Two candidates, one flagged EOA and one contract → returns the EOA's
+    `RelayerDetail` (beneficiary = EOA, its input/output legs).
+  - Single candidate flagged contract (AA-wallet case) → returns that candidate.
+  - Two EOA candidates (ambiguous) → `null`.
+  - Empty candidates → `null`.
+  - A candidate equal to `trader` is excluded before selection.
+- Build fixtures from trimmed real traces where practical, mirroring existing
+  `__fixtures__` usage.
 - **`classifyTransaction` (RPC e2e, gated on `TCA_RPC_URL`):** `0xd6bb5ae0…`
-  → `RELAYER_THIRD_PARTY` beneficiary `0xbee3211ab312a8d065c4fef0247448e17a8da000`;
+  → `RELAYER_THIRD_PARTY`, beneficiary
+  `0xf70da97812cb96acdf810712aa562db8dfa3dbef`, pair `USDC → ETH`;
   a known good swap hash → the not-expected `ANALYZE_ERROR` fallback (endpoints
   resolve). Skips cleanly when the RPC env var is unset (mirror the existing
   `analyzeTransaction.test.ts` gating).
