@@ -25,6 +25,17 @@ describe('formatDelta', () => {
 		expect(formatDelta(null, 1829.0)).toBe('–');
 		expect(formatDelta(1830.0, null)).toBe('–');
 	});
+
+	it('renders a sub-cent delta at 6 significant figures', async () => {
+		const { formatDelta } = await import('./ReceiptView');
+		// Figma tooltip example: delta of $0.000000004856
+		expect(formatDelta(0.000000004856, 0)).toBe('$0.000000004856');
+	});
+
+	it('renders an exact-zero delta as $0.00', async () => {
+		const { formatDelta } = await import('./ReceiptView');
+		expect(formatDelta(1829.0, 1829.0)).toBe('$0.00');
+	});
 });
 
 describe('priceDeltaComparison', () => {

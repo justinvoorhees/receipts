@@ -13,6 +13,7 @@ import {
 	formatDialogBps,
 	formatExecutionPrice,
 	formatSubvalueUsd,
+	formatUsdMagnitude,
 	formatTokenIn,
 	formatTokenOut,
 	normalizeRouteLegs,
@@ -28,7 +29,8 @@ export function formatDelta(marketMid: unknown, realizedPrice: unknown): string 
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
-	return `$${Math.abs(mid - exec).toFixed(2)}`;
+	// Sub-cent deltas keep precision; an exact-zero delta still reads $0.00.
+	return `$${formatUsdMagnitude(Math.abs(mid - exec)) ?? '0.00'}`;
 }
 
 export function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown): string | undefined {
