@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { extractEndpoints, perAddressTokenDeltas, cleanSwapFromNets } from './endpoints.js';
+import {
+	extractEndpoints,
+	perAddressTokenDeltas,
+	cleanSwapFromNets,
+	findCleanSwapCandidates,
+	selectBeneficiary,
+	type CleanSwap,
+} from './endpoints.js';
 
 // Same synthetic-Transfer-log pattern as normalizeSmokeTrade.test.ts: real
 // topic0 (keccak256 of Transfer(address,address,uint256)), 32-byte padded
@@ -112,5 +119,58 @@ describe('cleanSwapFromNets', () => {
 	it('returns null when not exactly 1 negative and 1 positive', () => {
 		expect(cleanSwapFromNets(new Map([[WETH, -100n]]))).toBeNull();
 		expect(cleanSwapFromNets(new Map([[WETH, -1n], [USDC, -2n], ['0xx', 3n]]))).toBeNull();
+	});
+});
+
+const RELAYER = '0x' + 'f'.repeat(40); // tx.from, nets nothing
+
+describe('findCleanSwapCandidates', () => {
+	it('finds beneficiary + counterparty; relayer (net zero) absent', () => {
+		// A = beneficiary: WETH out(-100), USDC in(+250). P = counterparty: mirror.
+		const trace = {
+			logs: [transferLog(WETH, A, P, 100n), transferLog(USDC, P, A, 250n)],
+			calls: [],
+		} as never;
+		const cands = findCleanSwapCandidates(trace, RELAYER);
+		const addrs = cands.map((c) => c.address).sort();
+		expect(addrs).toEqual([A.toLowerCase(), P.toLowerCase()].sort());
+	});
+
+	it('returns [] for a non-swap (single one-sided transfer)', () => {
+		const trace = { logs: [transferLog(USDC, A, B, 50n)], calls: [] } as never;
+		expect(findCleanSwapCandidates(trace, RELAYER)).toEqual([]);
+	});
+});
+
+describe('selectBeneficiary', () => {
+	const eoaAddr = A.toLowerCase();
+	const contractAddr = P.toLowerCase();
+	const candA: CleanSwap = { address: eoaAddr, inputToken: USDC, outputToken: 'native', inputAmountRaw: 1n, outputAmountRaw: 2n };
+	const candP: CleanSwap = { address: contractAddr, inputToken: WETH, outputToken: USDC, inputAmountRaw: 3n, outputAmountRaw: 4n };
+
+	it('prefers the sole EOA among candidates', () => {
+		const isEoa = (a: string) => a === eoaAddr;
+		expect(selectBeneficiary([candA, candP], RELAYER, isEoa)).toEqual({
+			beneficiary: eoaAddr, inputToken: USDC, outputToken: 'native',
+		});
+	});
+
+	it('falls back to the sole candidate when none are EOA (AA wallet)', () => {
+		expect(selectBeneficiary([candP], RELAYER, () => false)).toEqual({
+			beneficiary: contractAddr, inputToken: WETH, outputToken: USDC,
+		});
+	});
+
+	it('returns null when two EOAs are ambiguous', () => {
+		expect(selectBeneficiary([candA, candP], RELAYER, () => true)).toBeNull();
+	});
+
+	it('returns null for empty candidates', () => {
+		expect(selectBeneficiary([], RELAYER, () => true)).toBeNull();
+	});
+
+	it('excludes the trader from selection', () => {
+		const traderCand: CleanSwap = { ...candA, address: RELAYER.toLowerCase() };
+		expect(selectBeneficiary([traderCand], RELAYER, () => true)).toBeNull();
 	});
 });

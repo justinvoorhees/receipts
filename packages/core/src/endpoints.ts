@@ -83,6 +83,64 @@ export function cleanSwapFromNets(
 	return { inputToken, outputToken, inputAmountRaw: -inputNet, outputAmountRaw: outputNet };
 }
 
+export type FailureReason =
+	| 'INVALID_HASH'
+	| 'NOT_FOUND_ONCHAIN'
+	| 'RELAYER_THIRD_PARTY'
+	| 'NOT_DECODABLE'
+	| 'ANALYZE_ERROR';
+
+export interface RelayerDetail {
+	beneficiary: string;
+	inputToken: string;
+	outputToken: string;
+	inputSymbol?: string;
+	outputSymbol?: string;
+}
+
+export interface AnalyzeFailure {
+	reason: FailureReason;
+	detail?: RelayerDetail;
+}
+
+export interface CleanSwap {
+	address: string;
+	inputToken: string;
+	outputToken: string;
+	inputAmountRaw: bigint;
+	outputAmountRaw: bigint;
+}
+
+/** Every address whose net delta is a clean 1-in/1-out (includes `trader` if it qualifies). */
+export function findCleanSwapCandidates(trace: TraceNode, trader: string): CleanSwap[] {
+	void trader; // included for signature symmetry; trader filtering happens in selectBeneficiary
+	const out: CleanSwap[] = [];
+	for (const [address, nets] of perAddressTokenDeltas(trace)) {
+		const swap = cleanSwapFromNets(nets);
+		if (swap) out.push({ address, ...swap });
+	}
+	return out;
+}
+
+/** Pick the beneficiary: exclude trader, prefer the sole EOA, else the sole candidate. */
+export function selectBeneficiary(
+	candidates: CleanSwap[],
+	trader: string,
+	isEoa: (address: string) => boolean,
+): RelayerDetail | null {
+	const t = trader.toLowerCase();
+	const pool = candidates.filter((c) => c.address.toLowerCase() !== t);
+	const pick = (c: CleanSwap): RelayerDetail => ({
+		beneficiary: c.address,
+		inputToken: c.inputToken,
+		outputToken: c.outputToken,
+	});
+	const eoas = pool.filter((c) => isEoa(c.address));
+	if (eoas.length === 1) return pick(eoas[0]!);
+	if (pool.length === 1) return pick(pool[0]!);
+	return null;
+}
+
 export function extractEndpoints(args: { trace: TraceNode; trader: string }): Endpoints | null {
 	const trader = args.trader.toLowerCase();
 	const nets = perAddressTokenDeltas(args.trace).get(trader) ?? new Map<string, bigint>();
