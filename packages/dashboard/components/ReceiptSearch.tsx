@@ -2,8 +2,10 @@
 import type { Route } from 'next';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import type { AnalyzeFailure } from '@fabric-tca/core';
+import { FailureNotice } from './FailureNotice';
 
-export function ReceiptSearch({ hash, error }: { hash: string; error?: string }) {
+export function ReceiptSearch({ hash, failure }: { hash: string; failure?: AnalyzeFailure }) {
 	const router = useRouter();
 	const [value, setValue] = useState(hash);
 	const [inputHovered, setInputHovered] = useState(false);
@@ -16,8 +18,8 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 
 	// Compute + persist the receipt on the server (idempotent — a hash already
 	// stored is returned without recompute), then navigate to render it. The
-	// server page reads the now-persisted row; a miss surfaces as the
-	// "Transaction not found." error via the `error` prop.
+	// server page reads the now-persisted row; a miss is diagnosed and surfaces
+	// as a FailureNotice via the `failure` prop.
 	const go = async (raw: string) => {
 		const trimmed = raw.trim();
 		if (!trimmed || submitting) return;
@@ -41,7 +43,7 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 		void go(value);
 	};
 
-	const hasError = error != null;
+	const hasError = failure != null;
 	const borderColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
 	const textColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
 	const labelColor = hasError ? 'var(--color-red)' : 'var(--color-secondary)';
@@ -96,14 +98,7 @@ export function ReceiptSearch({ hash, error }: { hash: string; error?: string })
 					{submitting ? 'Analyzing…' : 'Create Receipt'}
 				</button>
 			</div>
-			{hasError && (
-				<span
-					className="font-['Sohne_Breit'] text-[12px] leading-[12px]"
-					style={{ color: 'var(--color-red)' }}
-				>
-					{error}
-				</span>
-			)}
+			{failure && <FailureNotice failure={failure} />}
 		</div>
 	);
 }
