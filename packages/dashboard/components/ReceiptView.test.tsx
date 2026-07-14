@@ -59,6 +59,18 @@ describe('priceDeltaComparison', () => {
 		expect(priceDeltaComparison(null, 1829.0)).toBeUndefined();
 		expect(priceDeltaComparison(1830.0, null)).toBeUndefined();
 	});
+
+	it('never returns At Market for a sub-cent tokenOut', async () => {
+		const { priceDeltaComparison } = await import('./ReceiptView');
+		// Within the 0.01 band but sub-cent tokenOut → resolve by sign, not "At Market".
+		expect(priceDeltaComparison(0.0000010, 0.0000011, true)).toBe('Below Market');
+		expect(priceDeltaComparison(0.0000011, 0.0000010, true)).toBe('Above Market');
+	});
+
+	it('breaks an exact sub-cent tie toward Below Market', async () => {
+		const { priceDeltaComparison } = await import('./ReceiptView');
+		expect(priceDeltaComparison(0.0000010, 0.0000010, true)).toBe('Below Market');
+	});
 });
 
 // A full USDC/WETH receipt, generalized ReceiptRow shape (Task 8+).

@@ -33,10 +33,21 @@ export function formatDelta(marketMid: unknown, realizedPrice: unknown): string 
 	return `$${formatUsdMagnitude(Math.abs(mid - exec)) ?? '0.00'}`;
 }
 
-export function priceDeltaComparison(marketMid: unknown, realizedPrice: unknown): string | undefined {
+export function priceDeltaComparison(
+	marketMid: unknown,
+	realizedPrice: unknown,
+	tokenOutSubCent = false,
+): string | undefined {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return undefined;
+	if (tokenOutSubCent) {
+		// The <$0.01 "At Market" band is meaningless when the whole price is
+		// sub-cent; resolve by sign, and break an exact tie toward Below Market.
+		if (exec > mid) return 'Below Market';
+		if (exec < mid) return 'Above Market';
+		return 'Below Market';
+	}
 	if (Math.abs(exec - mid) < 0.01) return 'At Market';
 	if (exec > mid) return 'Below Market';
 	return 'Above Market';
