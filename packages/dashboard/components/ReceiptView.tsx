@@ -24,6 +24,7 @@ import {
 	getAggregatorFeeAttribution,
 	ShareButton,
 	tokenUnitPriceUsd,
+	formatTokenAmount,
 	STABLE_SYMBOLS,
 } from './TradesTable';
 
@@ -129,6 +130,67 @@ function usdPerBasePrices(row: Pick<ReceiptRow,
 			? execUsd * (mm / rp)
 			: null;
 	return { execUsd, marketUsd };
+}
+
+// A token independently anchors to USD when it's a stablecoin (≈ $1) or ETH/WETH
+// (priced via the benchmark mid). Tier-independent — it says the pair *has* a USD
+// tie-point, not that any particular mid is trustworthy.
+export function isAnchorable(symbol: string): boolean {
+	return STABLE_SYMBOLS.has(symbol) || ETH_SYMBOLS.has(symbol);
+}
+
+// A side's USD price marked at the benchmark mid: stablecoins are $1; for a
+// stable↔ether pair the ether always sorts as `base`, so `marketMid` is the
+// quote(≈USD)-per-ether price. Non-anchorable tokens have no defensible price.
+function usdPriceAtMid(symbol: string, marketMid: number | null): number | null {
+	if (STABLE_SYMBOLS.has(symbol)) return 1;
+	if (ETH_SYMBOLS.has(symbol)) return marketMid;
+	return null;
+}
+
+/**
+ * Per-side USD notionals under the Phase-1 both-or-none rule: return a value for
+ * each side only when BOTH sides can be independently valued at the mid (i.e. the
+ * pair is double-anchored and the mid exists). Single- and no-anchor pairs return
+ * both-null — we never show one notional and drop the other.
+ */
+export function perSideNotionals(
+	row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' | 'marketMid'>,
+): { notionalIn: number | null; notionalOut: number | null } {
+	const mid = row.marketMid == null ? null : Number(row.marketMid);
+	const inUsd = usdPriceAtMid(row.inputSymbol, mid);
+	const outUsd = usdPriceAtMid(row.outputSymbol, mid);
+	if (inUsd == null || outUsd == null || !Number.isFinite(inUsd) || !Number.isFinite(outUsd)) {
+		return { notionalIn: null, notionalOut: null };
+	}
+	return {
+		notionalIn: Number(row.inputAmount) * inUsd,
+		notionalOut: Number(row.outputAmount) * outUsd,
+	};
+}
+
+// Signed dollar execution result (notionalOut − notionalIn). Positive = surplus,
+// shown green (matching formatDialogBps); negative keeps default color; both carry
+// an explicit sign so a loss is unambiguous.
+export function formatExecutionResult(gap: number): { text: string; color: string | undefined } {
+	const mag = formatUsdMagnitude(gap) ?? '0.00';
+	if (gap > 0) return { text: `+$${mag}`, color: '#117d45' };
+	if (gap < 0) return { text: `-$${mag}`, color: undefined };
+	return { text: '$0.00', color: undefined };
+}
+
+/**
+ * Output-token difference vs marking the input at the benchmark mid, for no-anchor
+ * pairs where a USD Price Delta would be false precision. No-anchor pairs always
+ * resolve `base = input`, so `marketMid` is output-per-input. Null without a mid.
+ */
+export function outputTokenDelta(
+	row: Pick<ReceiptRow, 'inputAmount' | 'outputAmount' | 'marketMid' | 'realizedPrice'>,
+): number | null {
+	if (row.marketMid == null || row.realizedPrice == null) return null;
+	const mid = Number(row.marketMid);
+	if (!Number.isFinite(mid)) return null;
+	return Number(row.outputAmount) - Number(row.inputAmount) * mid;
 }
 
 const UNAVAILABLE = 'Unavailable for this pair';
@@ -412,12 +474,25 @@ export function Receipt({
 	const pairTitle = receiptPairTitle(row);
 	const { base, quote } = pairBaseQuote(row);
 	const usdPrices = usdPerBasePrices(row);
-	const notionalSubvalue = formatSubvalueUsd(row.notionalUsd != null ? Number(row.notionalUsd) : NaN);
+	// Phase-1 both-or-none per-side notionals: values on both Token rows only when
+	// the pair is double-anchored; single-/no-anchor pairs show neither (never split).
+	const { notionalIn, notionalOut } = perSideNotionals(row);
+	const showPerSideNotionals = notionalIn != null && notionalOut != null;
+	const execResult = showPerSideNotionals ? formatExecutionResult(notionalOut - notionalIn) : null;
+	// No-anchor pairs have no defensible USD; a $-denominated Price Delta would be
+	// false precision, so express it in output tokens instead and drop the USD
+	// sub-values on the price rows.
+	const noAnchor = !isAnchorable(row.inputSymbol) && !isAnchorable(row.outputSymbol);
+	const tokenDelta = noAnchor ? outputTokenDelta(row) : null;
+	const tokenDeltaText =
+		tokenDelta != null ? `${formatTokenAmount(Math.abs(tokenDelta), null, row.outputSymbol)} ${row.outputSymbol}` : undefined;
 	const tokenOutSubCent = (tokenUnitPriceUsd(row.notionalUsd, row.outputAmount) ?? Infinity) < 0.01;
 	const priceDeltaText = hasMarketPrice
-		? usdPrices && usdPrices.marketUsd != null
-			? formatDelta(usdPrices.marketUsd, usdPrices.execUsd)
-			: formatDelta(row.marketMid, row.realizedPrice)
+		? noAnchor
+			? tokenDeltaText
+			: usdPrices && usdPrices.marketUsd != null
+				? formatDelta(usdPrices.marketUsd, usdPrices.execUsd)
+				: formatDelta(row.marketMid, row.realizedPrice)
 		: undefined;
 	const priceComparison = hasMarketPrice
 		? priceDeltaComparison(row.marketMid, row.realizedPrice, tokenOutSubCent)
@@ -467,20 +542,30 @@ export function Receipt({
 
 				<Divider dashed />
 
-				<DetailRow label="Token In" subvalue={notionalSubvalue}>
+				<DetailRow label="Token In" subvalue={showPerSideNotionals ? formatSubvalueUsd(notionalIn) : undefined}>
 					{formatTokenIn(row)}
 				</DetailRow>
-				<DetailRow label="Token Out" subvalue={notionalSubvalue}>
+				<DetailRow label="Token Out" subvalue={showPerSideNotionals ? formatSubvalueUsd(notionalOut) : undefined}>
 					{formatTokenOut(row)}
 				</DetailRow>
+				{execResult && (
+					<DetailRow
+						label="Execution Result"
+						tooltip="Dollars out minus dollars in, each side valued at the benchmark mid (all fees included). A mark, not a round-trip exit value."
+					>
+						<span style={execResult.color ? { color: execResult.color } : undefined}>{execResult.text}</span>
+					</DetailRow>
+				)}
 				<DetailRow
 					label="Execution Price"
 					subvalue={
-						usdPrices
-							? formatSubvalueUsd(usdPrices.execUsd)
-							: row.realizedPrice == null
-								? undefined
-								: formatSubvalueUsd(Number(row.realizedPrice))
+						noAnchor
+							? undefined
+							: usdPrices
+								? formatSubvalueUsd(usdPrices.execUsd)
+								: row.realizedPrice == null
+									? undefined
+									: formatSubvalueUsd(Number(row.realizedPrice))
 					}
 				>
 					{row.realizedPrice == null
@@ -491,7 +576,7 @@ export function Receipt({
 					label="Market Price"
 					tooltip={marketTooltip}
 					subvalue={
-						hasMarketPrice
+						hasMarketPrice && !noAnchor
 							? usdPrices
 								? formatSubvalueUsd(usdPrices.marketUsd ?? NaN)
 								: formatSubvalueUsd(Number(row.marketMid))

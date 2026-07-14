@@ -725,7 +725,7 @@ export const STABLE_SYMBOLS = new Set(['USDC', 'USDbC', 'DAI']);
 // unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. Stablecoins are
 // dollar-denominated, so they render exactly 2 decimals (currency style, padded)
 // regardless of price. Non-stable trailing zeros are trimmed.
-function formatTokenAmount(amount: string | number, unitPriceUsd: number | null, symbol?: string): string {
+export function formatTokenAmount(amount: string | number, unitPriceUsd: number | null, symbol?: string): string {
 	const n = Number(amount);
 	if (!Number.isFinite(n)) return String(amount);
 	if (symbol != null && STABLE_SYMBOLS.has(symbol)) {

@@ -493,3 +493,135 @@ describe('Price Delta tooltip', () => {
 		expect(html).toContain('Execution Price is worse than Market Price by $');
 	});
 });
+
+describe('per-side notionals (Phase 1: both-or-none)', () => {
+	it('isAnchorable is true for stablecoins and ETH/WETH, false otherwise', async () => {
+		const { isAnchorable } = await import('./ReceiptView');
+		expect(isAnchorable('USDC')).toBe(true);
+		expect(isAnchorable('DAI')).toBe(true);
+		expect(isAnchorable('WETH')).toBe(true);
+		expect(isAnchorable('ETH')).toBe(true);
+		expect(isAnchorable('WBTC')).toBe(false);
+		expect(isAnchorable('GITLAWB')).toBe(false);
+	});
+
+	it('values both sides at their mid USD price for a double-anchored pair', async () => {
+		const { perSideNotionals } = await import('./ReceiptView');
+		// USDC->WETH, mid 2000 USDC/WETH; received 0.51 WETH for 1000 USDC (beat mid).
+		const n = perSideNotionals({
+			inputSymbol: 'USDC', outputSymbol: 'WETH',
+			inputAmount: '1000', outputAmount: '0.51', marketMid: '2000',
+		} as never);
+		expect(n.notionalIn).toBe(1000);   // 1000 USDC x $1
+		expect(n.notionalOut).toBe(1020);  // 0.51 WETH x 2000
+	});
+
+	it('returns both-null for a single-anchored pair (no second anchor in Phase 1)', async () => {
+		const { perSideNotionals } = await import('./ReceiptView');
+		// ETH->WBTC: WBTC not anchorable -> both null (never split)
+		const n = perSideNotionals({
+			inputSymbol: 'ETH', outputSymbol: 'WBTC',
+			inputAmount: '1', outputAmount: '0.028', marketMid: '35',
+		} as never);
+		expect(n.notionalIn).toBeNull();
+		expect(n.notionalOut).toBeNull();
+	});
+
+	it('returns both-null for a no-anchor pair', async () => {
+		const { perSideNotionals } = await import('./ReceiptView');
+		const n = perSideNotionals({
+			inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
+			inputAmount: '6745937.5', outputAmount: '7234145.96', marketMid: '1.1016',
+		} as never);
+		expect(n.notionalIn).toBeNull();
+		expect(n.notionalOut).toBeNull();
+	});
+
+	it('returns both-null when an ether side has no mid to value it', async () => {
+		const { perSideNotionals } = await import('./ReceiptView');
+		const n = perSideNotionals({
+			inputSymbol: 'USDC', outputSymbol: 'WETH',
+			inputAmount: '1000', outputAmount: '0.5', marketMid: null,
+		} as never);
+		expect(n.notionalIn).toBeNull();
+		expect(n.notionalOut).toBeNull();
+	});
+});
+
+describe('formatExecutionResult', () => {
+	it('formats a positive result as +$ in green', async () => {
+		const { formatExecutionResult } = await import('./ReceiptView');
+		expect(formatExecutionResult(20)).toEqual({ text: '+$20.00', color: '#117d45' });
+	});
+	it('formats a negative result as -$ with default color', async () => {
+		const { formatExecutionResult } = await import('./ReceiptView');
+		expect(formatExecutionResult(-10)).toEqual({ text: '-$10.00', color: undefined });
+	});
+	it('formats an exact-zero result as $0.00', async () => {
+		const { formatExecutionResult } = await import('./ReceiptView');
+		expect(formatExecutionResult(0)).toEqual({ text: '$0.00', color: undefined });
+	});
+});
+
+describe('outputTokenDelta (no-anchor Price Delta)', () => {
+	it('is the output-token difference vs marking at mid', async () => {
+		const { outputTokenDelta } = await import('./ReceiptView');
+		// 7,234,145.96 - 6,745,937.5 x 1.1016 = -197,178.79
+		const d = outputTokenDelta({
+			inputAmount: '6745937.5', outputAmount: '7234145.96',
+			marketMid: '1.1016', realizedPrice: '1.0724',
+		} as never);
+		expect(d).toBeCloseTo(-197178.79, 1);
+	});
+	it('is null when there is no mid', async () => {
+		const { outputTokenDelta } = await import('./ReceiptView');
+		expect(outputTokenDelta({ inputAmount: '1', outputAmount: '2', marketMid: null, realizedPrice: null } as never)).toBeNull();
+	});
+});
+
+describe('Receipt notional display (Phase 1)', () => {
+	it('double-anchored: shows distinct per-side notionals and an Execution Result surplus', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// USDC->WETH, mid 2000; got 0.51 WETH for 1000 USDC -> out $1,020 vs in $1,000 = +$20.
+		const row = {
+			...fullUsdcWethRow, pricingStatus: 'full',
+			inputAmount: '1000', outputAmount: '0.51',
+			marketMid: '2000', realizedPrice: '1960.784313725',
+		};
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		expect(html).toContain('Execution Result');
+		expect(html).toContain('+$20.00');
+		expect(html).toContain('$1,020.00'); // Token Out valued on its own at mid
+		expect(html).toContain('$1,000.00'); // Token In
+	});
+
+	it('no-anchor: no Execution Result, Price Delta reads in output tokens', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const row = {
+			...fullUsdcWethRow, aggregator: 'fabric', pricingStatus: 'estimated',
+			inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
+			inputToken: '0x3722264ab15a1dfce5a5af89e6547f7949a8aba3',
+			outputToken: '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3',
+			inputAmount: '6745937.5', outputAmount: '7234145.96',
+			marketMid: '1.1016', realizedPrice: '1.0724', allInCostBps: '265', chainlinkPrice: null,
+		};
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		expect(html).not.toContain('Execution Result');
+		// Price Delta value is the output-token difference, not a dollar figure.
+		expect(html).toContain('197178.79 GITLAWB');
+	});
+
+	it('single-anchor: no per-side notionals and no Execution Result (Phase 1)', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// ETH->WBTC: only one anchorable side -> both notionals suppressed.
+		const row = {
+			...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
+			inputSymbol: 'ETH', outputSymbol: 'WBTC',
+			inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+			inputAmount: '1', outputAmount: '0.02862539',
+			marketMid: '35.0232', realizedPrice: '34.934', allInCostBps: '-25', chainlinkPrice: null,
+		};
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		expect(html).not.toContain('Execution Result');
+	});
+});
