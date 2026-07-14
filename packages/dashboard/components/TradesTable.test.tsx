@@ -625,8 +625,22 @@ describe('token amount decimal clamp', () => {
 	it('leaves large whole numbers intact without separators', async () => {
 		const { formatTokenIn } = await import('./TradesTable');
 		expect(
-			formatTokenIn({ inputSymbol: 'USDC', inputAmount: '1000000000.123456789', notionalUsd: '1000000000' }),
-		).toBe('1000000000.123457 USDC');
+			formatTokenIn({ inputSymbol: 'WETH', inputAmount: '1000000000.123456789', notionalUsd: '1000000000' }),
+		).toBe('1000000000.123457 WETH');
+	});
+
+	it('special-cases USDC to at most 2 decimals (trailing zeros trimmed)', async () => {
+		const { formatTokenIn, formatTokenOut } = await import('./TradesTable');
+		expect(
+			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '2.25005', notionalUsd: '2.25' }),
+		).toBe('2.25 USDC');
+		// Trailing zeros trimmed, not padded.
+		expect(
+			formatTokenIn({ inputSymbol: 'USDC', inputAmount: '1000.00', notionalUsd: '1000' }),
+		).toBe('1000 USDC');
+		expect(
+			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '0.5', notionalUsd: '0.5' }),
+		).toBe('0.5 USDC');
 	});
 
 	it('does not clamp sub-cent (<$0.01/unit) token decimals', async () => {

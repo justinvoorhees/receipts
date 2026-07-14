@@ -570,11 +570,11 @@ export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'd
 // Generalized token display: reads the input/output symbol + amount fields that
 // exist on both `ReceiptRow` (ReceiptView) and the History dialog's adapter.
 export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number; notionalUsd?: string | number | null }): string {
-	return `${formatTokenAmount(row.inputAmount, tokenUnitPriceUsd(row.notionalUsd, row.inputAmount))} ${row.inputSymbol}`;
+	return `${formatTokenAmount(row.inputAmount, tokenUnitPriceUsd(row.notionalUsd, row.inputAmount), row.inputSymbol)} ${row.inputSymbol}`;
 }
 
 export function formatTokenOut(row: { outputSymbol: string; outputAmount: string | number; notionalUsd?: string | number | null }): string {
-	return `${formatTokenAmount(row.outputAmount, tokenUnitPriceUsd(row.notionalUsd, row.outputAmount))} ${row.outputSymbol}`;
+	return `${formatTokenAmount(row.outputAmount, tokenUnitPriceUsd(row.notionalUsd, row.outputAmount), row.outputSymbol)} ${row.outputSymbol}`;
 }
 
 export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLeg, 'venue'>>): string {
@@ -712,11 +712,15 @@ export function tokenUnitPriceUsd(
 }
 
 // Whole part unlimited (no separators); decimals capped at 6 for headline /
-// unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. Trailing zeros
-// are trimmed by omitting minimumFractionDigits.
-function formatTokenAmount(amount: string | number, unitPriceUsd: number | null): string {
+// unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. USDC is a
+// dollar stablecoin, so it's capped at 2 decimals regardless of price. Trailing
+// zeros are trimmed by omitting minimumFractionDigits.
+function formatTokenAmount(amount: string | number, unitPriceUsd: number | null, symbol?: string): string {
 	const n = Number(amount);
 	if (!Number.isFinite(n)) return String(amount);
+	if (symbol === 'USDC') {
+		return n.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 2 });
+	}
 	const subCent = unitPriceUsd != null && unitPriceUsd < 0.01;
 	return n.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: subCent ? 18 : 6 });
 }
