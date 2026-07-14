@@ -268,17 +268,13 @@ function DetailRow({
 	label,
 	children,
 	underscored = false,
-	subvalue,
 	tooltip,
-	subvalueTooltip,
 	valueTooltip,
 }: {
 	label: string;
 	children: React.ReactNode;
 	underscored?: boolean;
-	subvalue?: string | undefined;
 	tooltip?: string;
-	subvalueTooltip?: string;
 	valueTooltip?: string;
 }) {
 	return (
@@ -300,24 +296,7 @@ function DetailRow({
 					{label}
 				</span>
 			)}
-			{subvalue != null ? (
-				<div className="flex flex-col gap-[10px] items-end min-w-0">
-					<span>{children}</span>
-					{subvalueTooltip ? (
-						<span className="group relative cursor-default text-[var(--color-secondary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
-							{subvalue}
-							<div
-								role="tooltip"
-								className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-							>
-								{subvalueTooltip}
-							</div>
-						</span>
-					) : (
-						<span className="text-[var(--color-secondary)]">{subvalue}</span>
-					)}
-				</div>
-			) : valueTooltip ? (
+			{valueTooltip ? (
 				<span className="min-w-0 text-right">
 					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
 						{children}
@@ -533,26 +512,6 @@ export function Receipt({
 	const priceImpactRows = getPriceImpactRows(legs, row);
 	const pairTitle = receiptPairTitle(row);
 	const { base, quote, baseIsOutput } = pairBaseQuote(row);
-	const usdPrices = usdPerBasePrices(row);
-	// Both-or-none per-side notionals. Double-anchored pairs value each side at mid
-	// (Phase 1). Single-anchored pairs value the non-anchored side at mid too, but
-	// only when the mid is validated (Phase 2a: full-tier accepted; 2c adds
-	// corroborated estimated mids). No-/unvalidated single-anchor pairs show neither.
-	// A single-anchor pair shows both sides when its non-anchored side can be valued:
-	// an independent Chainlink oracle (anchorPriceUsd, any tier) or a validated mid
-	// (Phase 2a: full-tier accepted; Phase 3: general corroborators).
-	const midValidated = row.pricingStatus === 'full' || row.anchorPriceUsd != null;
-	const dbl = perSideNotionals(row);
-	const single = dbl.notionalIn == null && midValidated ? singleAnchorNotionals(row) : null;
-	const notionalIn = dbl.notionalIn ?? single?.notionalIn ?? null;
-	const notionalOut = dbl.notionalOut ?? single?.notionalOut ?? null;
-	const showPerSideNotionals = notionalIn != null && notionalOut != null;
-	const independentAnchor = single?.independent === true; // non-anchored side via its own oracle
-	const markedAtMid = single != null && !independentAnchor; // else marked at the mid
-	const execResult = showPerSideNotionals ? formatExecutionResult(notionalOut - notionalIn) : null;
-	// `noAnchor` still gates the Execution/Market Price USD sub-values (:601, :618)
-	// until Task 3 removes them. Everything else here goes now.
-	const noAnchor = !isAnchorable(row.inputSymbol) && !isAnchorable(row.outputSymbol);
 	// Price Delta is quote-denominated in every case — anchored, ETH-quoted, and
 	// no-anchor memecoin alike — because the stored mid/realized are already
 	// quote-per-base. No USD, no tiers, one path.
@@ -613,56 +572,17 @@ export function Receipt({
 				<DetailRow label="Size">
 					{row.notionalUsd == null ? UNAVAILABLE : formatSubvalueUsd(Number(row.notionalUsd))}
 				</DetailRow>
-				<DetailRow label="Token In" subvalue={showPerSideNotionals ? formatSubvalueUsd(notionalIn) : undefined}>
-					{formatTokenIn(row)}
-				</DetailRow>
-				<DetailRow label="Token Out" subvalue={showPerSideNotionals ? formatSubvalueUsd(notionalOut) : undefined}>
-					{formatTokenOut(row)}
-				</DetailRow>
+				<DetailRow label="Token In">{formatTokenIn(row)}</DetailRow>
+				<DetailRow label="Token Out">{formatTokenOut(row)}</DetailRow>
 
 				<Divider dashed />
 
-				{execResult && (
-					<DetailRow
-						label="Execution Result"
-						tooltip={
-							independentAnchor
-								? 'Non-anchored side valued at its own independent Chainlink oracle — a true second valuation. A mark, not a round-trip exit value.'
-								: markedAtMid
-									? 'Non-anchored side valued at the validated benchmark mid — a fill-quality mark, not two independent measurements. A mark, not a round-trip exit value.'
-									: 'Dollars out minus dollars in, each side valued at the benchmark mid (all fees included). A mark, not a round-trip exit value.'
-						}
-					>
-						<span style={execResult.color ? { color: execResult.color } : undefined}>{execResult.text}</span>
-					</DetailRow>
-				)}
-				<DetailRow
-					label="Execution Price"
-					subvalue={
-						noAnchor
-							? undefined
-							: usdPrices
-								? formatSubvalueUsd(usdPrices.execUsd)
-								: row.realizedPrice == null
-									? undefined
-									: formatSubvalueUsd(Number(row.realizedPrice))
-					}
-				>
+				<DetailRow label="Execution Price">
 					{row.realizedPrice == null
 						? UNAVAILABLE
 						: formatExecutionPrice(row.realizedPrice, base, quote)}
 				</DetailRow>
-				<DetailRow
-					label="Market Price"
-					tooltip={marketTooltip}
-					subvalue={
-						hasMarketPrice && !noAnchor
-							? usdPrices
-								? formatSubvalueUsd(usdPrices.marketUsd ?? NaN)
-								: formatSubvalueUsd(Number(row.marketMid))
-							: undefined
-					}
-				>
+				<DetailRow label="Market Price" tooltip={marketTooltip}>
 					{hasMarketPrice
 						? formatExecutionPrice(row.marketMid, base, quote)
 						: UNAVAILABLE}

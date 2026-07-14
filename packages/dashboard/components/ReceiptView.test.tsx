@@ -242,10 +242,10 @@ describe('Receipt token-denominated price rows', () => {
 		// Main line is now token-denominated ETH-per-WARP, quote symbol on the left.
 		expect(html).toContain('0.000000000385 ETH = 1 WARP');
 		expect(html).toContain('0.000000000394 ETH = 1 WARP');
-		// The USD figure (previously shown on the main line) no longer appears there —
-		// it still lives in the sub-value, so assert its presence rather than absence.
 		expect(html).not.toContain('0.000000000385 = 1 WARP');
-		expect(html).toContain('$0.00'); // USD sub-value still rendered (rounds to $0.00 at this scale)
+		// The USD sub-value is gone — the price rows make no USD claim.
+		// (Execution Price sub-value was $0.000000667735 = notionalUsd / inputAmount.)
+		expect(html).not.toContain('$0.000000667735');
 		// Header pair title reads as the swap direction (input→output), matching
 		// Token In/Out. It must NOT invert to ETH→WARP.
 		expect(html).toContain('WARP→ETH');
@@ -667,21 +667,6 @@ describe('outputTokenDelta (no-anchor Price Delta)', () => {
 });
 
 describe('Receipt notional display (Phase 1)', () => {
-	it('double-anchored: shows distinct per-side notionals and an Execution Result surplus', async () => {
-		const { Receipt } = await import('./ReceiptView');
-		// USDC->WETH, mid 2000; got 0.51 WETH for 1000 USDC -> out $1,020 vs in $1,000 = +$20.
-		const row = {
-			...fullUsdcWethRow, pricingStatus: 'full',
-			inputAmount: '1000', outputAmount: '0.51',
-			marketMid: '2000', realizedPrice: '1960.784313725',
-		};
-		const html = renderToStaticMarkup(<Receipt row={row as never} />);
-		expect(html).toContain('Execution Result');
-		expect(html).toContain('+$20.00');
-		expect(html).toContain('$1,020.00'); // Token Out valued on its own at mid
-		expect(html).toContain('$1,000.00'); // Token In
-	});
-
 	it('single-anchor: no per-side notionals and no Execution Result (Phase 1)', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		// ETH->WBTC: only one anchorable side -> both notionals suppressed.
@@ -729,32 +714,6 @@ describe('singleAnchorNotionals (Phase 2a)', () => {
 	});
 });
 
-describe('Receipt single-anchor validated display (Phase 2a)', () => {
-	const ethWbtc = {
-		...fullUsdcWethRow, aggregator: 'kyberswap',
-		inputSymbol: 'ETH', outputSymbol: 'WBTC',
-		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
-		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
-		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484', chainlinkPrice: null,
-	};
-
-	it('full-tier single-anchor shows both notionals + Execution Result marked at the validated mid', async () => {
-		const { Receipt } = await import('./ReceiptView');
-		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
-		expect(html).toContain('$1,795.71'); // Token Out (WBTC) valued at mid
-		expect(html).toContain('Execution Result');
-		expect(html).toContain('+$4.57');
-		expect(html).toContain('validated benchmark mid'); // label distinguishes the marked path
-	});
-
-	it('estimated single-anchor stays dark (not validated)', async () => {
-		const { Receipt } = await import('./ReceiptView');
-		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
-		expect(html).not.toContain('Execution Result');
-		expect(html).not.toContain('$1,795.71');
-	});
-});
-
 describe('independent oracle anchor (Phase 2 WBTC)', () => {
 	it('values the non-anchored side at anchorPriceUsd when present (independent, any tier)', async () => {
 		const { singleAnchorNotionals } = await import('./ReceiptView');
@@ -767,21 +726,6 @@ describe('independent oracle anchor (Phase 2 WBTC)', () => {
 		expect(n?.independent).toBe(true);
 		expect(n?.notionalIn).toBeCloseTo(1791.14, 1);
 		expect(n?.notionalOut).toBeCloseTo(0.02862539 * 62000, 4); // 1774.77
-	});
-
-	it('renders an estimated WBTC trade as both notionals via the independent oracle', async () => {
-		const { Receipt } = await import('./ReceiptView');
-		const row = {
-			...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
-			inputSymbol: 'ETH', outputSymbol: 'WBTC', inputToken: 'native',
-			outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
-			inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
-			marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
-			chainlinkPrice: null, anchorPriceUsd: '62000',
-		};
-		const html = renderToStaticMarkup(<Receipt row={row as never} />);
-		expect(html).toContain('Execution Result');
-		expect(html).toContain('independent Chainlink oracle'); // independent, not "marked at mid"
 	});
 });
 
@@ -838,5 +782,49 @@ describe('Size row', () => {
 		);
 		expect(html).toContain('Size');
 		expect(html).toContain('Unavailable for this pair');
+	});
+});
+
+describe('Receipt makes no fair-value claim (MVP thesis)', () => {
+	// The ETH→WBTC row that used to render "Execution Result +$4.57" by marking
+	// WBTC at the mid, and "-$0.47" via the BTC/USD oracle. Both are answers to
+	// "was this a good trade" and no longer belong on the receipt.
+	const ethWbtc = {
+		...fullUsdcWethRow, aggregator: 'kyberswap',
+		inputSymbol: 'ETH', outputSymbol: 'WBTC',
+		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+		allInCostBps: '-25.53', chainlinkPrice: null,
+	};
+
+	it('renders no Execution Result on a full-tier single-anchor pair', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
+		expect(html).not.toContain('Execution Result');
+		expect(html).not.toContain('$1,795.71'); // WBTC marked at the mid
+		expect(html).not.toContain('+$4.57');
+	});
+
+	it('renders no Execution Result even with an independent oracle anchor present', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated', anchorPriceUsd: '62000' } as never} />,
+		);
+		expect(html).not.toContain('Execution Result');
+		expect(html).not.toContain('independent Chainlink oracle');
+		expect(html).not.toContain('validated benchmark mid');
+	});
+
+	it('renders no per-side USD notionals on the token or price rows', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
+		// Token In / Token Out / Execution Price / Market Price carry no USD sub-value.
+		// Size ($1,791.14) is the only USD figure above Gas Cost.
+		expect(html).not.toContain('$62,731.32'); // Market Price in USD
+		expect(html).not.toContain('$62,571.56'); // Execution Price in USD
+		expect(html).toContain('$1,791.14');      // Size survives
+		expect(html).toContain('34.934 ETH = 1 WBTC');
+		expect(html).toContain('35.0232 ETH = 1 WBTC');
 	});
 });
