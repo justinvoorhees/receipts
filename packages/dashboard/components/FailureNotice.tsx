@@ -3,19 +3,19 @@ import type { AnalyzeFailure, FailureReason } from '@fabric-tca/core';
 export const REASON_COPY: Record<FailureReason, { label: string; tooltip: string | null }> = {
 	INVALID_HASH: {
 		label: 'Invalid transaction hash',
-		tooltip: 'Input does not look like a transaction hash, please try a 66-character 0x… value',
+		tooltip: 'Input is not a transaction hash, try a 66-character 0x... value',
 	},
 	NOT_FOUND_ONCHAIN: {
 		label: 'Transaction not found on Base',
 		tooltip: null,
 	},
 	RELAYER_THIRD_PARTY: {
-		label: 'Relay / third-party trade',
-		tooltip: 'Sender relayed this swap on behalf of another address. Beneficiary-anchored decoding not yet supported',
+		label: 'Transaction not supported',
+		tooltip: 'Beneficiary-anchored decoding not yet supported (relayer, third-party, peer-to-peer, etc)',
 	},
 	NOT_DECODABLE: {
 		label: 'Not a swap',
-		tooltip: 'Could not find a token-in / token-out swap for this transaction (transfer, approval, LP action, etc)',
+		tooltip: 'Token-in / token-out swap not found (signature, approval, LP action, etc)',
 	},
 	ANALYZE_ERROR: {
 		label: 'Analysis failed, try again',
