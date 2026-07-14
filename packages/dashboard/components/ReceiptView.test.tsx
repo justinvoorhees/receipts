@@ -453,3 +453,34 @@ describe('ReceiptView diagnosis', () => {
 		expect(html).not.toContain('Not a decodable swap');
 	});
 });
+
+describe('Price Delta tooltip', () => {
+	const baseRow = {
+		id: 7, chainId: 8453, pricingStatus: 'full',
+		txHash: '0x1234567890abcdef1234567890abcdef12345678',
+		blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
+		inputSymbol: 'USDC', outputSymbol: 'WETH', inputAmount: '1000.00', outputAmount: '0.33',
+		notionalUsd: '1000.00', lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2',
+		executionBps: '-1', gasCostUsd: '0.001', hopCount: 1, routeShape: 'single',
+		decompConfidence: 'low', routeLegs: [], routePure: true, reconResidualBps: null,
+	};
+
+	it('renders the "better than Market" tooltip when below market', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// realized 3005 vs market 3000 → exec>mid → Below Market → "better"
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...baseRow, marketMid: '3000', realizedPrice: '3005' } as never} />,
+		);
+		expect(html).toContain('Execution Price is better than Market Price by $');
+		// dotted-underline treatment on the subvalue label
+		expect(html).toContain('decoration-dotted');
+	});
+
+	it('renders the "same as Market" tooltip when at market', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...baseRow, marketMid: '3000', realizedPrice: '3000' } as never} />,
+		);
+		expect(html).toContain('Execution Price is the same as Market Price within $0.01');
+	});
+});

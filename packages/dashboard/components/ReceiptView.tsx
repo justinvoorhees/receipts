@@ -23,6 +23,7 @@ import {
 	getVenueLabel,
 	getAggregatorFeeAttribution,
 	ShareButton,
+	tokenUnitPriceUsd,
 } from './TradesTable';
 
 export function formatDelta(marketMid: unknown, realizedPrice: unknown): string {
@@ -51,6 +52,12 @@ export function priceDeltaComparison(
 	if (Math.abs(exec - mid) < 0.01) return 'At Market';
 	if (exec > mid) return 'Below Market';
 	return 'Above Market';
+}
+
+function priceDeltaTooltip(comparison: string, deltaText: string): string {
+	if (comparison === 'Below Market') return `Execution Price is better than Market Price by ${deltaText}`;
+	if (comparison === 'Above Market') return `Execution Price is worse than Market Price by ${deltaText}`;
+	return 'Execution Price is the same as Market Price within $0.01';
 }
 
 // The title reads as the swap direction — inputSymbol→outputSymbol — so it
@@ -147,12 +154,14 @@ function DetailRow({
 	underscored = false,
 	subvalue,
 	tooltip,
+	subvalueTooltip,
 }: {
 	label: string;
 	children: React.ReactNode;
 	underscored?: boolean;
 	subvalue?: string | undefined;
 	tooltip?: string;
+	subvalueTooltip?: string;
 }) {
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
@@ -176,7 +185,19 @@ function DetailRow({
 			{subvalue != null ? (
 				<div className="flex flex-col gap-[10px] items-end min-w-0">
 					<span>{children}</span>
-					<span className="text-[var(--color-secondary)]">{subvalue}</span>
+					{subvalueTooltip ? (
+						<span className="group relative cursor-default text-[var(--color-secondary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+							{subvalue}
+							<div
+								role="tooltip"
+								className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+							>
+								{subvalueTooltip}
+							</div>
+						</span>
+					) : (
+						<span className="text-[var(--color-secondary)]">{subvalue}</span>
+					)}
 				</div>
 			) : (
 				<span className="min-w-0 text-right">{children}</span>
@@ -392,6 +413,15 @@ export function Receipt({
 	const { base, quote } = pairBaseQuote(row);
 	const usdPrices = usdPerBasePrices(row);
 	const notionalSubvalue = formatSubvalueUsd(row.notionalUsd != null ? Number(row.notionalUsd) : NaN);
+	const tokenOutSubCent = (tokenUnitPriceUsd(row.notionalUsd, row.outputAmount) ?? Infinity) < 0.01;
+	const priceDeltaText = hasMarketPrice
+		? usdPrices && usdPrices.marketUsd != null
+			? formatDelta(usdPrices.marketUsd, usdPrices.execUsd)
+			: formatDelta(row.marketMid, row.realizedPrice)
+		: undefined;
+	const priceComparison = hasMarketPrice
+		? priceDeltaComparison(row.marketMid, row.realizedPrice, tokenOutSubCent)
+		: undefined;
 
 	return (
 		<>
@@ -483,13 +513,12 @@ export function Receipt({
 				</DetailRow>
 				<DetailRow
 					label="Price Delta"
-					subvalue={hasMarketPrice ? priceDeltaComparison(row.marketMid, row.realizedPrice) : undefined}
+					subvalue={priceComparison}
+					{...(priceComparison && priceDeltaText
+						? { subvalueTooltip: priceDeltaTooltip(priceComparison, priceDeltaText) }
+						: {})}
 				>
-					{hasMarketPrice
-						? usdPrices && usdPrices.marketUsd != null
-							? formatDelta(usdPrices.marketUsd, usdPrices.execUsd)
-							: formatDelta(row.marketMid, row.realizedPrice)
-						: UNAVAILABLE}
+					{hasMarketPrice ? priceDeltaText : UNAVAILABLE}
 				</DetailRow>
 				<DetailRow label="Gas Cost">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
