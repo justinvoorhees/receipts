@@ -22,6 +22,7 @@ import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
 import type { Direction } from './decoder.js';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
+import { readTokenUsd } from './tokenOracle.js';
 import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
 import { labelAddress } from './tagging.js';
 import { decomposeRoute, createDefaultMidReader } from './decomposeRoute.js';
@@ -170,6 +171,10 @@ export interface Receipt {
 	offchainPrice: number | null;
 	offchainDevBps: number | null;
 	chainlinkStalenessSecs: number | null;
+	/** Independent Chainlink USD price of the non-anchored side (e.g. WBTC via
+	 *  BTC/USD), when that token has a mapped feed; null otherwise. Lets the
+	 *  dashboard value that side as a true anchor rather than marking it at mid. */
+	anchorPriceUsd: number | null;
 }
 
 /** Best-effort ETH/USD (USDC-per-WETH) to value gas in USD. Never throws —
@@ -249,6 +254,13 @@ export async function analyzeTransaction(
 		const midImplausible = priced && isImplausibleDeviationBps(allInCostBpsRaw);
 		const midReliable = priced && !midImplausible;
 		const allInCostBps = midReliable ? allInCostBpsRaw : null;
+
+		// Independent Chainlink USD price for whichever side has a mapped feed
+		// (the non-anchored side, e.g. WBTC via BTC/USD). Never-throw; null when
+		// neither side is mapped or the read fails/stale.
+		const anchorPriceUsd =
+			(await readTokenUsd(endpoints.inputToken, blockNumber, rpcUrl)) ??
+			(await readTokenUsd(endpoints.outputToken, blockNumber, rpcUrl));
 
 		// Gas valued in USD via ETH/USD (best-effort; independent of the traded pair).
 		const ethUsd = await bestEffortEthUsd(rpcUrl, blockNumber);
@@ -405,6 +417,7 @@ export async function analyzeTransaction(
 			offchainPrice: pricing.offchainPrice,
 			offchainDevBps: pricing.offchainDevBps,
 			chainlinkStalenessSecs: pricing.chainlinkStalenessSecs,
+			anchorPriceUsd,
 		};
 	} catch {
 		return null;

@@ -683,3 +683,33 @@ describe('Receipt single-anchor validated display (Phase 2a)', () => {
 		expect(html).not.toContain('$1,795.71');
 	});
 });
+
+describe('independent oracle anchor (Phase 2 WBTC)', () => {
+	it('values the non-anchored side at anchorPriceUsd when present (independent, any tier)', async () => {
+		const { singleAnchorNotionals } = await import('./ReceiptView');
+		const n = singleAnchorNotionals({
+			inputSymbol: 'ETH', outputSymbol: 'WBTC',
+			inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+			marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+			anchorPriceUsd: '62000',
+		} as never);
+		expect(n?.independent).toBe(true);
+		expect(n?.notionalIn).toBeCloseTo(1791.14, 1);
+		expect(n?.notionalOut).toBeCloseTo(0.02862539 * 62000, 4); // 1774.77
+	});
+
+	it('renders an estimated WBTC trade as both notionals via the independent oracle', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const row = {
+			...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
+			inputSymbol: 'ETH', outputSymbol: 'WBTC', inputToken: 'native',
+			outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+			inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+			marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+			chainlinkPrice: null, anchorPriceUsd: '62000',
+		};
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		expect(html).toContain('Execution Result');
+		expect(html).toContain('independent Chainlink oracle'); // independent, not "marked at mid"
+	});
+});

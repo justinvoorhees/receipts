@@ -1,0 +1,1 @@
+ALTER TABLE "receipts" ADD COLUMN "anchor_price_usd" numeric;

@@ -176,24 +176,28 @@ export function perSideNotionals(
  * Returns null unless exactly one side anchors and a mid is available.
  */
 export function singleAnchorNotionals(
-	row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' | 'notionalUsd' | 'marketMid' | 'realizedPrice'>,
-): { notionalIn: number; notionalOut: number } | null {
+	row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' | 'notionalUsd' | 'marketMid' | 'realizedPrice' | 'anchorPriceUsd'>,
+): { notionalIn: number; notionalOut: number; independent: boolean } | null {
 	const inAnchor = isAnchorable(row.inputSymbol);
 	const outAnchor = isAnchorable(row.outputSymbol);
 	if (inAnchor === outAnchor) return null; // need exactly one anchored side
 	const notionalUsd = row.notionalUsd == null ? null : Number(row.notionalUsd);
 	if (notionalUsd == null || !Number.isFinite(notionalUsd)) return null;
-	// USD price of the non-anchored (base) side at mid: USD-per-base for ETH-quoted
-	// pairs, else the stable-quoted mid is already USD-per-base.
+	// Prefer the non-anchored side's OWN independent oracle price (a true second
+	// valuation, e.g. WBTC via BTC/USD); else mark it at the benchmark mid
+	// (USD-per-base for ETH-quoted pairs, else the stable-quoted mid is USD-per-base).
+	const oracle = row.anchorPriceUsd == null ? null : Number(row.anchorPriceUsd);
+	const independent = oracle != null && Number.isFinite(oracle) && oracle > 0;
 	const usdP = usdPerBasePrices(row);
-	const basePriceAtMid = usdP ? usdP.marketUsd : row.marketMid == null ? null : Number(row.marketMid);
-	if (basePriceAtMid == null || !Number.isFinite(basePriceAtMid)) return null;
+	const midPrice = usdP ? usdP.marketUsd : row.marketMid == null ? null : Number(row.marketMid);
+	const basePrice = independent ? oracle : midPrice;
+	if (basePrice == null || !Number.isFinite(basePrice)) return null;
 	const baseIsOutput = !outAnchor; // the non-anchored side is the base
-	const baseNotional = Number(baseIsOutput ? row.outputAmount : row.inputAmount) * basePriceAtMid;
+	const baseNotional = Number(baseIsOutput ? row.outputAmount : row.inputAmount) * basePrice;
 	if (!Number.isFinite(baseNotional)) return null;
 	return baseIsOutput
-		? { notionalIn: notionalUsd, notionalOut: baseNotional }
-		: { notionalIn: baseNotional, notionalOut: notionalUsd };
+		? { notionalIn: notionalUsd, notionalOut: baseNotional, independent }
+		: { notionalIn: baseNotional, notionalOut: notionalUsd, independent };
 }
 
 // Signed dollar execution result (notionalOut − notionalIn). Positive = surplus,
@@ -505,13 +509,17 @@ export function Receipt({
 	// (Phase 1). Single-anchored pairs value the non-anchored side at mid too, but
 	// only when the mid is validated (Phase 2a: full-tier accepted; 2c adds
 	// corroborated estimated mids). No-/unvalidated single-anchor pairs show neither.
-	const midValidated = row.pricingStatus === 'full'; // TODO(2c): || row.midValidated
+	// A single-anchor pair shows both sides when its non-anchored side can be valued:
+	// an independent Chainlink oracle (anchorPriceUsd, any tier) or a validated mid
+	// (Phase 2a: full-tier accepted; Phase 3: general corroborators).
+	const midValidated = row.pricingStatus === 'full' || row.anchorPriceUsd != null;
 	const dbl = perSideNotionals(row);
 	const single = dbl.notionalIn == null && midValidated ? singleAnchorNotionals(row) : null;
 	const notionalIn = dbl.notionalIn ?? single?.notionalIn ?? null;
 	const notionalOut = dbl.notionalOut ?? single?.notionalOut ?? null;
 	const showPerSideNotionals = notionalIn != null && notionalOut != null;
-	const markedAtMid = single != null; // single-anchor path → one side is a mark
+	const independentAnchor = single?.independent === true; // non-anchored side via its own oracle
+	const markedAtMid = single != null && !independentAnchor; // else marked at the mid
 	const execResult = showPerSideNotionals ? formatExecutionResult(notionalOut - notionalIn) : null;
 	// No-anchor pairs have no defensible USD; a $-denominated Price Delta would be
 	// false precision, so express it in output tokens instead and drop the USD
@@ -586,9 +594,11 @@ export function Receipt({
 					<DetailRow
 						label="Execution Result"
 						tooltip={
-							markedAtMid
-								? 'Non-anchored side valued at the validated benchmark mid — a fill-quality mark, not two independent measurements. A mark, not a round-trip exit value.'
-								: 'Dollars out minus dollars in, each side valued at the benchmark mid (all fees included). A mark, not a round-trip exit value.'
+							independentAnchor
+								? 'Non-anchored side valued at its own independent Chainlink oracle — a true second valuation. A mark, not a round-trip exit value.'
+								: markedAtMid
+									? 'Non-anchored side valued at the validated benchmark mid — a fill-quality mark, not two independent measurements. A mark, not a round-trip exit value.'
+									: 'Dollars out minus dollars in, each side valued at the benchmark mid (all fees included). A mark, not a round-trip exit value.'
 						}
 					>
 						<span style={execResult.color ? { color: execResult.color } : undefined}>{execResult.text}</span>

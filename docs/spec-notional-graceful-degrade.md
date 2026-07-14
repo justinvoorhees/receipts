@@ -110,17 +110,25 @@ question ("+$4.57"). Tooltip distinguishes epistemic status:
 
 ## Phasing
 
-- **Phase 1 — dashboard only (ships now).** Implement `usdPrice`, `anchorCount`, the
-  both-or-none rule, and the Regime-3 output-token Price Delta. `midValidated` not yet
-  available → treat as `false`, so **only `anchorCount === 2` shows both**; single-anchor and
-  no-anchor both degrade to none. (Interim cost: ETH→WBTC / X→USDC temporarily lose their
-  notional; restored in Phase 2. Acceptable vs. showing a single confusing figure.) No core /
-  schema change.
-- **Phase 2 — core mid validation.** Add `mid_validated` column + the TWAP / cross-pool /
-  DefiLlama validators + a small backfill. Flip single-anchor validated trades to "both."
-- **Phase 3 — expand anchors (optional).** Wire Chainlink majors on Base (BTC/USD for WBTC,
-  etc.) into `usdPrice`, promoting those tokens to true double-anchor. Verify feed
-  availability on Base first.
+- **Phase 1 — dashboard only. ✅ SHIPPED** (`a845ca3`). `perSideNotionals` both-or-none for
+  double-anchored pairs; Regime-3 output-token Price Delta; single-/no-anchor degrade to none.
+- **Phase 2a — single-anchor "both" for validated mids. ✅ SHIPPED** (`91ec907`).
+  `singleAnchorNotionals` marks the non-anchored (base) side at the benchmark mid + Execution
+  Result; full-tier accepted as validated. Lights up full-tier single-anchor (CLAWD, EURC).
+- **Phase 2 — WBTC independent oracle anchor. ✅ SHIPPED.** `packages/core/src/tokenOracle.ts`
+  (`TOKEN_USD_FEEDS`: WBTC→BTC/USD, Base feed `0x64c9…848F`, verified on-chain), read in
+  `analyzeTransaction` → new `receipts.anchor_price_usd` column (migration `0014`). The
+  dashboard values the non-anchored side at its OWN oracle when present (a *true* second
+  valuation, any tier) — labeled "independent Chainlink oracle". Backfilled the one existing
+  WBTC row (id 135). Notably the oracle showed the trade ~flat vs true BTC, vs the mid-mark's
+  +$4.57 — the pool mid was ~28 bps above BTC. Pure `validateMid` corroboration core landed
+  in `b5eeeb0` for future use.
+- **Phase 3 — EARMARKED (later upgrade).** Generalize: more Chainlink token oracles
+  (cbBTC, EURC→EUR/USD feed `0xc91D…3F0F` verified, majors); the general `mid_validated`
+  column + on-chain TWAP / cross-pool / DefiLlama corroborators (via `validateMid`) for the
+  estimated memecoin tail (CLAWNCH/FAIR/TOSHI/WARP), which otherwise correctly stay dark;
+  address-based `anchorsToUsd` (spoof-resistant); optional forward-population of
+  `anchor_price_usd` already wired in core for new WBTC trades.
 
 ## Detection / plumbing
 
