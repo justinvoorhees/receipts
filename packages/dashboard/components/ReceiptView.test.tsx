@@ -8,68 +8,85 @@ vi.mock('next/navigation', () => ({
 	useRouter: () => ({ push: () => {} }),
 }));
 
-describe('formatDelta', () => {
-	it('returns the absolute dollar difference between market and execution price', async () => {
-		const { formatDelta } = await import('./ReceiptView');
-		// Figma example: market 1830.44284125, realized 1829.763683289442 → $0.68
-		expect(formatDelta(1830.44284125, 1829.763683289442)).toBe('$0.68');
+describe('formatPriceDelta', () => {
+	it('renders the delta in the quote token at 6 significant figures', async () => {
+		const { formatPriceDelta } = await import('./ReceiptView');
+		// Real ETH→WBTC row (receipts id 135), quote = ETH, base = WBTC.
+		expect(formatPriceDelta(35.02321455049866, 34.93402185961484, 'ETH')).toBe('0.0891927 ETH');
 	});
 
-	it('returns the same value when realized > market', async () => {
-		const { formatDelta } = await import('./ReceiptView');
-		expect(formatDelta(1829.00, 1830.00)).toBe('$1.00');
+	it('renders the same magnitude when execution is above market', async () => {
+		const { formatPriceDelta } = await import('./ReceiptView');
+		expect(formatPriceDelta(34.93402185961484, 35.02321455049866, 'ETH')).toBe('0.0891927 ETH');
 	});
 
-	it('returns – for null inputs', async () => {
-		const { formatDelta } = await import('./ReceiptView');
-		expect(formatDelta(null, 1829.0)).toBe('–');
-		expect(formatDelta(1830.0, null)).toBe('–');
+	it('renders a stablecoin-quoted delta at 2 decimals', async () => {
+		const { formatPriceDelta } = await import('./ReceiptView');
+		expect(formatPriceDelta(3000, 2995, 'USDC')).toBe('5.00 USDC');
 	});
 
-	it('renders a sub-cent delta at 6 significant figures', async () => {
-		const { formatDelta } = await import('./ReceiptView');
-		// Figma tooltip example: delta of $0.000000004856
-		expect(formatDelta(0.000000004856, 0)).toBe('$0.000000004856');
+	it('renders an exact tie as None', async () => {
+		const { formatPriceDelta } = await import('./ReceiptView');
+		expect(formatPriceDelta(3000, 3000, 'USDC')).toBe('None');
 	});
 
-	it('renders an exact-zero delta as $0.00', async () => {
-		const { formatDelta } = await import('./ReceiptView');
-		expect(formatDelta(1829.0, 1829.0)).toBe('$0.00');
+	it('renders a sub-cent memecoin delta at 6 sig figs rather than collapsing', async () => {
+		const { formatPriceDelta } = await import('./ReceiptView');
+		// WARP→ETH: ETH-per-WARP. Float noise (8.99...e-12) must round away cleanly.
+		expect(formatPriceDelta(0.000000000394, 0.000000000385, 'ETH')).toBe('0.000000000009 ETH');
+	});
+
+	it('returns – for null or non-finite inputs', async () => {
+		const { formatPriceDelta } = await import('./ReceiptView');
+		expect(formatPriceDelta(null, 1829.0, 'USDC')).toBe('–');
+		expect(formatPriceDelta(1830.0, null, 'USDC')).toBe('–');
 	});
 });
 
-describe('priceDeltaComparison', () => {
-	it('returns Below Market when execution price is above market', async () => {
-		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(1829.0, 1830.0)).toBe('Below Market');
+describe('priceDeltaVerdict', () => {
+	// baseIsOutput === true  → user is BUYING the base  → cheaper is better
+	// baseIsOutput === false → user is SELLING the base → dearer is better
+
+	it('rates a cheaper fill better when buying the base (ETH→WBTC)', async () => {
+		const { priceDeltaVerdict } = await import('./ReceiptView');
+		expect(priceDeltaVerdict(35.02321455049866, 34.93402185961484, true)).toBe('better');
 	});
 
-	it('returns Above Market when execution price is below market', async () => {
-		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(1830.0, 1829.0)).toBe('Above Market');
+	it('rates a dearer fill worse when buying the base (ETH→WBTC)', async () => {
+		const { priceDeltaVerdict } = await import('./ReceiptView');
+		expect(priceDeltaVerdict(34.93402185961484, 35.02321455049866, true)).toBe('worse');
 	});
 
-	it('returns At Market when execution and market prices match', async () => {
-		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(1830.0, 1830.0)).toBe('At Market');
+	it('rates a dearer fill better when selling the base (WETH→USDC)', async () => {
+		const { priceDeltaVerdict } = await import('./ReceiptView');
+		expect(priceDeltaVerdict(3000, 3005, false)).toBe('better');
 	});
 
-	it('returns undefined for null inputs', async () => {
-		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(null, 1829.0)).toBeUndefined();
-		expect(priceDeltaComparison(1830.0, null)).toBeUndefined();
+	it('rates a cheaper fill worse when selling the base (WETH→USDC)', async () => {
+		const { priceDeltaVerdict } = await import('./ReceiptView');
+		expect(priceDeltaVerdict(3000, 2995, false)).toBe('worse');
 	});
 
-	it('never returns At Market for a sub-cent tokenOut', async () => {
-		const { priceDeltaComparison } = await import('./ReceiptView');
-		// Within the 0.01 band but sub-cent tokenOut → resolve by sign, not "At Market".
-		expect(priceDeltaComparison(0.0000010, 0.0000011, true)).toBe('Below Market');
-		expect(priceDeltaComparison(0.0000011, 0.0000010, true)).toBe('Above Market');
+	it('returns null for an exact tie', async () => {
+		const { priceDeltaVerdict } = await import('./ReceiptView');
+		expect(priceDeltaVerdict(3000, 3000, true)).toBeNull();
+		expect(priceDeltaVerdict(3000, 3000, false)).toBeNull();
 	});
 
-	it('breaks an exact sub-cent tie toward Below Market', async () => {
-		const { priceDeltaComparison } = await import('./ReceiptView');
-		expect(priceDeltaComparison(0.0000010, 0.0000010, true)).toBe('Below Market');
+	it('returns null for null or non-finite inputs', async () => {
+		const { priceDeltaVerdict } = await import('./ReceiptView');
+		expect(priceDeltaVerdict(null, 3000, true)).toBeNull();
+		expect(priceDeltaVerdict(3000, null, true)).toBeNull();
+	});
+});
+
+describe('priceDeltaTooltip', () => {
+	it('names the base token and the verb implied by the trade direction', async () => {
+		const { priceDeltaTooltip } = await import('./ReceiptView');
+		expect(priceDeltaTooltip('WBTC', true, 'better')).toBe('WBTC was bought at better than Market Price');
+		expect(priceDeltaTooltip('WBTC', true, 'worse')).toBe('WBTC was bought at worse than Market Price');
+		expect(priceDeltaTooltip('WETH', false, 'better')).toBe('WETH was sold at better than Market Price');
+		expect(priceDeltaTooltip('WETH', false, 'worse')).toBe('WETH was sold at worse than Market Price');
 	});
 });
 
@@ -454,43 +471,113 @@ describe('ReceiptView diagnosis', () => {
 	});
 });
 
-describe('Price Delta tooltip', () => {
-	const baseRow = {
-		id: 7, chainId: 8453, pricingStatus: 'full',
-		txHash: '0x1234567890abcdef1234567890abcdef12345678',
-		blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
-		inputSymbol: 'USDC', outputSymbol: 'WETH', inputAmount: '1000.00', outputAmount: '0.33',
-		notionalUsd: '1000.00', lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2',
-		executionBps: '-1', gasCostUsd: '0.001', hopCount: 1, routeShape: 'single',
-		decompConfidence: 'low', routeLegs: [], routePure: true, reconResidualBps: null,
+describe('Price Delta row', () => {
+	// ETH→WBTC: base = WBTC (output, anchor rank 0 < ETH's 1) → the user BOUGHT the base.
+	const ethWbtc = {
+		...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
+		inputSymbol: 'ETH', outputSymbol: 'WBTC',
+		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+		allInCostBps: '-25.53', chainlinkPrice: null,
 	};
 
-	it('renders the "better than Market" tooltip when below market', async () => {
+	it('renders the quote-denominated delta with a "bought at better" tooltip, agreeing with Execution Quality', async () => {
 		const { Receipt } = await import('./ReceiptView');
-		// realized 3005 vs market 3000 → exec>mid → Below Market → "better"
-		const html = renderToStaticMarkup(
-			<Receipt row={{ ...baseRow, marketMid: '3000', realizedPrice: '3005' } as never} />,
-		);
-		expect(html).toContain('Execution Price is better than Market Price by $');
-		// dotted-underline treatment on the subvalue label
-		expect(html).toContain('decoration-dotted');
+		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
+		expect(html).toContain('0.0891927 ETH');
+		expect(html).toContain('WBTC was bought at better than Market Price');
+		// The verdict must agree with Total Execution Quality, which reads +25.53bps.
+		expect(html).toContain('+25.53bps');
+		// The old inverted labels are gone for good.
+		expect(html).not.toContain('Above Market');
+		expect(html).not.toContain('Below Market');
+		expect(html).not.toContain('At Market');
 	});
 
-	it('renders the "same as Market" tooltip when at market', async () => {
+	it('rates the same pair worse when the fill is above the mid', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...baseRow, marketMid: '3000', realizedPrice: '3000' } as never} />,
+			<Receipt row={{ ...ethWbtc, realizedPrice: '35.11', allInCostBps: '25' } as never} />,
 		);
-		expect(html).toContain('Execution Price is the same as Market Price within $0.01');
+		expect(html).toContain('WBTC was bought at worse than Market Price');
 	});
 
-	it('renders the "worse than Market" tooltip when above market', async () => {
+	it('inverts the verdict for a sell (WETH→USDC), where the base is the input', async () => {
 		const { Receipt } = await import('./ReceiptView');
-		// realized 2995 vs market 3000 → exec<mid → Above Market → "worse"
+		// base = WETH (input, rank 1 < USDC's 2) → the user SOLD the base.
+		// Received 3005 USDC/WETH vs a 3000 mid → better.
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...baseRow, marketMid: '3000', realizedPrice: '2995' } as never} />,
+			<Receipt row={{
+				...fullUsdcWethRow,
+				inputSymbol: 'WETH', outputSymbol: 'USDC',
+				inputToken: '0x4200000000000000000000000000000000000006',
+				outputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				inputAmount: '1', outputAmount: '3005',
+				marketMid: '3000', realizedPrice: '3005',
+			} as never} />,
 		);
-		expect(html).toContain('Execution Price is worse than Market Price by $');
+		expect(html).toContain('5.00 USDC');
+		expect(html).toContain('WETH was sold at better than Market Price');
+	});
+
+	it('rates a sell worse when it received less than the mid', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{
+				...fullUsdcWethRow,
+				inputSymbol: 'WETH', outputSymbol: 'USDC',
+				inputToken: '0x4200000000000000000000000000000000000006',
+				outputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				inputAmount: '1', outputAmount: '2995',
+				marketMid: '3000', realizedPrice: '2995',
+			} as never} />,
+		);
+		expect(html).toContain('WETH was sold at worse than Market Price');
+	});
+
+	it('renders None with no tooltip when execution exactly matches the mid', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// fullUsdcWethRow has marketMid === realizedPrice === '3000'.
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		expect(html).toContain('None');
+		expect(html).not.toContain('than Market Price');
+	});
+
+	it('renders a no-anchor memecoin pair through the same path, denominated in the quote token', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// LFI→GITLAWB (real row): neither leg anchors → tie in anchor rank →
+		// base = input (LFI), quote = output (GITLAWB), marketMid is output-per-input.
+		// Previously this rendered a total token quantity ("197178.79 GITLAWB") via
+		// outputTokenDelta; it is now a per-base price delta like every other pair.
+		const html = renderToStaticMarkup(
+			<Receipt row={{
+				...fullUsdcWethRow, aggregator: 'fabric', pricingStatus: 'estimated',
+				inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
+				inputToken: '0x3722264ab15a1dfce5a5af89e6547f7949a8aba3',
+				outputToken: '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3',
+				inputAmount: '6745937.5', outputAmount: '7234145.96',
+				marketMid: '1.1016', realizedPrice: '1.0724',
+				allInCostBps: '265', chainlinkPrice: null,
+			} as never} />,
+		);
+		expect(html).toContain('0.0292 GITLAWB');
+		expect(html).not.toContain('197178.79 GITLAWB'); // the old quantity-based delta
+		// base = LFI is the input → sold. 1.0724 < 1.1016 mid → received fewer → worse,
+		// agreeing with allInCostBps 265 (a cost).
+		expect(html).toContain('LFI was sold at worse than Market Price');
+	});
+
+	it('rates a USDC→WETH buy above the mid as worse (this assertion was inverted)', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// base = WETH (output, rank 1 < USDC's 2) → the user BOUGHT the base.
+		// Paid 3005 USDC/WETH against a 3000 mid → a $5/ETH overpay → worse.
+		// ReceiptView.test.tsx:470 previously asserted this was "better".
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...fullUsdcWethRow, marketMid: '3000', realizedPrice: '3005' } as never} />,
+		);
+		expect(html).toContain('5.00 USDC');
+		expect(html).toContain('WETH was bought at worse than Market Price');
 	});
 });
 
@@ -593,22 +680,6 @@ describe('Receipt notional display (Phase 1)', () => {
 		expect(html).toContain('+$20.00');
 		expect(html).toContain('$1,020.00'); // Token Out valued on its own at mid
 		expect(html).toContain('$1,000.00'); // Token In
-	});
-
-	it('no-anchor: no Execution Result, Price Delta reads in output tokens', async () => {
-		const { Receipt } = await import('./ReceiptView');
-		const row = {
-			...fullUsdcWethRow, aggregator: 'fabric', pricingStatus: 'estimated',
-			inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
-			inputToken: '0x3722264ab15a1dfce5a5af89e6547f7949a8aba3',
-			outputToken: '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3',
-			inputAmount: '6745937.5', outputAmount: '7234145.96',
-			marketMid: '1.1016', realizedPrice: '1.0724', allInCostBps: '265', chainlinkPrice: null,
-		};
-		const html = renderToStaticMarkup(<Receipt row={row as never} />);
-		expect(html).not.toContain('Execution Result');
-		// Price Delta value is the output-token difference, not a dollar figure.
-		expect(html).toContain('197178.79 GITLAWB');
 	});
 
 	it('single-anchor: no per-side notionals and no Execution Result (Phase 1)', async () => {

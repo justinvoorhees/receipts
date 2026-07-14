@@ -11,6 +11,7 @@ import {
 import {
 	formatDialogBps,
 	formatExecutionPrice,
+	formatPriceMagnitude,
 	formatSubvalueUsd,
 	formatUsdMagnitude,
 	formatTokenIn,
@@ -22,43 +23,60 @@ import {
 	getVenueLabel,
 	getAggregatorFeeAttribution,
 	ShareButton,
-	tokenUnitPriceUsd,
-	formatTokenAmount,
 	STABLE_SYMBOLS,
 } from './TradesTable';
 
-export function formatDelta(marketMid: unknown, realizedPrice: unknown): string {
+/**
+ * Price Delta value: the gap between the market mid and the executed rate, in
+ * the pair's quote token — the same quote-per-base convention the Execution and
+ * Market Price rows above it use, formatted by the same rule. Unsigned; the
+ * tooltip carries the verdict. Computed from the STORED values, not the rounded
+ * ones on screen, so the delta is derived like every other number on the receipt.
+ * An exact tie is "None" — there is no delta to describe, so no tooltip either.
+ */
+export function formatPriceDelta(marketMid: unknown, realizedPrice: unknown, quoteSymbol: string): string {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return '–';
-	// Sub-cent deltas keep precision; an exact-zero delta still reads $0.00.
-	return `$${formatUsdMagnitude(Math.abs(mid - exec)) ?? '0.00'}`;
+	const delta = Math.abs(mid - exec);
+	if (delta === 0) return 'None';
+	return `${formatPriceMagnitude(delta, quoteSymbol)} ${quoteSymbol}`;
 }
 
-export function priceDeltaComparison(
+/**
+ * Was the fill better or worse than the mid? Direction-aware, and that is the
+ * whole point: prices are quote-per-BASE, so a lower price is better only when
+ * the user is BUYING the base (baseIsOutput). When the base is the input the
+ * user is selling it and a higher price is better. Reading the sign without the
+ * direction inverts the verdict on every buy — the bug this replaces.
+ *
+ * Reads the raw stored mid/realized in every case (USD-anchored, ETH-quoted, and
+ * no-anchor alike): the display rescale that used to be applied is strictly
+ * positive (marketUsd − execUsd = execUsd·(mm−rp)/rp, with execUsd > 0, rp > 0),
+ * so it can never flip the sign. Null on an exact tie — matching formatPriceDelta's
+ * "None", so the value and the tooltip can never disagree.
+ */
+export function priceDeltaVerdict(
 	marketMid: unknown,
 	realizedPrice: unknown,
-	tokenOutSubCent = false,
-): string | undefined {
+	baseIsOutput: boolean,
+): 'better' | 'worse' | null {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
-	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return undefined;
-	if (tokenOutSubCent) {
-		// The <$0.01 "At Market" band is meaningless when the whole price is
-		// sub-cent; resolve by sign, and break an exact tie toward Below Market.
-		if (exec > mid) return 'Below Market';
-		if (exec < mid) return 'Above Market';
-		return 'Below Market';
-	}
-	if (Math.abs(exec - mid) < 0.01) return 'At Market';
-	if (exec > mid) return 'Below Market';
-	return 'Above Market';
+	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return null;
+	if (exec === mid) return null;
+	const better = baseIsOutput ? exec < mid : exec > mid;
+	return better ? 'better' : 'worse';
 }
 
-function priceDeltaTooltip(comparison: string, deltaText: string): string {
-	if (comparison === 'Below Market') return `Execution Price is better than Market Price by ${deltaText}`;
-	if (comparison === 'Above Market') return `Execution Price is worse than Market Price by ${deltaText}`;
-	return 'Execution Price is the same as Market Price within $0.01';
+/**
+ * The base is always the bought token on a buy and the sold token on a sell —
+ * that is what baseIsOutput means — so one flag picks both the token and the
+ * verb. Naming the base is also what makes the tooltip describe the number on
+ * screen, since Execution and Market Price are both quoted per base token.
+ */
+export function priceDeltaTooltip(base: string, baseIsOutput: boolean, verdict: 'better' | 'worse'): string {
+	return `${base} was ${baseIsOutput ? 'bought' : 'sold'} at ${verdict} than Market Price`;
 }
 
 // The title reads as the swap direction — inputSymbol→outputSymbol — so it
@@ -95,11 +113,17 @@ function symbolAnchorRank(symbol: string): number {
 
 // Resolves the base/quote symbols for a receipt's price rows, matching the
 // orientation the DB already stores realizedPrice/marketMid in (quote-per-base).
-function pairBaseQuote(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): { base: string; quote: string } {
+// `baseIsOutput` is the trade direction relative to the base: true = the user
+// bought the base, false = sold it. Price Delta's verdict depends on it.
+function pairBaseQuote(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): {
+	base: string;
+	quote: string;
+	baseIsOutput: boolean;
+} {
 	const baseIsOutput = symbolAnchorRank(row.outputSymbol) < symbolAnchorRank(row.inputSymbol);
 	return baseIsOutput
-		? { base: row.outputSymbol, quote: row.inputSymbol }
-		: { base: row.inputSymbol, quote: row.outputSymbol };
+		? { base: row.outputSymbol, quote: row.inputSymbol, baseIsOutput }
+		: { base: row.inputSymbol, quote: row.outputSymbol, baseIsOutput };
 }
 
 /**
@@ -247,6 +271,7 @@ function DetailRow({
 	subvalue,
 	tooltip,
 	subvalueTooltip,
+	valueTooltip,
 }: {
 	label: string;
 	children: React.ReactNode;
@@ -254,6 +279,7 @@ function DetailRow({
 	subvalue?: string | undefined;
 	tooltip?: string;
 	subvalueTooltip?: string;
+	valueTooltip?: string;
 }) {
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
@@ -291,6 +317,18 @@ function DetailRow({
 						<span className="text-[var(--color-secondary)]">{subvalue}</span>
 					)}
 				</div>
+			) : valueTooltip ? (
+				<span className="min-w-0 text-right">
+					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
+						{children}
+						<div
+							role="tooltip"
+							className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+						>
+							{valueTooltip}
+						</div>
+					</span>
+				</span>
 			) : (
 				<span className="min-w-0 text-right">{children}</span>
 			)}
@@ -494,7 +532,7 @@ export function Receipt({
 	const execution = getExecutionBreakdown(row);
 	const priceImpactRows = getPriceImpactRows(legs, row);
 	const pairTitle = receiptPairTitle(row);
-	const { base, quote } = pairBaseQuote(row);
+	const { base, quote, baseIsOutput } = pairBaseQuote(row);
 	const usdPrices = usdPerBasePrices(row);
 	// Both-or-none per-side notionals. Double-anchored pairs value each side at mid
 	// (Phase 1). Single-anchored pairs value the non-anchored side at mid too, but
@@ -512,24 +550,17 @@ export function Receipt({
 	const independentAnchor = single?.independent === true; // non-anchored side via its own oracle
 	const markedAtMid = single != null && !independentAnchor; // else marked at the mid
 	const execResult = showPerSideNotionals ? formatExecutionResult(notionalOut - notionalIn) : null;
-	// No-anchor pairs have no defensible USD; a $-denominated Price Delta would be
-	// false precision, so express it in output tokens instead and drop the USD
-	// sub-values on the price rows.
+	// `noAnchor` still gates the Execution/Market Price USD sub-values (:601, :618)
+	// until Task 3 removes them. Everything else here goes now.
 	const noAnchor = !isAnchorable(row.inputSymbol) && !isAnchorable(row.outputSymbol);
-	const tokenDelta = noAnchor ? outputTokenDelta(row) : null;
-	const tokenDeltaText =
-		tokenDelta != null ? `${formatTokenAmount(Math.abs(tokenDelta), null, row.outputSymbol)} ${row.outputSymbol}` : undefined;
-	const tokenOutSubCent = (tokenUnitPriceUsd(row.notionalUsd, row.outputAmount) ?? Infinity) < 0.01;
+	// Price Delta is quote-denominated in every case — anchored, ETH-quoted, and
+	// no-anchor memecoin alike — because the stored mid/realized are already
+	// quote-per-base. No USD, no tiers, one path.
 	const priceDeltaText = hasMarketPrice
-		? noAnchor
-			? tokenDeltaText
-			: usdPrices && usdPrices.marketUsd != null
-				? formatDelta(usdPrices.marketUsd, usdPrices.execUsd)
-				: formatDelta(row.marketMid, row.realizedPrice)
+		? formatPriceDelta(row.marketMid, row.realizedPrice, quote)
 		: undefined;
-	const priceComparison = hasMarketPrice
-		? priceDeltaComparison(row.marketMid, row.realizedPrice, tokenOutSubCent)
-		: undefined;
+	const verdict = hasMarketPrice ? priceDeltaVerdict(row.marketMid, row.realizedPrice, baseIsOutput) : null;
+	const priceDeltaTip = verdict ? priceDeltaTooltip(base, baseIsOutput, verdict) : undefined;
 
 	return (
 		<>
@@ -637,10 +668,7 @@ export function Receipt({
 				</DetailRow>
 				<DetailRow
 					label="Price Delta"
-					subvalue={priceComparison}
-					{...(priceComparison && priceDeltaText
-						? { subvalueTooltip: priceDeltaTooltip(priceComparison, priceDeltaText) }
-						: {})}
+					{...(priceDeltaTip ? { valueTooltip: priceDeltaTip } : {})}
 				>
 					{hasMarketPrice ? priceDeltaText : UNAVAILABLE}
 				</DetailRow>

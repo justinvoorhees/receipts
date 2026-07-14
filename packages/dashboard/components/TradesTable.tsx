@@ -350,19 +350,24 @@ export function ShareButton({ path }: { path?: string } = {}) {
 	);
 }
 
-export function formatExecutionPrice(value: unknown, baseSymbol = 'WETH', quoteSymbol?: string): string {
-	const n = value == null ? null : Number(value);
-	if (n == null || Number.isNaN(n)) return '–';
-	// The value is quoteSymbol-per-base. A stablecoin quote reads like dollars —
-	// 2 decimals — but falls back to 6 sig figs when sub-cent so a tiny memecoin
-	// price doesn't collapse to 0.00. Any other quote uses 6 sig figs. No
-	// separators, matching the token-amount display.
+// The numeric half of a quote-per-base price. A stablecoin quote reads like
+// dollars — 2 decimals — but falls back to 6 sig figs when sub-cent so a tiny
+// memecoin price doesn't collapse to 0.00. Any other quote uses 6 sig figs. No
+// separators, matching the token-amount display. Shared with the Price Delta row
+// so the delta is formatted by the same rule as the prices it sits under.
+export function formatPriceMagnitude(n: number, quoteSymbol?: string): string {
 	const stableQuote = quoteSymbol != null && STABLE_SYMBOLS.has(quoteSymbol);
 	const opts: Intl.NumberFormatOptions =
 		stableQuote && Math.abs(n) >= 0.01
 			? { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2 }
 			: { useGrouping: false, maximumSignificantDigits: 6 };
-	const num = n.toLocaleString('en-US', opts);
+	return n.toLocaleString('en-US', opts);
+}
+
+export function formatExecutionPrice(value: unknown, baseSymbol = 'WETH', quoteSymbol?: string): string {
+	const n = value == null ? null : Number(value);
+	if (n == null || Number.isNaN(n)) return '–';
+	const num = formatPriceMagnitude(n, quoteSymbol);
 	const left = quoteSymbol ? `${num} ${quoteSymbol}` : num;
 	return `${left} = 1 ${baseSymbol}`;
 }
