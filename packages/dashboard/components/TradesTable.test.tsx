@@ -676,3 +676,31 @@ describe('token amount decimal clamp', () => {
 		expect(tokenUnitPriceUsd('2.25', '0')).toBeNull();
 	});
 });
+
+describe('formatExecutionPrice value clamp', () => {
+	it('clamps a stablecoin-quoted price to 2 decimals (>=$0.01)', async () => {
+		const { formatExecutionPrice } = await import('./TradesTable');
+		expect(formatExecutionPrice('1829.763683289442', 'WETH', 'USDC')).toBe('1829.76 USDC = 1 WETH');
+		// Trailing zeros trimmed, not padded.
+		expect(formatExecutionPrice('2.25005', 'X', 'USDC')).toBe('2.25 USDC = 1 X');
+		// DAI is a stablecoin too.
+		expect(formatExecutionPrice('1.23456', 'X', 'DAI')).toBe('1.23 DAI = 1 X');
+	});
+
+	it('falls back to 6 sig figs for a sub-cent stablecoin-quoted price', async () => {
+		const { formatExecutionPrice } = await import('./TradesTable');
+		expect(formatExecutionPrice('0.000000667735123', 'PEPE', 'USDC')).toBe('0.000000667735 USDC = 1 PEPE');
+	});
+
+	it('uses 6 sig figs for a non-stablecoin-quoted price', async () => {
+		const { formatExecutionPrice } = await import('./TradesTable');
+		expect(formatExecutionPrice('0.000546123456', 'X', 'WETH')).toBe('0.000546123 WETH = 1 X');
+		// A large non-stablecoin price is capped at 6 significant figures.
+		expect(formatExecutionPrice('1829.763683289442', 'X', 'WETH')).toBe('1829.76 WETH = 1 X');
+	});
+
+	it('returns – for invalid input', async () => {
+		const { formatExecutionPrice } = await import('./TradesTable');
+		expect(formatExecutionPrice(null, 'WETH', 'USDC')).toBe('–');
+	});
+});

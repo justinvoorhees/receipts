@@ -353,7 +353,17 @@ export function ShareButton({ path }: { path?: string } = {}) {
 export function formatExecutionPrice(value: unknown, baseSymbol = 'WETH', quoteSymbol?: string): string {
 	const n = value == null ? null : Number(value);
 	if (n == null || Number.isNaN(n)) return '–';
-	const left = quoteSymbol ? `${trimNumber(n, 18)} ${quoteSymbol}` : trimNumber(n, 18);
+	// The value is quoteSymbol-per-base. A stablecoin quote reads like dollars —
+	// 2 decimals — but falls back to 6 sig figs when sub-cent so a tiny memecoin
+	// price doesn't collapse to 0.00. Any other quote uses 6 sig figs. No
+	// separators, matching the token-amount display.
+	const stableQuote = quoteSymbol != null && STABLE_SYMBOLS.has(quoteSymbol);
+	const opts: Intl.NumberFormatOptions =
+		stableQuote && Math.abs(n) >= 0.01
+			? { useGrouping: false, maximumFractionDigits: 2 }
+			: { useGrouping: false, maximumSignificantDigits: 6 };
+	const num = n.toLocaleString('en-US', opts);
+	const left = quoteSymbol ? `${num} ${quoteSymbol}` : num;
 	return `${left} = 1 ${baseSymbol}`;
 }
 
@@ -693,10 +703,6 @@ export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps
 		};
 	}
 	return { label };
-}
-
-function trimNumber(value: number, digits: number): string {
-	return value.toFixed(digits).replace(/\.?0+$/, '');
 }
 
 export function tokenUnitPriceUsd(
