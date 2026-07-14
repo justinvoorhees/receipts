@@ -22,7 +22,7 @@
 - **Tests run from the repo root:** `npx vitest run packages/dashboard/components/ReceiptView.test.tsx`
 - There is no vitest config in this repo; vitest's default `include` picks up new `*.test.ts` files automatically, so `receipt/qualityNotionals.test.ts` needs no registration.
 - **Do not run `npm run lint`** — ESLint v9 config is missing repo-wide (pre-existing, out of scope).
-- Reference row throughout is receipts `id=135`, txn `0x16e782f7a9dfefc3b84054ec81a366efbd603aea745ee5373ec005568adb360f` (KyberSwap, Base, ETH→WBTC, `estimated` tier): `inputAmount '1'`, `outputAmount '0.02862539'`, `notionalUsd '1791.1353895147784'`, `marketMid '35.02321455049866'`, `realizedPrice '34.93402185961484'`, `allInCostBps '-2553'`.
+- Reference row throughout is receipts `id=135`, txn `0x16e782f7a9dfefc3b84054ec81a366efbd603aea745ee5373ec005568adb360f` (KyberSwap, Base, ETH→WBTC, `estimated` tier): `inputAmount '1'`, `outputAmount '0.02862539'`, `notionalUsd '1791.1353895147784'`, `marketMid '35.02321455049866'`, `realizedPrice '34.93402185961484'`, `allInCostBps '-25.53'`.
 
 ---
 
@@ -180,7 +180,7 @@ describe('Price Delta row', () => {
 		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
 		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
 		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
-		allInCostBps: '-2553', chainlinkPrice: null,
+		allInCostBps: '-25.53', chainlinkPrice: null,
 	};
 
 	it('renders the quote-denominated delta with a "bought at better" tooltip, agreeing with Execution Quality', async () => {
@@ -512,7 +512,12 @@ Run: `npx vitest run packages/dashboard/components/ReceiptView.test.tsx`
 
 Expected: the `formatPriceDelta`, `priceDeltaVerdict`, `priceDeltaTooltip`, and `Price Delta row` blocks all PASS.
 
-One pre-existing test will now FAIL and must be fixed in this task: `Receipt token-denominated price rows › renders ETH-quoted prices token-denominated with the quote symbol` (`ReceiptView.test.tsx:213`) asserts `expect(html).toContain('$0.00')` for the USD sub-value. That sub-value is unaffected by *this* task (Task 3 removes it), so this test should still pass. If it fails for a different reason, fix the cause rather than the assertion.
+The whole file must be green. Two pre-existing tests are worth knowing about:
+
+- `Receipt token-denominated price rows › renders ETH-quoted prices token-denominated with the quote symbol` asserts `toContain('$0.00')` for the USD sub-value. That sub-value is untouched by this task (Task 3 removes it), so this test still passes. Leave it alone.
+- `Receipt notional display (Phase 1) › no-anchor: …` is the one this task deletes (see the end of Step 1) — it asserts the old `outputTokenDelta` quantity.
+
+If any other test fails, fix the cause rather than the assertion.
 
 - [ ] **Step 9: Typecheck**
 
@@ -704,7 +709,7 @@ describe('Receipt makes no fair-value claim (MVP thesis)', () => {
 		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
 		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
 		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
-		allInCostBps: '-2553', chainlinkPrice: null,
+		allInCostBps: '-25.53', chainlinkPrice: null,
 	};
 
 	it('renders no Execution Result on a full-tier single-anchor pair', async () => {
