@@ -5,13 +5,10 @@ import {
 	findCleanSwapCandidates,
 	selectBeneficiary,
 	type AnalyzeFailure,
-	type RelayerDetail,
 	type TraceNode,
 } from './endpoints.js';
-import { createDefaultPricingDeps } from './pricing.js';
 
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
-const NATIVE = 'native';
 
 /** Diagnose WHY analyzeTransaction could not produce a receipt for `hash`.
  *  Callers invoke this only on a known miss; a resolvable swap returns the
@@ -67,24 +64,7 @@ export async function classifyTransaction(
 		);
 		const detail = selectBeneficiary(candidates, trader, (a) => eoaFlags.get(a.toLowerCase()) ?? false);
 		if (!detail) return { reason: 'NOT_DECODABLE' };
-
-		// Best-effort symbols; unresolved omitted (UI falls back to short address).
-		const readSymbol = createDefaultPricingDeps(opts.rpcUrl).readSymbol;
-		const sym = async (token: string): Promise<string | undefined> => {
-			if (token.toLowerCase() === NATIVE) return 'ETH';
-			try {
-				return await readSymbol(token);
-			} catch {
-				return undefined;
-			}
-		};
-		const [inputSymbol, outputSymbol] = await Promise.all([sym(detail.inputToken), sym(detail.outputToken)]);
-		const withSymbols: RelayerDetail = {
-			...detail,
-			...(inputSymbol ? { inputSymbol } : {}),
-			...(outputSymbol ? { outputSymbol } : {}),
-		};
-		return { reason: 'RELAYER_THIRD_PARTY', detail: withSymbols };
+		return { reason: 'RELAYER_THIRD_PARTY', detail };
 	} catch {
 		return { reason: 'ANALYZE_ERROR' };
 	}

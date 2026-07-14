@@ -94,8 +94,6 @@ export interface RelayerDetail {
 	beneficiary: string;
 	inputToken: string;
 	outputToken: string;
-	inputSymbol?: string;
-	outputSymbol?: string;
 }
 
 export interface AnalyzeFailure {
