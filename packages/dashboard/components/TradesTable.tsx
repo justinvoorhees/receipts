@@ -726,6 +726,10 @@ export function tokenUnitPriceUsd(
 // "what counts as a stablecoin" is defined once.
 export const STABLE_SYMBOLS = new Set(['USDC', 'USDbC', 'DAI']);
 
+// Ether, wrapped or native. Shared with ReceiptView's pricing anchor logic and
+// the quarantined "good trade" helpers in receipt/qualityNotionals.ts.
+export const ETH_SYMBOLS = new Set(['WETH', 'ETH']);
+
 // Whole part unlimited (no separators); decimals capped at 6 for headline /
 // unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. Stablecoins are
 // dollar-denominated, so they render exactly 2 decimals (currency style, padded)
