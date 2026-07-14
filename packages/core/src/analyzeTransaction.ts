@@ -76,7 +76,9 @@ const STABLECOINS: ReadonlySet<string> = new Set([
 function anchorRank(token: string): number {
 	const t = token.toLowerCase();
 	if (STABLECOINS.has(t)) return 2;
-	if (t === WETH) return 1;
+	// Native ETH ('native') is the same reference asset as WETH — anchor it
+	// identically so ETH→token trades orient like the equivalent WETH→token.
+	if (t === WETH || t === NATIVE) return 1;
 	return 0;
 }
 

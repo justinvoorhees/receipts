@@ -7,6 +7,7 @@ const RPC = process.env.TCA_RPC_URL;
 const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const DAI = '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
 const WETH = '0x4200000000000000000000000000000000000006';
+const NATIVE = 'native';
 const DEGEN = '0x4ed4e862860bed51a9570b96d89af5e1b0efefed';
 
 describe('baseIsOutputLeg', () => {
@@ -28,6 +29,21 @@ describe('baseIsOutputLeg', () => {
 	it('defaults to no inversion when both legs anchor equally (USDC↔DAI)', () => {
 		expect(baseIsOutputLeg(USDC, DAI)).toBe(false);
 		expect(baseIsOutputLeg(DAI, USDC)).toBe(false);
+	});
+	// Native ETH ('native') must anchor exactly like WETH — otherwise an
+	// ETH→memecoin trade stores the price in the opposite orientation from the
+	// equivalent WETH→memecoin trade, and the dashboard mislabels it.
+	it('treats native ETH like WETH — native→DEGEN base (DEGEN) is the output', () => {
+		expect(baseIsOutputLeg(NATIVE, DEGEN)).toBe(true);
+	});
+	it('treats native ETH like WETH — DEGEN→native base (DEGEN) is the input', () => {
+		expect(baseIsOutputLeg(DEGEN, NATIVE)).toBe(false);
+	});
+	it('native ETH ranks below stablecoins — USDC→native base (native) is the output', () => {
+		expect(baseIsOutputLeg(USDC, NATIVE)).toBe(true);
+	});
+	it('native ETH ranks below stablecoins — native→USDC base (native) is the input', () => {
+		expect(baseIsOutputLeg(NATIVE, USDC)).toBe(false);
 	});
 });
 
