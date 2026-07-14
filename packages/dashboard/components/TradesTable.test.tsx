@@ -538,11 +538,13 @@ describe('TradesTable', () => {
 		expect(html).toContain('Possible manipulation');
 	});
 
+	// base = WETH (output, anchor rank 1 < USDC's 2) → the user BOUGHT the base,
+	// so a *lower* realized price is better. Quote = USDC.
 	it.each([
-		['3005', '3000', 'Below Market'],
-		['2995', '3000', 'Above Market'],
-		['3000', '3000', 'At Market'],
-	])('renders Price Delta subvalue "%s" as %s when realized=%s market=%s', async (realizedPrice, marketMid, expected) => {
+		['3005', '3000', '5.00 USDC', 'WETH was bought at worse than Market Price'],
+		['2995', '3000', '5.00 USDC', 'WETH was bought at better than Market Price'],
+		['3000', '3000', 'None', null],
+	])('realized=%s market=%s renders Price Delta "%s" with tooltip %s', async (realizedPrice, marketMid, expectedValue, expectedTooltip) => {
 		const { TransactionDetailsDialog } = await import('./TradesTable');
 		const row = {
 			id: 3, chainId: 8453, pricingStatus: 'full',
@@ -558,8 +560,12 @@ describe('TradesTable', () => {
 		const html = renderToStaticMarkup(
 			<TransactionDetailsDialog row={row as never} onClose={() => {}} onDelete={async () => true} />,
 		);
-		expect(html).toContain('$');
-		expect(html).toContain(expected);
+		expect(html).toContain(expectedValue);
+		if (expectedTooltip) {
+			expect(html).toContain(expectedTooltip);
+		} else {
+			expect(html).not.toContain('than Market Price');
+		}
 	});
 });
 
