@@ -101,6 +101,16 @@ Formatted like its sibling price rows: 6 significant figures, no grouping;
 formatting from `formatExecutionPrice` (`TradesTable.tsx:353`) so both share one
 definition rather than duplicating the rule.
 
+**Computed from the stored values, not the displayed ones.** Figma shows
+`0.0892 ETH`, which is the two *rounded* on-screen figures subtracted
+(`35.0232 − 34.934`). The true delta is `0.08919269088382`, which renders as
+`0.0891927` under the 6-sig-fig rule. We use the true delta: it is derived the
+same way as every other number on the receipt, and its precision does not depend
+on the magnitude of the rows above it. Consequence: the three rows do not
+visibly reconcile by hand — `35.0232 − 34.934` reads as `0.0892`, off in the
+5th significant figure. That is a rounding artifact of the display, accepted
+deliberately.
+
 This works identically for anchored, ETH-quoted, and no-anchor memecoin pairs,
 because the stored values are already quote-per-base in every case. It removes
 the last USD dependency from the price block.
