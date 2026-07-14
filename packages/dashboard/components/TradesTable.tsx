@@ -711,14 +711,18 @@ export function tokenUnitPriceUsd(
 	return notional / amt;
 }
 
+// Dollar-pegged stablecoins. Shared with ReceiptView's pricing anchor logic so
+// "what counts as a stablecoin" is defined once.
+export const STABLE_SYMBOLS = new Set(['USDC', 'USDbC', 'DAI']);
+
 // Whole part unlimited (no separators); decimals capped at 6 for headline /
-// unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. USDC is a
-// dollar stablecoin, so it's capped at 2 decimals regardless of price. Trailing
-// zeros are trimmed by omitting minimumFractionDigits.
+// unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. Stablecoins are
+// dollar-denominated, so they're capped at 2 decimals regardless of price.
+// Trailing zeros are trimmed by omitting minimumFractionDigits.
 function formatTokenAmount(amount: string | number, unitPriceUsd: number | null, symbol?: string): string {
 	const n = Number(amount);
 	if (!Number.isFinite(n)) return String(amount);
-	if (symbol === 'USDC') {
+	if (symbol != null && STABLE_SYMBOLS.has(symbol)) {
 		return n.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 2 });
 	}
 	const subCent = unitPriceUsd != null && unitPriceUsd < 0.01;

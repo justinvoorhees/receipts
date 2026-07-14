@@ -629,11 +629,18 @@ describe('token amount decimal clamp', () => {
 		).toBe('1000000000.123457 WETH');
 	});
 
-	it('special-cases USDC to at most 2 decimals (trailing zeros trimmed)', async () => {
+	it('special-cases stablecoins to at most 2 decimals (trailing zeros trimmed)', async () => {
 		const { formatTokenIn, formatTokenOut } = await import('./TradesTable');
 		expect(
 			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '2.25005', notionalUsd: '2.25' }),
 		).toBe('2.25 USDC');
+		// Every stablecoin in STABLE_SYMBOLS clamps, incl. 18-decimal DAI + USDbC.
+		expect(
+			formatTokenOut({ outputSymbol: 'DAI', outputAmount: '2.250050000000000000', notionalUsd: '2.25' }),
+		).toBe('2.25 DAI');
+		expect(
+			formatTokenIn({ inputSymbol: 'USDbC', inputAmount: '2.25005', notionalUsd: '2.25' }),
+		).toBe('2.25 USDbC');
 		// Trailing zeros trimmed, not padded.
 		expect(
 			formatTokenIn({ inputSymbol: 'USDC', inputAmount: '1000.00', notionalUsd: '1000' }),
@@ -641,6 +648,10 @@ describe('token amount decimal clamp', () => {
 		expect(
 			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '0.5', notionalUsd: '0.5' }),
 		).toBe('0.5 USDC');
+		// A non-stable headline token still uses the 6-decimal cap.
+		expect(
+			formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473', notionalUsd: '3.7' }),
+		).toBe('0.00123 WETH');
 	});
 
 	it('does not clamp sub-cent (<$0.01/unit) token decimals', async () => {

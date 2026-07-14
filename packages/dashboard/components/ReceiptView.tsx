@@ -24,6 +24,7 @@ import {
 	getAggregatorFeeAttribution,
 	ShareButton,
 	tokenUnitPriceUsd,
+	STABLE_SYMBOLS,
 } from './TradesTable';
 
 export function formatDelta(marketMid: unknown, realizedPrice: unknown): string {
@@ -81,7 +82,6 @@ function chainLabel(chainId: number): string {
 	return NAMED_CHAINS[chainId] ?? `Chain ${chainId}`;
 }
 
-const STABLE_SYMBOLS = new Set(['USDC', 'USDbC', 'DAI']);
 const ETH_SYMBOLS = new Set(['WETH', 'ETH']);
 
 // Mirrors core's anchorRank: stablecoins outrank ETH/WETH, which outrank
