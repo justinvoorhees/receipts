@@ -365,30 +365,6 @@ export function formatDialogBps(value: number | null): { text: string; color: st
 	return { text, color };
 }
 
-// Reasonable letter-grade scale over Total Execution Quality (accuracy = -costBps).
-// Meeting or beating market mid is top marks; grade degrades as cost grows.
-export function executionGrade(costBps: number): string {
-	const accuracy = -costBps;
-	if (accuracy >= 0) return 'A+';
-	if (accuracy >= -1) return 'A';
-	if (accuracy >= -3) return 'B';
-	if (accuracy >= -7) return 'C';
-	if (accuracy >= -15) return 'D';
-	return 'F';
-}
-
-// Describes each grade's cutoff. Total Execution Quality never shows a '-' sign
-// on screen (see formatDialogBps), so the cutoffs here are stated unsigned too.
-export function executionGradeTooltip(costBps: number): string {
-	const accuracy = -costBps;
-	if (accuracy >= 0) return 'Total Execution Quality is ≥0bps';
-	if (accuracy >= -1) return 'Total Execution Quality is ≤1bps';
-	if (accuracy >= -3) return 'Total Execution Quality is ≤3bps';
-	if (accuracy >= -7) return 'Total Execution Quality is ≤7bps';
-	if (accuracy >= -15) return 'Total Execution Quality is ≤15bps';
-	return 'Total Execution Quality is >15bps';
-}
-
 export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };

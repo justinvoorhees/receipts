@@ -483,4 +483,13 @@ describe('Price Delta tooltip', () => {
 		);
 		expect(html).toContain('Execution Price is the same as Market Price within $0.01');
 	});
+
+	it('renders the "worse than Market" tooltip when above market', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// realized 2995 vs market 3000 → exec<mid → Above Market → "worse"
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...baseRow, marketMid: '3000', realizedPrice: '2995' } as never} />,
+		);
+		expect(html).toContain('Execution Price is worse than Market Price by $');
+	});
 });

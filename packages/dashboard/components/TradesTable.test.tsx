@@ -506,30 +506,6 @@ describe('TradesTable', () => {
 		expect(formatDialogBps(0).text).toBe('0.00bps');
 	});
 
-	it('grades execution quality from Total Execution Quality bps', async () => {
-		const { executionGrade } = await import('./TradesTable');
-
-		expect(executionGrade(-1)).toBe('A+'); // accuracy +1bps, beats market
-		expect(executionGrade(0)).toBe('A+'); // meets market
-		expect(executionGrade(0.5)).toBe('A');
-		expect(executionGrade(2)).toBe('B');
-		expect(executionGrade(5)).toBe('C');
-		expect(executionGrade(10)).toBe('D');
-		expect(executionGrade(20)).toBe('F');
-	});
-
-	it('describes each grade cutoff without a negative sign', async () => {
-		const { executionGradeTooltip } = await import('./TradesTable');
-
-		expect(executionGradeTooltip(-1)).toBe('Total Execution Quality is ≥0bps');
-		expect(executionGradeTooltip(0)).toBe('Total Execution Quality is ≥0bps');
-		expect(executionGradeTooltip(0.5)).toBe('Total Execution Quality is ≤1bps');
-		expect(executionGradeTooltip(2)).toBe('Total Execution Quality is ≤3bps');
-		expect(executionGradeTooltip(5)).toBe('Total Execution Quality is ≤7bps');
-		expect(executionGradeTooltip(10)).toBe('Total Execution Quality is ≤15bps');
-		expect(executionGradeTooltip(20)).toBe('Total Execution Quality is >15bps');
-	});
-
 	it('uses granular normalize flags instead of repeating confidence', async () => {
 		const { getFlagLabel } = await import('./TradesTable');
 
