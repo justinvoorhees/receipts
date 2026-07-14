@@ -625,3 +625,61 @@ describe('Receipt notional display (Phase 1)', () => {
 		expect(html).not.toContain('Execution Result');
 	});
 });
+
+describe('singleAnchorNotionals (Phase 2a)', () => {
+	it('values the non-anchored side at mid for an ETH-quoted single-anchor pair', async () => {
+		const { singleAnchorNotionals } = await import('./ReceiptView');
+		// ETH->WBTC (real row): ETH anchored, WBTC marked at mid.
+		const n = singleAnchorNotionals({
+			inputSymbol: 'ETH', outputSymbol: 'WBTC',
+			inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+			marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+		} as never);
+		expect(n?.notionalIn).toBeCloseTo(1791.14, 1);  // ETH = stored notional
+		expect(n?.notionalOut).toBeCloseTo(1795.71, 1); // WBTC valued at mid
+	});
+
+	it('values the non-anchored side at mid for a stable-quoted single-anchor pair', async () => {
+		const { singleAnchorNotionals } = await import('./ReceiptView');
+		// CLAWD->USDC: USDC anchored (output face), CLAWD marked at mid.
+		const n = singleAnchorNotionals({
+			inputSymbol: 'CLAWD', outputSymbol: 'USDC',
+			inputAmount: '1000', outputAmount: '50', notionalUsd: '50',
+			marketMid: '0.052', realizedPrice: '0.05',
+		} as never);
+		expect(n?.notionalIn).toBeCloseTo(52, 6);   // 1000 CLAWD x 0.052
+		expect(n?.notionalOut).toBeCloseTo(50, 6);  // USDC face
+	});
+
+	it('returns null for double-anchor and no-anchor pairs', async () => {
+		const { singleAnchorNotionals } = await import('./ReceiptView');
+		expect(singleAnchorNotionals({ inputSymbol: 'USDC', outputSymbol: 'WETH', inputAmount: '1', outputAmount: '1', notionalUsd: '1', marketMid: '2000', realizedPrice: '2000' } as never)).toBeNull();
+		expect(singleAnchorNotionals({ inputSymbol: 'LFI', outputSymbol: 'GITLAWB', inputAmount: '1', outputAmount: '1', notionalUsd: '1', marketMid: '1', realizedPrice: '1' } as never)).toBeNull();
+	});
+});
+
+describe('Receipt single-anchor validated display (Phase 2a)', () => {
+	const ethWbtc = {
+		...fullUsdcWethRow, aggregator: 'kyberswap',
+		inputSymbol: 'ETH', outputSymbol: 'WBTC',
+		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484', chainlinkPrice: null,
+	};
+
+	it('full-tier single-anchor shows both notionals + Execution Result marked at the validated mid', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
+		expect(html).toContain('$1,795.71'); // Token Out (WBTC) valued at mid
+		expect(html).toContain('Execution Result');
+		expect(html).toContain('+$4.57');
+		expect(html).toContain('validated benchmark mid'); // label distinguishes the marked path
+	});
+
+	it('estimated single-anchor stays dark (not validated)', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
+		expect(html).not.toContain('Execution Result');
+		expect(html).not.toContain('$1,795.71');
+	});
+});

@@ -169,6 +169,33 @@ export function perSideNotionals(
 	};
 }
 
+/**
+ * Per-side notionals for a SINGLE-anchor pair whose mid is validated (Phase 2a+).
+ * The anchored side keeps its stored USD value (`notionalUsd`); the non-anchored
+ * side — always the `base` (lower anchor rank) — is marked at the benchmark mid.
+ * Returns null unless exactly one side anchors and a mid is available.
+ */
+export function singleAnchorNotionals(
+	row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' | 'notionalUsd' | 'marketMid' | 'realizedPrice'>,
+): { notionalIn: number; notionalOut: number } | null {
+	const inAnchor = isAnchorable(row.inputSymbol);
+	const outAnchor = isAnchorable(row.outputSymbol);
+	if (inAnchor === outAnchor) return null; // need exactly one anchored side
+	const notionalUsd = row.notionalUsd == null ? null : Number(row.notionalUsd);
+	if (notionalUsd == null || !Number.isFinite(notionalUsd)) return null;
+	// USD price of the non-anchored (base) side at mid: USD-per-base for ETH-quoted
+	// pairs, else the stable-quoted mid is already USD-per-base.
+	const usdP = usdPerBasePrices(row);
+	const basePriceAtMid = usdP ? usdP.marketUsd : row.marketMid == null ? null : Number(row.marketMid);
+	if (basePriceAtMid == null || !Number.isFinite(basePriceAtMid)) return null;
+	const baseIsOutput = !outAnchor; // the non-anchored side is the base
+	const baseNotional = Number(baseIsOutput ? row.outputAmount : row.inputAmount) * basePriceAtMid;
+	if (!Number.isFinite(baseNotional)) return null;
+	return baseIsOutput
+		? { notionalIn: notionalUsd, notionalOut: baseNotional }
+		: { notionalIn: baseNotional, notionalOut: notionalUsd };
+}
+
 // Signed dollar execution result (notionalOut − notionalIn). Positive = surplus,
 // shown green (matching formatDialogBps); negative keeps default color; both carry
 // an explicit sign so a loss is unambiguous.
@@ -474,10 +501,17 @@ export function Receipt({
 	const pairTitle = receiptPairTitle(row);
 	const { base, quote } = pairBaseQuote(row);
 	const usdPrices = usdPerBasePrices(row);
-	// Phase-1 both-or-none per-side notionals: values on both Token rows only when
-	// the pair is double-anchored; single-/no-anchor pairs show neither (never split).
-	const { notionalIn, notionalOut } = perSideNotionals(row);
+	// Both-or-none per-side notionals. Double-anchored pairs value each side at mid
+	// (Phase 1). Single-anchored pairs value the non-anchored side at mid too, but
+	// only when the mid is validated (Phase 2a: full-tier accepted; 2c adds
+	// corroborated estimated mids). No-/unvalidated single-anchor pairs show neither.
+	const midValidated = row.pricingStatus === 'full'; // TODO(2c): || row.midValidated
+	const dbl = perSideNotionals(row);
+	const single = dbl.notionalIn == null && midValidated ? singleAnchorNotionals(row) : null;
+	const notionalIn = dbl.notionalIn ?? single?.notionalIn ?? null;
+	const notionalOut = dbl.notionalOut ?? single?.notionalOut ?? null;
 	const showPerSideNotionals = notionalIn != null && notionalOut != null;
+	const markedAtMid = single != null; // single-anchor path → one side is a mark
 	const execResult = showPerSideNotionals ? formatExecutionResult(notionalOut - notionalIn) : null;
 	// No-anchor pairs have no defensible USD; a $-denominated Price Delta would be
 	// false precision, so express it in output tokens instead and drop the USD
@@ -551,7 +585,11 @@ export function Receipt({
 				{execResult && (
 					<DetailRow
 						label="Execution Result"
-						tooltip="Dollars out minus dollars in, each side valued at the benchmark mid (all fees included). A mark, not a round-trip exit value."
+						tooltip={
+							markedAtMid
+								? 'Non-anchored side valued at the validated benchmark mid — a fill-quality mark, not two independent measurements. A mark, not a round-trip exit value.'
+								: 'Dollars out minus dollars in, each side valued at the benchmark mid (all fees included). A mark, not a round-trip exit value.'
+						}
 					>
 						<span style={execResult.color ? { color: execResult.color } : undefined}>{execResult.text}</span>
 					</DetailRow>
