@@ -42,7 +42,7 @@ export function FailureNotice({ failure }: { failure: AnalyzeFailure }) {
 			style={{ color: 'var(--color-red)' }}
 		>
 			{label}
-			<span className="pointer-events-none invisible absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] whitespace-normal rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] font-normal leading-[20px] text-[var(--color-surface-base)] no-underline group-hover:visible">
+			<span className="pointer-events-none invisible absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] whitespace-normal rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left font-['Sohne_Mono'] text-[12px] font-normal leading-[20px] text-[var(--color-surface-base)] no-underline group-hover:visible">
 				{tooltip}
 			</span>
 		</span>
