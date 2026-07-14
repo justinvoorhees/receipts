@@ -784,3 +784,59 @@ describe('independent oracle anchor (Phase 2 WBTC)', () => {
 		expect(html).toContain('independent Chainlink oracle'); // independent, not "marked at mid"
 	});
 });
+
+describe('Size row', () => {
+	it('renders the trade notional above Token In', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{
+				...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
+				inputSymbol: 'ETH', outputSymbol: 'WBTC',
+				inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+				inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+				marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+				chainlinkPrice: null,
+			} as never} />,
+		);
+		expect(html).toContain('Size');
+		expect(html).toContain('$1,791.14');
+		// Size precedes Token In in the document.
+		expect(html.indexOf('Size')).toBeLessThan(html.indexOf('Token In'));
+	});
+
+	it('renders Size on a partial receipt, where no mid exists', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{
+				...fullUsdcWethRow, pricingStatus: 'partial',
+				marketMid: null, allInCostBps: null, notionalUsd: '1000.00',
+			} as never} />,
+		);
+		expect(html).toContain('Size');
+		expect(html).toContain('$1,000.00');
+	});
+
+	it('renders Size for a no-anchor memecoin pair', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{
+				...fullUsdcWethRow, pricingStatus: 'estimated',
+				inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
+				inputToken: '0x1111111111111111111111111111111111111111',
+				outputToken: '0x2222222222222222222222222222222222222222',
+				inputAmount: '1000', outputAmount: '2400', notionalUsd: '134.96',
+				marketMid: '2.5', realizedPrice: '2.4', chainlinkPrice: null,
+			} as never} />,
+		);
+		expect(html).toContain('$134.96');
+	});
+
+	it('falls back to the unavailable placeholder when there is no notional', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...fullUsdcWethRow, notionalUsd: null } as never} />,
+		);
+		expect(html).toContain('Size');
+		expect(html).toContain('Unavailable for this pair');
+	});
+});

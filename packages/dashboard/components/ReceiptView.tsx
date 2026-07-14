@@ -606,12 +606,22 @@ export function Receipt({
 
 				<Divider dashed />
 
+				{/* Trade size at a glance. Deliberately soft — it claims nothing, and is
+				    the only USD figure in this block. notionalUsd already prefers the
+				    USD-anchored side (pricing.ts bestEffortNotional), which is why we use
+				    it as-is rather than re-deriving the input side. */}
+				<DetailRow label="Size">
+					{row.notionalUsd == null ? UNAVAILABLE : formatSubvalueUsd(Number(row.notionalUsd))}
+				</DetailRow>
 				<DetailRow label="Token In" subvalue={showPerSideNotionals ? formatSubvalueUsd(notionalIn) : undefined}>
 					{formatTokenIn(row)}
 				</DetailRow>
 				<DetailRow label="Token Out" subvalue={showPerSideNotionals ? formatSubvalueUsd(notionalOut) : undefined}>
 					{formatTokenOut(row)}
 				</DetailRow>
+
+				<Divider dashed />
+
 				{execResult && (
 					<DetailRow
 						label="Execution Result"
@@ -672,6 +682,9 @@ export function Receipt({
 				>
 					{hasMarketPrice ? priceDeltaText : UNAVAILABLE}
 				</DetailRow>
+
+				<Divider dashed />
+
 				<DetailRow label="Gas Cost">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</DetailRow>
