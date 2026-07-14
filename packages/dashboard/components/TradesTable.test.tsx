@@ -636,3 +636,42 @@ describe('formatSubvalueUsd sub-cent precision', () => {
 		expect(formatUsdMagnitude(-0.000000667735)).toBe('0.000000667735');
 	});
 });
+
+describe('token amount decimal clamp', () => {
+	it('caps headline (>$0.01/unit) token decimals at 6, no separators', async () => {
+		const { formatTokenOut } = await import('./TradesTable');
+		// unit price = 3.7 / 0.00122969043150473 ≈ $3009/unit → headline → cap at 6 decimals
+		expect(
+			formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473', notionalUsd: '3.7' }),
+		).toBe('0.00123 WETH');
+	});
+
+	it('leaves large whole numbers intact without separators', async () => {
+		const { formatTokenIn } = await import('./TradesTable');
+		expect(
+			formatTokenIn({ inputSymbol: 'USDC', inputAmount: '1000000000.123456789', notionalUsd: '1000000000' }),
+		).toBe('1000000000.123457 USDC');
+	});
+
+	it('does not clamp sub-cent (<$0.01/unit) token decimals', async () => {
+		const { formatTokenOut } = await import('./TradesTable');
+		// unit price = 2.25 / 3369822.1456789 ≈ $6.7e-7 → sub-cent → keep precision
+		expect(
+			formatTokenOut({ outputSymbol: 'PEPE', outputAmount: '3369822.1456789', notionalUsd: '2.25' }),
+		).toBe('3369822.1456789 PEPE');
+	});
+
+	it('defaults to clamped (6 decimals) when unit price is unknown', async () => {
+		const { formatTokenIn } = await import('./TradesTable');
+		expect(
+			formatTokenIn({ inputSymbol: 'WETH', inputAmount: '0.123456789012' }),
+		).toBe('0.123457 WETH');
+	});
+
+	it('tokenUnitPriceUsd returns null on missing/zero inputs', async () => {
+		const { tokenUnitPriceUsd } = await import('./TradesTable');
+		expect(tokenUnitPriceUsd('2.25', '3369822')).toBeCloseTo(2.25 / 3369822, 15);
+		expect(tokenUnitPriceUsd(null, '10')).toBeNull();
+		expect(tokenUnitPriceUsd('2.25', '0')).toBeNull();
+	});
+});

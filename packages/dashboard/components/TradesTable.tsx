@@ -593,12 +593,12 @@ export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'd
 
 // Generalized token display: reads the input/output symbol + amount fields that
 // exist on both `ReceiptRow` (ReceiptView) and the History dialog's adapter.
-export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number }): string {
-	return `${trimNumber(Number(row.inputAmount), 6)} ${row.inputSymbol}`;
+export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number; notionalUsd?: string | number | null }): string {
+	return `${formatTokenAmount(row.inputAmount, tokenUnitPriceUsd(row.notionalUsd, row.inputAmount))} ${row.inputSymbol}`;
 }
 
-export function formatTokenOut(row: { outputSymbol: string; outputAmount: string | number }): string {
-	return `${trimNumber(Number(row.outputAmount), 15)} ${row.outputSymbol}`;
+export function formatTokenOut(row: { outputSymbol: string; outputAmount: string | number; notionalUsd?: string | number | null }): string {
+	return `${formatTokenAmount(row.outputAmount, tokenUnitPriceUsd(row.notionalUsd, row.outputAmount))} ${row.outputSymbol}`;
 }
 
 export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLeg, 'venue'>>): string {
@@ -721,4 +721,26 @@ export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps
 
 function trimNumber(value: number, digits: number): string {
 	return value.toFixed(digits).replace(/\.?0+$/, '');
+}
+
+export function tokenUnitPriceUsd(
+	notionalUsd: string | number | null | undefined,
+	amount: string | number | null | undefined,
+): number | null {
+	const notional = notionalUsd == null ? null : Number(notionalUsd);
+	const amt = amount == null ? null : Number(amount);
+	if (notional == null || amt == null || !Number.isFinite(notional) || !Number.isFinite(amt) || amt <= 0) {
+		return null;
+	}
+	return notional / amt;
+}
+
+// Whole part unlimited (no separators); decimals capped at 6 for headline /
+// unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. Trailing zeros
+// are trimmed by omitting minimumFractionDigits.
+function formatTokenAmount(amount: string | number, unitPriceUsd: number | null): string {
+	const n = Number(amount);
+	if (!Number.isFinite(n)) return String(amount);
+	const subCent = unitPriceUsd != null && unitPriceUsd < 0.01;
+	return n.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: subCent ? 18 : 6 });
 }
