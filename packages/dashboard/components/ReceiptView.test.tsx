@@ -461,7 +461,7 @@ describe('ReceiptView diagnosis', () => {
 			<ReceiptView trade={null} hash="0xabc" diagnosis={{ reason: 'NOT_DECODABLE' }} />,
 		);
 		expect(html).toContain('Not a swap');
-		expect(html).toContain('Could not find a token-in / token-out swap');
+		expect(html).toContain('Token-in / token-out swap not found (signature, approval, LP action, etc)');
 	});
 
 	it('renders no failure notice when no diagnosis is supplied', async () => {

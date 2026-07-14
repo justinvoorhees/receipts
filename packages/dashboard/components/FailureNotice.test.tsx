@@ -9,7 +9,7 @@ describe('FailureNotice', () => {
 		const { FailureNotice } = await import('./FailureNotice');
 		const html = renderToStaticMarkup(<FailureNotice failure={{ reason: 'NOT_DECODABLE' }} />);
 		expect(html).toContain('Not a swap');
-		expect(html).toContain('Could not find a token-in / token-out swap');
+		expect(html).toContain('Token-in / token-out swap not found (signature, approval, LP action, etc)');
 		expect(html).toContain('decoration-dotted');
 		expect(html).toContain('hover:decoration-solid');
 	});
@@ -31,7 +31,7 @@ describe('FailureNotice', () => {
 				}}
 			/>,
 		);
-		expect(html).toContain('Relay / third-party trade');
+		expect(html).toContain('Transaction not supported');
 		expect(html).toContain('Beneficiary-anchored decoding not yet supported');
 		expect(html).not.toContain('0xf70d');
 	});
