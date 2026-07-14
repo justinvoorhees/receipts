@@ -106,11 +106,11 @@ describe('Receipt header', () => {
 		// Pair detail row reads as the swap direction (input→output), matching Token In/Out.
 		expect(html).toContain('USDC→WETH');
 		expect(html).not.toContain('WETH→USDC');
-		// Token In / Token Out render the generalized symbols + amounts.
-		expect(html).toContain('1000 USDC');
+		// Token In / Token Out render the generalized symbols + amounts (USDC padded to 2 dp).
+		expect(html).toContain('1000.00 USDC');
 		expect(html).toContain('0.33 WETH');
-		// Price expressed token-denominated, quote-per-base (USDC = 1 WETH).
-		expect(html).toContain('3000 USDC = 1 WETH');
+		// Price expressed token-denominated, quote-per-base (USDC = 1 WETH, padded to 2 dp).
+		expect(html).toContain('3000.00 USDC = 1 WETH');
 		expect(html).toContain('Base');
 		// Full receipts still show the priced sections.
 		expect(html).not.toContain('unavailable for this pair');
@@ -238,7 +238,7 @@ describe('Receipt token-denominated price rows', () => {
 	it('renders stablecoin-quoted (USDC/WETH) price rows with the USDC quote symbol', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />);
-		expect(html).toContain('3000 USDC = 1 WETH');
+		expect(html).toContain('3000.00 USDC = 1 WETH');
 	});
 });
 

@@ -629,7 +629,7 @@ describe('token amount decimal clamp', () => {
 		).toBe('1000000000.123457 WETH');
 	});
 
-	it('special-cases stablecoins to at most 2 decimals (trailing zeros trimmed)', async () => {
+	it('special-cases stablecoins to exactly 2 decimals (currency style, padded)', async () => {
 		const { formatTokenIn, formatTokenOut } = await import('./TradesTable');
 		expect(
 			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '2.25005', notionalUsd: '2.25' }),
@@ -641,13 +641,13 @@ describe('token amount decimal clamp', () => {
 		expect(
 			formatTokenIn({ inputSymbol: 'USDbC', inputAmount: '2.25005', notionalUsd: '2.25' }),
 		).toBe('2.25 USDbC');
-		// Trailing zeros trimmed, not padded.
+		// Padded to exactly 2 decimals (whole and half values gain trailing zeros).
 		expect(
 			formatTokenIn({ inputSymbol: 'USDC', inputAmount: '1000.00', notionalUsd: '1000' }),
-		).toBe('1000 USDC');
+		).toBe('1000.00 USDC');
 		expect(
 			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '0.5', notionalUsd: '0.5' }),
-		).toBe('0.5 USDC');
+		).toBe('0.50 USDC');
 		// A non-stable headline token still uses the 6-decimal cap.
 		expect(
 			formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473', notionalUsd: '3.7' }),
@@ -678,13 +678,14 @@ describe('token amount decimal clamp', () => {
 });
 
 describe('formatExecutionPrice value clamp', () => {
-	it('clamps a stablecoin-quoted price to 2 decimals (>=$0.01)', async () => {
+	it('clamps a stablecoin-quoted price to exactly 2 decimals (>=$0.01, padded)', async () => {
 		const { formatExecutionPrice } = await import('./TradesTable');
 		expect(formatExecutionPrice('1829.763683289442', 'WETH', 'USDC')).toBe('1829.76 USDC = 1 WETH');
-		// Trailing zeros trimmed, not padded.
 		expect(formatExecutionPrice('2.25005', 'X', 'USDC')).toBe('2.25 USDC = 1 X');
 		// DAI is a stablecoin too.
 		expect(formatExecutionPrice('1.23456', 'X', 'DAI')).toBe('1.23 DAI = 1 X');
+		// Whole / half values pad to 2 decimals.
+		expect(formatExecutionPrice('3000', 'WETH', 'USDC')).toBe('3000.00 USDC = 1 WETH');
 	});
 
 	it('falls back to 6 sig figs for a sub-cent stablecoin-quoted price', async () => {
