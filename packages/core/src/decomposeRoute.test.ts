@@ -56,6 +56,43 @@ function v3SwapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${st
   };
 }
 
+/** Curve StableSwap `TokenExchange` — the on-chain signature every Curve pool emits. */
+const CURVE_TOKEN_EXCHANGE_TOPIC = '0x8b3e96f2b889fa771c53c981b40daf005f63f637f1869f707052d15a3dd97140';
+/** Maverick v1 `Swap(address,address,bool,bool,uint256,uint256,int32)`. */
+const MAVERICK_V1_SWAP_TOPIC = '0x3b841dc9ab51e3104bda4f61b41e4271192d22cd19da5ee6e292dc8e2744f713';
+/** UniPool `Swap(address,uint256,uint256,address,bool)`. */
+const UNIPOOL_SWAP_TOPIC = '0xdbad2ddd1b3cac36de15036b12f92d5f32b447fc9cd0c1a72467d15bc04dc812';
+/** Algebra factory behind the Hydrex deployment on Base. */
+const HYDREX_FACTORY = '0x36077d39cdc65e1e3fb65810430e5b2c4d5fa29e';
+
+/** Build a venue swap log carrying only `topic0` — enough for venue-type scanning. */
+function venueSwapLog(pool: `0x${string}`, topic0: string): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`] } {
+  return { address: pool, data: '0x', topics: [topic0 as `0x${string}`] };
+}
+
+/** Minimal single-hop USDC→WETH trade input for venue-tagging tests. */
+function taggingInput(trader: string, txHash: string, trace: unknown): DecomposeTradeInput {
+  return {
+    trace: trace as any,
+    txHash: txHash as `0x${string}`,
+    trader,
+    direction: 'buy_weth',
+    settledIn: 'WETH',
+    allInCostBps: -1,
+    notionalUsdc: 1,
+    realizedPrice: 2000,
+    gasCostUsd: 0,
+    aggregator: 'Velora',
+    blockNumber: 47380988n,
+    rpcUrl: 'unused',
+    dustUsdc: 1e-6,
+    structuralFloorUsd: 0,
+    structuralFloorBps: 0.5,
+    recognizeV3Forks: true,
+    impureOnVenueThirdToken: true,
+  };
+}
+
 const VIRTUAL = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
 const V4_POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
 
@@ -111,34 +148,20 @@ describe('decomposeRoute', () => {
     expect(result.legs[0]!.leg.type).toBe('sushiv3');
   });
 
-  it('tags known Curve StableNG pools instead of treating them as RFQ', async () => {
+  // Curve pools are recognised by the `TokenExchange` event every StableSwap pool
+  // emits, so a pool that has never been seen before still tags correctly. The
+  // address below is deliberately NOT one of the previously hardcoded pools.
+  it('tags never-before-seen Curve pools by their TokenExchange event', async () => {
     const trader = '0x00000000000000000000000000000000000000d0';
-    const curvePool = '0x4545410f7601b34a779edcebc641e529f465eeaa' as const;
+    const curvePool = '0xe093c7056f1d5f46f88de7bf366b3569e1839778' as const;
     const trace = {
       logs: [
+        venueSwapLog(curvePool, CURVE_TOKEN_EXCHANGE_TOPIC),
         transferLog(USDC as `0x${string}`, trader as `0x${string}`, curvePool, 1_000000n),
         transferLog(WETH as `0x${string}`, curvePool, trader as `0x${string}`, 500_000000000000n),
       ],
     };
-    const input: DecomposeTradeInput = {
-      trace: trace as any,
-      txHash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-      trader,
-      direction: 'buy_weth',
-      settledIn: 'WETH',
-      allInCostBps: -1,
-      notionalUsdc: 1,
-      realizedPrice: 2000,
-      gasCostUsd: 0,
-      aggregator: 'Velora',
-      blockNumber: 47380988n,
-      rpcUrl: 'unused',
-      dustUsdc: 1e-6,
-      structuralFloorUsd: 0,
-      structuralFloorBps: 0.5,
-      recognizeV3Forks: true,
-      impureOnVenueThirdToken: true,
-    };
+    const input = taggingInput(trader, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', trace);
 
     const result = await decomposeRoute(input, {
       trace: trace as any,
@@ -148,6 +171,68 @@ describe('decomposeRoute', () => {
     expect(result.legs).toHaveLength(1);
     expect(result.legs[0]!.leg.type).toBe('curve_stableng');
     expect(result.legs[0]!.feeTierBps).toBe(10);
+  });
+
+  it('tags Maverick v1 pools by their Swap event', async () => {
+    const trader = '0x00000000000000000000000000000000000000d0';
+    const pool = '0xdcc8a6ba71a6c0053cbb32f935e9b4b64d465ea3' as const;
+    const trace = {
+      logs: [
+        venueSwapLog(pool, MAVERICK_V1_SWAP_TOPIC),
+        transferLog(USDC as `0x${string}`, trader as `0x${string}`, pool, 1_000000n),
+        transferLog(WETH as `0x${string}`, pool, trader as `0x${string}`, 500_000000000000n),
+      ],
+    };
+    const input = taggingInput(trader, '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', trace);
+
+    const result = await decomposeRoute(input, {
+      trace: trace as any,
+      feeReader: async (_addr, type) => ({ bps: type === 'maverickv1' ? 0.2 : 0, defaulted: false }),
+    });
+
+    expect(result.legs).toHaveLength(1);
+    expect(result.legs[0]!.leg.type).toBe('maverickv1');
+    expect(result.legs[0]!.feeTierBps).toBe(0.2);
+  });
+
+  it('tags UniPool pools by their Swap event', async () => {
+    const trader = '0x00000000000000000000000000000000000000d0';
+    const pool = '0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76' as const;
+    const trace = {
+      logs: [
+        venueSwapLog(pool, UNIPOOL_SWAP_TOPIC),
+        transferLog(USDC as `0x${string}`, trader as `0x${string}`, pool, 1_000000n),
+        transferLog(WETH as `0x${string}`, pool, trader as `0x${string}`, 500_000000000000n),
+      ],
+    };
+    const input = taggingInput(trader, '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', trace);
+
+    const result = await decomposeRoute(input, { trace: trace as any });
+
+    expect(result.legs).toHaveLength(1);
+    expect(result.legs[0]!.leg.type).toBe('unipool');
+  });
+
+  it('tags Hydrex pools by their Algebra factory', async () => {
+    const trader = '0x00000000000000000000000000000000000000d0';
+    const pool = '0xb1383dc47d9971fc999c3a9088f79e744b376e97' as const;
+    const trace = {
+      logs: [
+        transferLog(USDC as `0x${string}`, trader as `0x${string}`, pool, 1_000000n),
+        transferLog(WETH as `0x${string}`, pool, trader as `0x${string}`, 500_000000000000n),
+      ],
+    };
+    const input = taggingInput(trader, '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', trace);
+
+    const result = await decomposeRoute(input, {
+      trace: trace as any,
+      v3FactoryReader: (addr) => (addr.toLowerCase() === pool ? HYDREX_FACTORY : null),
+      feeReader: async (_addr, type) => ({ bps: type === 'hydrex' ? 0.5 : 0, defaulted: false }),
+    });
+
+    expect(result.legs).toHaveLength(1);
+    expect(result.legs[0]!.leg.type).toBe('hydrex');
+    expect(result.legs[0]!.feeTierBps).toBe(0.5);
   });
 
   it('tags known Maverick v2 pools instead of treating them as RFQ', async () => {

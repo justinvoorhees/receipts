@@ -491,8 +491,12 @@ export async function getLegMidAtBlock(
     return { price, poolAddress: V4_POOL_MANAGER, poolKind: 'univ4' };
   }
 
-  // RFQ / unknown: no own pool -- use factory discovery
-  if (type === 'rfq' || type === 'unknown' || type === 'maverickv2' || type === 'curve_stableng') {
+  // RFQ / unknown, plus venues whose own mid we cannot read directly
+  // (non-v3 math or no price getter) -- use factory discovery
+  if (
+    type === 'rfq' || type === 'unknown' || type === 'maverickv1' || type === 'maverickv2' ||
+    type === 'curve_stableng' || type === 'hydrex' || type === 'unipool'
+  ) {
     return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
   }
 

@@ -41,6 +41,20 @@ const AERODROME_SWAP_TOPIC =
 	'0xb3e2773606abfd36b5bd91394b3a54d1398336c65005baf7bf7a05efeffaf75b';
 const MAVERICK_V2_SWAP_TOPIC =
 	'0x103ed084e94a44c8f5f6ba8e3011507c41063177e29949083c439777d8d63f60';
+const MAVERICK_V1_SWAP_TOPIC =
+	'0x3b841dc9ab51e3104bda4f61b41e4271192d22cd19da5ee6e292dc8e2744f713';
+const UNIPOOL_SWAP_TOPIC =
+	'0xdbad2ddd1b3cac36de15036b12f92d5f32b447fc9cd0c1a72467d15bc04dc812';
+
+/**
+ * Curve StableSwap `TokenExchange(address,int128,uint256,int128,uint256)`.
+ * Emitted by every StableSwap-family pool (including StableNG), so tagging on
+ * the event covers pools we have never seen before. Curve's crypto pools use a
+ * same-named event with uint256 ids, which hashes differently and is not
+ * matched here.
+ */
+const CURVE_TOKEN_EXCHANGE_TOPIC =
+	'0x8b3e96f2b889fa771c53c981b40daf005f63f637f1869f707052d15a3dd97140';
 
 const UNISWAP_V4_POOL_MANAGER =
 	'0x498581ff718922c3f8e6a244956af099b2652b2b';
@@ -311,6 +325,27 @@ function scanVenues(logs: readonly LogLike[], recognizeForks: boolean): Map<stri
 				venues.set(addr, { type: 'maverickv2' });
 			}
 		}
+
+		// Maverick V1 Swap
+		if (topic0 === MAVERICK_V1_SWAP_TOPIC) {
+			if (!venues.has(addr)) {
+				venues.set(addr, { type: 'maverickv1' });
+			}
+		}
+
+		// UniPool Swap
+		if (topic0 === UNIPOOL_SWAP_TOPIC) {
+			if (!venues.has(addr)) {
+				venues.set(addr, { type: 'unipool' });
+			}
+		}
+
+		// Curve TokenExchange
+		if (topic0 === CURVE_TOKEN_EXCHANGE_TOPIC) {
+			if (!venues.has(addr)) {
+				venues.set(addr, { type: 'curve_stableng' });
+			}
+		}
 	}
 
 	return venues;
@@ -374,7 +409,10 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 			case 'univ3':
 			case 'sushiv3':
 			case 'baseswapv3':
-			case 'pancakev3': {
+			case 'pancakev3':
+			// Hydrex is Algebra Integral: fee() returns the currently effective
+			// fee (including any plugin override) on the same 1e6 scale as v3.
+			case 'hydrex': {
 				try {
 					const fee = await rpc.readContract({
 						address: addr as `0x${string}`,
@@ -427,6 +465,23 @@ function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: str
 					return { bps: 0, defaulted: true };
 				}
 			}
+			case 'maverickv1': {
+				// Same 1e18-scaled fraction as v2, but v1's fee() takes no side arg.
+				try {
+					const fee = await rpc.readContract({
+						address: addr as `0x${string}`,
+						abi: [parseAbiItem('function fee() view returns (uint256)')],
+						functionName: 'fee',
+						blockNumber,
+					});
+					return { bps: Number(fee) / 100_000_000_000_000, defaulted: false };
+				} catch {
+					return { bps: 0, defaulted: true };
+				}
+			}
+			// UniPool exposes no fee getter we can read; its LP fee stays unresolved.
+			case 'unipool':
+				return { bps: 0, defaulted: true };
 			case 'univ4':
 				return { bps: v4FeeRaw !== undefined ? v4FeeRaw / 100 : 0, defaulted: false };
 			case 'univ2':

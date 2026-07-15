@@ -8,11 +8,17 @@ const V3_FACTORY_TYPES: Record<string, VenueType> = {
 	'0x38015d05f4fec8afe15d7cc0386a126574e8077b': 'baseswapv3',
 	'0x0a7e848aca42d879ef06507fca0e7b33a0a63c1e': 'maverickv2',
 	'0xdf033790907c60c9b81ae355f76f74f52f92114a': 'maverickv2',
+	// Hydrex — an Algebra Integral deployment. Its pools expose factory() like a
+	// v3 pool, but emit an Algebra-flavoured Swap event we do not scan for.
+	'0x36077d39cdc65e1e3fb65810430e5b2c4d5fa29e': 'hydrex',
 };
 
+/**
+ * Pools that neither expose a recognised factory() nor emit a swap event we
+ * scan for. Curve pools used to live here one address at a time; they are now
+ * recognised from their TokenExchange event, so this list should stay small.
+ */
 const KNOWN_VENUE_ADDRESS_TYPES: Record<string, VenueType> = {
-	'0x4545410f7601b34a779edcebc641e529f465eeaa': 'curve_stableng',
-	'0x77e44581399f96129a8a0041dbb4e1a7569b9969': 'curve_stableng',
 	'0xdf033790907c60c9b81ae355f76f74f52f92114a': 'maverickv2',
 };
 

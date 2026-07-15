@@ -283,6 +283,16 @@ describe('TradesTable', () => {
 		} as never)).toBe('Curve StableNG');
 	});
 
+	// These venues are labelled from their type, so any pool of the same protocol
+	// resolves — not just the specific addresses pinned in KNOWN_VENUE_LABELS.
+	it('labels newly tagged venue types by protocol, for any pool address', async () => {
+		const { getVenueLabel } = await import('./TradesTable');
+
+		expect(getVenueLabel({ venue: '0xnotpinned', type: 'maverickv1' } as never)).toBe('Maverick v1');
+		expect(getVenueLabel({ venue: '0xnotpinned', type: 'hydrex' } as never)).toBe('Hydrex');
+		expect(getVenueLabel({ venue: '0xnotpinned', type: 'unipool' } as never)).toBe('UniPool');
+	});
+
 	it('uses generic null impact copy for manually tagged Curve pools even if persisted as RFQ', async () => {
 		const { getPriceImpactRows } = await import('./TradesTable');
 
