@@ -20,7 +20,10 @@
 - **ESM imports need the `.js` extension** even for `.ts` sources (e.g. `import { x } from './foo.js'`).
 - **Chain is Base, chainId 8453.** Deployer address `0x00000000000004533fe15556b1e086bb1a72ceae` is identical on every chain.
 - Tests run from the repo root: `npx vitest run <path>`. Note vitest CLI args are **substring filters**, not exact paths.
-- Do not trust historical test counts. True baseline: **24 files / 304 tests**.
+- Do not trust historical test counts. Verified baseline at `3a6f718` (branch `feat/aggregator-detection`): **25 files / 312 tests, all passing**; `npx tsc --build` exit 0.
+- **Do not run `npm run lint`** — ESLint v9 config is missing, so it is broken repo-wide. Pre-existing; not yours to fix.
+- **`git add` only the files your task names.** Never `git add -A` — several tasks touch the same files.
+- **Tab indentation**, matching the surrounding files.
 
 ## Deliberate deviations from the spec
 
@@ -1162,7 +1165,7 @@ Run: `npx tsc --build`
 Expected: clean, no errors.
 
 Run: `npx vitest run`
-Expected: PASS. Baseline is **24 files / 304 tests**; you have added 3 files, so expect **27 files** and ~330+ tests. If any *previously passing* test now fails, fix it before committing.
+Expected: PASS. Baseline is **25 files / 312 tests**; Tasks 1/5 added 2 test files, so expect **27 files** at this point. If any *previously passing* test now fails, fix it before committing.
 
 - [ ] **Step 7: Commit**
 
@@ -1556,7 +1559,7 @@ git commit -m "test(core): e2e-verify 0x Settler resolves via the Deployer regis
 ## Verification Checklist
 
 - [ ] `npx tsc --build` clean
-- [ ] `npx vitest run` — 27 files, all pass (baseline was 24 files / 304 tests)
+- [ ] `npx vitest run` — 28 files, all pass (baseline was 25 files / 312 tests at `3a6f718`)
 - [ ] `source .env && npx vitest run analyzeTransaction -t "0x Settler"` reports **passed**, not skipped
 - [ ] `configs/settlers.json` holds 57 settlers across features 1–5, no zero address
 - [ ] Receipts 179 and 183 read `aggregator = '0x'`
