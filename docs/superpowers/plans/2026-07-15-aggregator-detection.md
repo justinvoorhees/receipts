@@ -1492,6 +1492,49 @@ set -a && source .env && set +a && npx vitest run analyzeTransaction -t "0x Sett
 
 Expected: **2 passed** — not "2 skipped". If it reports skipped, `TCA_RPC_URL` is not exported; fix that before believing any result.
 
+- [ ] **Step 2b: Guard the tier-2 behavior change (every curated router still resolves)**
+
+`resolveAggregator`'s tier 2 gates on `kind === 'router'`, where the old code used
+`labelAddress(tx.to).label` unconditionally. The distribution check in Step 5 does NOT prove this
+is safe: only ids 179/183 get re-analyzed, so the other 41 rows keep their **stored** labels and a
+tier-2 regression would be invisible. Prove it directly instead — resolve every curated router
+address and assert it still labels via tier 2.
+
+Append to `packages/core/src/resolveAggregator.test.ts`:
+
+```ts
+import { loadRouterRegistry } from './routerRegistry.js';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+describe('resolveAggregator — tier-2 regression guard', () => {
+	it('every active router in configs/routers.json still resolves via the address tier', async () => {
+		const configPath = path.resolve(
+			path.dirname(fileURLToPath(import.meta.url)),
+			'../../../configs/routers.json',
+		);
+		const registry = await loadRouterRegistry(configPath);
+		expect(registry.all.length).toBeGreaterThan(0);
+		for (const router of registry.all) {
+			const r = resolveAggregator(router.address, []);
+			expect(r.detectedVia, `${router.name} ${router.version} (${router.address})`).toBe('address');
+			expect(r.label, `${router.name} ${router.version}`).toBe(router.name);
+			expect(r.hints).toEqual([]);
+		}
+	});
+});
+```
+
+Run: `npx vitest run resolveAggregator`
+Expected: PASS. Every router — Odos V2/V3, 0x ExchangeProxy, KyberSwap, 1inch V5/V6, Velora
+V6.2/V5, Fabric, Nordstern v1/router-v2, Relay — resolves with `detectedVia: 'address'`. A failure
+names the offending router, which means `kind === 'router'` is rejecting something the old
+unconditional code accepted.
+
+Note the 0x ExchangeProxy `0xdef1c0de…` is expected to resolve via **`address`, not `resolver`** —
+it is a curated router entry and is NOT in the Deployer registry (it predates Settler). That is
+correct: it still labels `'0x'`, just through a different tier.
+
 - [ ] **Step 3: Confirm no regression on a non-0x aggregator**
 
 ```bash

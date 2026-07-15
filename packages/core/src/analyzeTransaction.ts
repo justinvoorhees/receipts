@@ -14,7 +14,9 @@
  *   - endpoints come from `extractEndpoints` (any pair, not USDC/WETH net-delta),
  *   - pricing comes from `priceReceipt` (graceful full/partial, not WETH/USDC only).
  *
- * Aggregator/venue labels come from `labelAddress` (unknown → raw address).
+ * Aggregator identity comes from `resolveAggregator` (0x Deployer registry →
+ * curated routers → unknown; never inferred from event topics). Venue labels
+ * still come from `labelAddress` via decomposeRoute (unknown → raw address).
  * The whole body is wrapped in try/catch → `null` on ANY failure (never throws).
  */
 
