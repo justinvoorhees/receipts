@@ -213,7 +213,7 @@ deleted and not left to rot in place. Move to
 - `isAnchorable`
 - `usdPerBasePrices`
 - `outputTokenDelta`
-- the ~24 associated tests
+- the 14 associated tests
 
 All six are confined to `ReceiptView.tsx` and `ReceiptView.test.tsx` — verified,
 no external consumers — so the move is mechanical. (`formatSubvalueUsd` and
@@ -283,7 +283,7 @@ better than Market Price"*, Total Execution Quality `+25.53 bps`.
 
 ## Verification
 
-- `packages/core`: 533 tests pass (core is untouched; this is a regression gate)
+- `packages/core`: 186 tests pass (core is untouched; this is a regression gate)
 - `packages/dashboard`: tests pass, including live-DB tests
 - Typecheck clean
 - Rendered receipt for id 135 matches Figma `365:2911`

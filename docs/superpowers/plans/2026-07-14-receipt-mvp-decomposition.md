@@ -1284,7 +1284,7 @@ Also delete `describe('Receipt notional display (Phase 1)', ...)`, now reduced t
 - [ ] **Step 7: Run the full suite**
 
 Run: `npx vitest run`
-Expected: all PASS — `packages/core` 533, dashboard green including `qualityNotionals.test.ts`.
+Expected: all PASS — `packages/core` 186, dashboard green including `qualityNotionals.test.ts`.
 
 - [ ] **Step 8: Typecheck**
 
@@ -1315,7 +1315,7 @@ forward-populating, so that phase resumes as a re-wire."
 
 ## Final verification
 
-- [ ] **Full suite:** `npx vitest run` — core 533 pass; dashboard passes including live-DB tests.
+- [ ] **Full suite:** `npx vitest run` — core 186 pass; dashboard passes including live-DB tests.
 - [ ] **Typecheck:** `npx tsc --build` — clean.
 - [ ] **End-to-end against the real row.** Start the dashboard (`npm run dev`, port 3002) and open the receipt for `0x16e782f7a9dfefc3b84054ec81a366efbd603aea745ee5373ec005568adb360f`. Confirm against Figma `365:2911`:
 

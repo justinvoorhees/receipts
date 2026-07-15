@@ -1,7 +1,8 @@
 # Spec: Per-side token notionals (both-or-none, gated on anchor + validated mid)
 
-**Status:** proposed · **Date:** 2026-07-13 · **Scope:** dashboard render + core mid-validation
+**Status:** superseded · **Date:** 2026-07-13 · **Scope:** dashboard render + core mid-validation
 (phased — see Phasing)
+Superseded by `docs/superpowers/specs/2026-07-14-receipt-mvp-decomposition-design.md` — the receipt no longer makes fair-value claims.
 
 ## Problem
 
