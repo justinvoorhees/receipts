@@ -9,8 +9,16 @@
 			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
-			"_comment": "deferred: also add Odos V3 0x0D05a7D3448512B78fa8A9e46c4872C88C4a0D05 (live on Base) for fuller coverage",
 			"_verified": "OdosRouterV2 on Base."
+		},
+		{
+			"name": "Odos",
+			"address": "0x0D05a7D3448512B78fa8A9e46c4872C88C4a0D05",
+			"version": "V3",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_verified": "Surfaced by the DefiLlama odos adapter, then confirmed on-chain 2026-07-15: 17,084-byte contract emitting Swap v3 topic 0x69db20ca 272x in ~9000 blocks. Closes the standing 'deferred: also add Odos V3' comment."
 		},
 		{
 			"name": "0x",
