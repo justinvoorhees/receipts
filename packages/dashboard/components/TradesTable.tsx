@@ -9,6 +9,8 @@ import {
 	providerColor,
 } from '../lib/formatters';
 import { Receipt } from './ReceiptView';
+import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
+import { formatUsdMagnitude } from './receipt/usdFormat';
 
 const COL = 'p-0 py-[10px] pl-[28px] align-baseline';
 const COL_FIRST = 'p-0 py-[10px] align-baseline';
@@ -315,18 +317,9 @@ export function formatSubvalueUsd(value: number): string {
 	return mag == null ? '–' : `$${mag}`;
 }
 
-// USD magnitude without the leading '$'. Sub-cent values (0 < |v| < 0.01) get
-// 6 significant figures so memecoin unit prices and dust notionals don't round
-// to $0.00; everything else keeps the 2-decimal grouped form. Returns null for
-// zero / non-finite so callers choose their own placeholder.
-export function formatUsdMagnitude(value: number): string | null {
-	if (!Number.isFinite(value) || value === 0) return null;
-	const abs = Math.abs(value);
-	if (abs < 0.01) {
-		return abs.toLocaleString('en-US', { maximumSignificantDigits: 6 });
-	}
-	return abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+// Re-exported from receipt/usdFormat.ts (a leaf module) so existing external
+// consumers of TradesTable's formatUsdMagnitude keep working unchanged.
+export { formatUsdMagnitude };
 
 export function ShareButton({ path }: { path?: string } = {}) {
 	const [copied, setCopied] = useState(false);
@@ -722,13 +715,9 @@ export function tokenUnitPriceUsd(
 	return notional / amt;
 }
 
-// Dollar-pegged stablecoins. Shared with ReceiptView's pricing anchor logic so
-// "what counts as a stablecoin" is defined once.
-export const STABLE_SYMBOLS = new Set(['USDC', 'USDbC', 'DAI']);
-
-// Ether, wrapped or native. Shared with ReceiptView's pricing anchor logic and
-// the quarantined "good trade" helpers in receipt/qualityNotionals.ts.
-export const ETH_SYMBOLS = new Set(['WETH', 'ETH']);
+// Re-exported from receipt/symbols.ts (a leaf module) so existing external
+// consumers of TradesTable's STABLE_SYMBOLS / ETH_SYMBOLS keep working unchanged.
+export { STABLE_SYMBOLS, ETH_SYMBOLS };
 
 // Whole part unlimited (no separators); decimals capped at 6 for headline /
 // unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. Stablecoins are

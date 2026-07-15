@@ -22,9 +22,8 @@ import {
 	getVenueLabel,
 	getAggregatorFeeAttribution,
 	ShareButton,
-	STABLE_SYMBOLS,
-	ETH_SYMBOLS,
 } from './TradesTable';
+import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
 
 /**
  * Price Delta value: the gap between the market mid and the executed rate, in

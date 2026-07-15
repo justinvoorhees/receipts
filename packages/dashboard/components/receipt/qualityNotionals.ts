@@ -15,9 +15,14 @@
  *
  * Core still forward-populates `anchor_price_usd` (migration 0014), so this
  * resumes as a re-wire rather than a re-derivation.
+ *
+ * This module imports only leaf modules (receipt/symbols, receipt/usdFormat) and
+ * a type-only import from lib/queries — never TradesTable or ReceiptView — so it
+ * stays genuinely importable in isolation from the client component tree.
  */
 import type { ReceiptRow } from '../../lib/queries';
-import { STABLE_SYMBOLS, ETH_SYMBOLS, formatUsdMagnitude } from '../TradesTable';
+import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
+import { formatUsdMagnitude } from './usdFormat';
 
 // A token independently anchors to USD when it's a stablecoin (≈ $1) or ETH/WETH
 // (priced via the benchmark mid). Tier-independent — it says the pair *has* a USD
