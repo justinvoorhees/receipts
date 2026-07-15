@@ -318,7 +318,8 @@ describe('Receipt route rendering (native/fallback)', () => {
 		] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('Uniswap v3');
-		expect(html).toContain('Unwrap (WETH→ETH)');
+		expect(html).toContain('Unwrap');
+		expect(html).toContain('WETH→ETH');
 		expect(html).not.toContain('No Route Found');
 	});
 

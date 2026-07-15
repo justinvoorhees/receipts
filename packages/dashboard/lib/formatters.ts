@@ -123,8 +123,14 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	velora: 'Velora',
 };
 
+// Unidentified aggregators fall back to their raw router address as the
+// slug — truncate it the same way as a tx hash so it can't blow out the
+// History table's column width. Identifying these is separate work; this
+// is purely a layout guard.
 export function formatProvider(slug: string): string {
-	return PROVIDER_DISPLAY_NAMES[slug] ?? slug;
+	const known = PROVIDER_DISPLAY_NAMES[slug];
+	if (known) return known;
+	return slug.startsWith('0x') && slug.length > 10 ? shortTxHash(slug) : slug;
 }
 
 // Per-provider accent hexes. Values from the Figma trust-matrix spec — kept

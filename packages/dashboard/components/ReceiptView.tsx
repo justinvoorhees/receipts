@@ -19,6 +19,7 @@ import {
 	legPairContext,
 	getExecutionBreakdown,
 	getPriceImpactRows,
+	getStepContext,
 	getVenueLabel,
 	getAggregatorFeeAttribution,
 	ShareButton,
@@ -322,14 +323,15 @@ function LegRow({
 	color?: string | undefined;
 	requirePair?: boolean;
 }) {
-	const isStep = leg.type === 'wrap' || leg.type === 'unwrap';
+	const stepContext = getStepContext(leg.type);
+	const isStep = stepContext != null;
 	const hasPair = leg.tokenIn && leg.tokenOut;
-	const hideContext = requirePair ? isStep || !hasPair : isStep;
+	const hideContext = requirePair && !isStep && !hasPair;
 	return (
 		<BkdRow
 			label={getVenueLabel(leg)}
 			href={`https://basescan.org/address/${leg.venue}`}
-			context={hideContext ? undefined : legPairContext(leg, index, legsLength, row)}
+			context={stepContext ?? (hideContext ? undefined : legPairContext(leg, index, legsLength, row))}
 			value={value}
 			color={color}
 			secondary

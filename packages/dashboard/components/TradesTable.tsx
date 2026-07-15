@@ -130,19 +130,14 @@ function HeaderRow({
 	onSort: (col: TradesSortColumn) => void;
 }) {
 	const TH = 'p-0 pb-[10px] pl-[28px] align-baseline font-medium text-right';
+	const TH_FIRST = 'p-0 pb-[10px] align-baseline font-medium text-left';
 	return (
 		<tr className="text-[var(--color-secondary)] uppercase font-medium">
-			<th className="p-0 pb-[10px] align-baseline font-medium text-left">
-				<SortHeader col="block" sort={sort} onSort={onSort} align="left">Block</SortHeader>
-			</th>
-			<th className={TH}>
-				<SortHeader col="aggregator" sort={sort} onSort={onSort}>Aggregator</SortHeader>
+			<th className={TH_FIRST}>
+				<SortHeader col="aggregator" sort={sort} onSort={onSort} align="left">Aggregator</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="size" sort={sort} onSort={onSort}>Size</SortHeader>
-			</th>
-			<th className={TH}>
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage' }}>EX. QUALITY</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="lpFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-lp-fee', text: 'Fees paid to liquidity providers' }}>L.P. Fee</SortHeader>
@@ -155,6 +150,9 @@ function HeaderRow({
 			</th>
 			<th className={TH}>
 				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
+			</th>
+			<th className={TH}>
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage' }}>EX. QUALITY</SortHeader>
 			</th>
 		</tr>
 	);
@@ -245,14 +243,13 @@ function DataRow({
 			tabIndex={0}
 			onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(row); } }}
 		>
-			<td className={COL_FIRST}>{row.blockNumber.toLocaleString()}</td>
-			<td className={`${COL} text-right`} style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</td>
+			<td className={COL_FIRST} style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</td>
 			<td className={`${COL} text-right`}>{formatNotional(row.notionalUsd != null ? Number(row.notionalUsd) : null)}</td>
-			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{costBps == null ? '–' : formatAccuracySigned(costBps)}</td>
 			<td className={`${COL} text-right`} style={lp.color ? { color: lp.color } : undefined}>{stripSign(lp.text)}</td>
 			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
 			<td className={`${COL} text-right`} style={slip.color ? { color: slip.color } : undefined}>{slip.text}</td>
+			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{costBps == null ? '–' : formatAccuracySigned(costBps)}</td>
 		</tr>
 	);
 }
@@ -481,26 +478,34 @@ export function getPriceImpactRows(
 	color: string | undefined;
 	valueTooltip?: string | undefined;
 }[] {
-	return legs
-		.map((leg, index) => ({ leg, index }))
-		.filter(({ leg }) => leg.type !== 'wrap' && leg.type !== 'unwrap')
-		.map(({ leg, index }) => {
-			const rawImpact = leg.priceImpactBps;
-			const isNullImpact = rawImpact == null;
-			const impact = isNullImpact
-				? { text: 'Null', color: undefined }
-				: formatDialogBps(-rawImpact);
+	return legs.map((leg, index) => {
+		const stepContext = getStepContext(leg.type);
+		if (stepContext) {
 			return {
 				label: getVenueLabel(leg),
 				href: `https://basescan.org/address/${leg.venue}`,
-				context: row
-					? legPairContext(leg, index, legs.length, row)
-					: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
-				value: impact.text,
-				color: impact.color,
-				valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
+				context: stepContext,
+				value: '–',
+				color: undefined,
+				valueTooltip: undefined,
 			};
-		});
+		}
+		const rawImpact = leg.priceImpactBps;
+		const isNullImpact = rawImpact == null;
+		const impact = isNullImpact
+			? { text: 'Null', color: undefined }
+			: formatDialogBps(-rawImpact);
+		return {
+			label: getVenueLabel(leg),
+			href: `https://basescan.org/address/${leg.venue}`,
+			context: row
+				? legPairContext(leg, index, legs.length, row)
+				: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
+			value: impact.text,
+			color: impact.color,
+			valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
+		};
+	});
 }
 
 function getNullPriceImpactTooltip(leg: Pick<RouteLeg, 'type' | 'venue'>): string {
@@ -601,10 +606,19 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	if (leg.type === 'pancakev3') return 'PancakeSwap v3';
 	if (leg.type === 'univ3') return 'Uniswap v3';
 	if (leg.type === 'univ2') return 'Uniswap v2';
-	if (leg.type === 'unwrap') return 'Unwrap (WETH→ETH)';
-	if (leg.type === 'wrap') return 'Wrap (ETH→WETH)';
+	if (leg.type === 'unwrap') return 'Unwrap';
+	if (leg.type === 'wrap') return 'Wrap';
 	if (leg.type === 'rfq' || leg.type === 'unknown') return 'Unknown Pool';
 	return leg.type.toUpperCase();
+}
+
+// Wrap/unwrap rows show the ETH<->WETH conversion as a quaternary "context"
+// string next to the label (matching every other leg row's label+context
+// split) instead of baking it into the label itself.
+export function getStepContext(legType: RouteLeg['type']): string | undefined {
+	if (legType === 'wrap') return 'ETH→WETH';
+	if (legType === 'unwrap') return 'WETH→ETH';
+	return undefined;
 }
 
 // Fabric's own protocol fee defaults to 0 bps and is capped at 10 bps
