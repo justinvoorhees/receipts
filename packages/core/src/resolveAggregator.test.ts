@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { resolveAggregator } from './resolveAggregator.js';
 import { AGGREGATOR_SIGNATURES } from './aggregatorSignatures.js';
+import { loadRouterRegistry } from './routerRegistry.js';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 const SETTLER_CURRENT = '0x7747f8d2a76bd6345cc29622a946a929647f2359'; // feature 2, blk 44438102
 const SETTLER_RETIRED = '0xdc5d8200a030798bc6227240f68b4dd9542686ef'; // feature 2, retired at 44438102
@@ -75,5 +78,22 @@ describe('resolveAggregator — unknown tier', () => {
 		const r = resolveAggregator(null, []);
 		expect(r.label).toBe('unknown');
 		expect(r.detectedVia).toBe('unknown');
+	});
+});
+
+describe('resolveAggregator — tier-2 regression guard', () => {
+	it('every active router in configs/routers.json still resolves via the address tier', async () => {
+		const configPath = path.resolve(
+			path.dirname(fileURLToPath(import.meta.url)),
+			'../../../configs/routers.json',
+		);
+		const registry = await loadRouterRegistry(configPath);
+		expect(registry.all.length).toBeGreaterThan(0);
+		for (const router of registry.all) {
+			const r = resolveAggregator(router.address, []);
+			expect(r.detectedVia, `${router.name} ${router.version} (${router.address})`).toBe('address');
+			expect(r.label, `${router.name} ${router.version}`).toBe(router.name);
+			expect(r.hints).toEqual([]);
+		}
 	});
 });

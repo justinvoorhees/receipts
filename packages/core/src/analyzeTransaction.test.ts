@@ -229,3 +229,25 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect((r!.normalizeFlags as string[]).some((f) => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
 	}, 30_000);
 });
+
+describe('analyzeTransaction — 0x Settler identity (e2e)', () => {
+	// The tx that motivated this work. `to` = 0x7747f8d2… = 0x Settler feature 2.
+	const ZEROX_TX = '0xb02037466b0756a3972f77d674413a0d7468663aca62e8c6eb757f15ced59e26';
+
+	it.skipIf(!RPC)('labels the 0x Settler trade as 0x, via the resolver', async () => {
+		const r = await analyzeTransaction(ZEROX_TX, 8453, { rpcUrl: RPC! });
+		expect(r).toBeTruthy();
+		expect(r!.aggregator).toBe('0x');
+		expect(r!.normalizeFlags).toContain('AGGREGATOR_DETECTED_VIA: resolver');
+	}, 60_000);
+
+	it.skipIf(!RPC)('does not emit a spurious SETTLEMENT_EVENT_MISSING for 0x', async () => {
+		// 0x's log is anonymous, so a missing topic is expected, not a defect.
+		const r = await analyzeTransaction(ZEROX_TX, 8453, { rpcUrl: RPC! });
+		const flags = (r!.normalizeFlags ?? []) as string[];
+		expect(flags.some((f) => f.startsWith('SETTLEMENT_EVENT_MISSING'))).toBe(false);
+		expect(flags.some((f) => f.startsWith('NO_SIGNATURE'))).toBe(false);
+		expect(r!.settlementEventSeen).toBe(false);
+		expect(r!.settlementEventTopic0).toBeNull();
+	}, 60_000);
+});
