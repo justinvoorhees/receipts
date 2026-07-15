@@ -59,3 +59,30 @@ export function parseDeployerTransfers(
 		(a, b) => a.feature - b.feature || a.fromBlock - b.fromBlock,
 	);
 }
+
+export interface SettlersConfig {
+	_comment?: string;
+	generatedAt?: string;
+	deployer: string;
+	chainId: number;
+	settlers: SettlerEntry[];
+}
+
+export interface SettlerRegistry {
+	byAddressLower: Map<string, SettlerEntry>;
+	all: readonly SettlerEntry[];
+}
+
+/**
+ * Load and index `configs/settlers.json`. Throws if unreadable — callers that
+ * must not fail (the resolver) catch and degrade to an empty registry.
+ */
+export async function loadSettlerRegistry(path: string): Promise<SettlerRegistry> {
+	const raw = await readFile(path, 'utf8');
+	const parsed = JSON.parse(raw) as SettlersConfig;
+	const byAddressLower = new Map<string, SettlerEntry>();
+	for (const s of parsed.settlers ?? []) {
+		byAddressLower.set(s.address.toLowerCase(), s);
+	}
+	return { byAddressLower, all: parsed.settlers ?? [] };
+}

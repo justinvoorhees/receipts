@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { parseDeployerTransfers } from './settlerRegistry.js';
+import { parseDeployerTransfers, loadSettlerRegistry } from './settlerRegistry.js';
+import { writeFile, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // ERC721 Transfer topics: [sig, from, to, tokenId]. tokenId == feature number.
 const SIG = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
@@ -57,5 +60,40 @@ describe('parseDeployerTransfers', () => {
 		);
 		expect(out.map((e) => e.feature)).toEqual([2, 2, 4]);
 		expect(out.map((e) => e.fromBlock)).toEqual([50, 200, 100]);
+	});
+});
+
+describe('loadSettlerRegistry', () => {
+	async function writeConfig(body: unknown): Promise<string> {
+		const dir = await mkdtemp(path.join(tmpdir(), 'settlers-'));
+		const p = path.join(dir, 'settlers.json');
+		await writeFile(p, JSON.stringify(body), 'utf8');
+		return p;
+	}
+
+	it('indexes settlers by lowercase address', async () => {
+		const p = await writeConfig({
+			deployer: '0x00000000000004533fe15556b1e086bb1a72ceae',
+			chainId: 8453,
+			settlers: [
+				{ aggregator: '0x', feature: 2, address: '0x7747f8d2a76bd6345cc29622a946a929647f2359', fromBlock: 44438102, source: 'deployer-transfer-scan' },
+			],
+		});
+		const reg = await loadSettlerRegistry(p);
+		expect(reg.byAddressLower.get('0x7747f8d2a76bd6345cc29622a946a929647f2359')!.aggregator).toBe('0x');
+		expect(reg.all).toHaveLength(1);
+	});
+
+	it('is case-insensitive on lookup', async () => {
+		const p = await writeConfig({
+			deployer: '0x0', chainId: 8453,
+			settlers: [{ aggregator: '0x', feature: 2, address: '0x7747F8D2A76BD6345CC29622A946A929647F2359', fromBlock: 1, source: 's' }],
+		});
+		const reg = await loadSettlerRegistry(p);
+		expect(reg.byAddressLower.get('0x7747f8d2a76bd6345cc29622a946a929647f2359')).toBeTruthy();
+	});
+
+	it('throws on a missing file so the caller can decide to degrade', async () => {
+		await expect(loadSettlerRegistry('/nonexistent/settlers.json')).rejects.toThrow();
 	});
 });
