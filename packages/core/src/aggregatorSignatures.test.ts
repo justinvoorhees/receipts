@@ -94,6 +94,16 @@ describe('matchSettlementEvent', () => {
 			const logs = [{ address: '0x7747f8d2a76bd6345cc29622a946a929647f2359', topics: [] as string[] }];
 			expect(matchSettlementEvent(logs, sig)).toBeNull();
 		});
+
+		it('short-circuits even when a matching topic IS present — the guard, not the empty topic list', () => {
+			const sig = AGGREGATOR_SIGNATURES['0x']!;
+			const EXCHANGE_PROXY = '0xdef1c0ded9bec7f1a1670819833240f027b25eff';
+			// Force the only conditions under which a match could otherwise occur:
+			// the topic is registered AND emitted by the settlementContract. The
+			// 'none' short-circuit must still win.
+			const forced = { ...sig, eventTopics: ['0xaaa'] };
+			expect(matchSettlementEvent([{ address: EXCHANGE_PROXY, topics: ['0xaaa'] }], forced)).toBeNull();
+		});
 	});
 });
 
@@ -142,5 +152,18 @@ describe('findAggregatorHints', () => {
 
 	it('never names 0x — its anonymous log is invisible to topic matching', () => {
 		expect(findAggregatorHints([{ address: '0x7747f8d2a76bd6345cc29622a946a929647f2359', topics: [] }])).toEqual([]);
+	});
+
+	it('skips detectBy none entries even when their topic is present', () => {
+		// If findAggregatorHints did not skip 'none' entries, a registered 0x
+		// topic appearing in the logs would name 0x. It must not.
+		const patched = { ...AGGREGATOR_SIGNATURES['0x']!, eventTopics: ['0xaaa'] };
+		const original = AGGREGATOR_SIGNATURES['0x'];
+		AGGREGATOR_SIGNATURES['0x'] = patched;
+		try {
+			expect(findAggregatorHints([{ address: '0xanything', topics: ['0xaaa'] }])).toEqual([]);
+		} finally {
+			AGGREGATOR_SIGNATURES['0x'] = original!;
+		}
 	});
 });
