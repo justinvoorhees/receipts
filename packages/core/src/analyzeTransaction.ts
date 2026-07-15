@@ -24,11 +24,11 @@ import type { Direction } from './decoder.js';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { readTokenUsd } from './tokenOracle.js';
 import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
-import { labelAddress } from './tagging.js';
 import { decomposeRoute, createDefaultMidReader } from './decomposeRoute.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
-import { AGGREGATOR_SIGNATURES, settlementEventPresent } from './aggregatorSignatures.js';
+import { AGGREGATOR_SIGNATURES, matchSettlementEvent } from './aggregatorSignatures.js';
+import { resolveAggregator } from './resolveAggregator.js';
 
 const WETH = '0x4200000000000000000000000000000000000006';
 const NATIVE = 'native';
@@ -267,9 +267,13 @@ export async function analyzeTransaction(
 		const gasCostEth = (Number(receipt.gasUsed) * Number(receipt.effectiveGasPrice ?? 0n)) / 1e18;
 		const gasCostUsd = ethUsd != null && ethUsd > 0 ? gasCostEth * ethUsd : null;
 
-		// Aggregator label (best-effort; unknown → raw address, never fails).
-		const aggregator = tx.to ? labelAddress(tx.to).label : 'unknown';
-		const aggSlug = aggregator.toLowerCase();
+		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, topics: l.topics }));
+
+		// Aggregator identity: Deployer registry → curated routers → unknown.
+		// Never inferred from event topics; see resolveAggregator.ts.
+		const resolution = resolveAggregator(tx.to ?? null, receiptLogs);
+		const aggregator = resolution.label;
+		const aggSlug = resolution.slug;
 
 		// ── decomposeRoute wiring (mirrors normalizeSmokeTrade) ──
 		// decompose-trade values WETH flows in USD by multiplying by realizedPrice
@@ -314,17 +318,25 @@ export async function analyzeTransaction(
 		);
 
 		// Settlement-event confirmation + normalizeFlags (mirrors buildSmokeRow).
-		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, topics: l.topics }));
 		const sig = AGGREGATOR_SIGNATURES[aggSlug];
-		const settlementEventSeen = sig ? settlementEventPresent(receiptLogs, sig) : false;
+		// Record the topic that actually fired, not the one we expected.
+		const matchedTopic = sig ? matchSettlementEvent(receiptLogs, sig) : null;
+		const settlementEventSeen = matchedTopic !== null;
 
 		const flags = [...route.flags];
 		if (midImplausible)
 			flags.push(
 				`IMPLAUSIBLE_MID: deviation ${allInCostBpsRaw?.toExponential(2)}bps exceeds the plausibility cap — reference mid discarded, degraded to partial`,
 			);
+		flags.push(`AGGREGATOR_DETECTED_VIA: ${resolution.detectedVia}`);
+		for (const hint of resolution.hints)
+			flags.push(
+				`AGGREGATOR_UNKNOWN_HINT: to=${tx.to} carries ${hint}'s settlement topic — candidate for triage, NOT auto-labeled (it may be a new ${hint} router, or a new aggregator routing through ${hint})`,
+			);
 		if (!sig) flags.push(`NO_SIGNATURE: unknown aggregator '${aggSlug}'`);
-		if (sig && !settlementEventSeen)
+		// detectBy 'none' means "not topic-detectable by construction" (0x's
+		// anonymous log) — a missing event is expected, not a defect.
+		if (sig && sig.detectBy !== 'none' && !settlementEventSeen)
 			flags.push(`SETTLEMENT_EVENT_MISSING: no distinctive event from ${sig.settlementContract}`);
 
 		// Compact per-leg representation for storage. Price-impact is a mid-derived
@@ -406,7 +418,7 @@ export async function analyzeTransaction(
 			feeSinkSource: route.feeSinkSource,
 			...splitFabricFee(aggSlug, route.aggFeeBps),
 			settlementEventName: sig?.eventName ?? null,
-			settlementEventTopic0: sig?.eventTopic0 ?? null,
+			settlementEventTopic0: matchedTopic,
 			settlementEventSeen,
 			normalizeFlags: flags,
 			// Oracle-validation passthrough (populated only on the WETH/USDC path).

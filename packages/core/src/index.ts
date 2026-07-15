@@ -7,3 +7,5 @@
 export { analyzeTransaction, type Receipt } from './analyzeTransaction.js';
 export { classifyTransaction } from './classifyTransaction.js';
 export type { AnalyzeFailure, RelayerDetail, FailureReason } from './endpoints.js';
+export { resolveAggregator, type AggregatorResolution, type DetectedVia } from './resolveAggregator.js';
+export { loadSettlerRegistry, parseDeployerTransfers, type SettlerEntry, type SettlerRegistry } from './settlerRegistry.js';
