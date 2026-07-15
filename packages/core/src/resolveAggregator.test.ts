@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveAggregator } from './resolveAggregator.js';
 import { AGGREGATOR_SIGNATURES } from './aggregatorSignatures.js';
 import { loadRouterRegistry } from './routerRegistry.js';
+import { loadSettlerRegistry } from './settlerRegistry.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -94,6 +95,23 @@ describe('resolveAggregator — tier-2 regression guard', () => {
 			expect(r.detectedVia, `${router.name} ${router.version} (${router.address})`).toBe('address');
 			expect(r.label, `${router.name} ${router.version}`).toBe(router.name);
 			expect(r.hints).toEqual([]);
+			expect(
+				AGGREGATOR_SIGNATURES[r.slug],
+				`router "${router.name}" resolves to slug "${r.slug}" with no AGGREGATOR_SIGNATURES entry — its trades would carry a permanent NO_SIGNATURE flag`,
+			).toBeDefined();
+		}
+	});
+
+	it('every aggregator in configs/settlers.json maps to a signature entry', async () => {
+		const configPath = path.resolve(
+			path.dirname(fileURLToPath(import.meta.url)),
+			'../../../configs/settlers.json',
+		);
+		const registry = await loadSettlerRegistry(configPath);
+		expect(registry.all.length).toBeGreaterThan(0);
+		const slugs = new Set(registry.all.map((s) => s.aggregator.toLowerCase()));
+		for (const slug of slugs) {
+			expect(AGGREGATOR_SIGNATURES[slug], `settlers.json aggregator "${slug}" has no signature entry`).toBeDefined();
 		}
 	});
 });

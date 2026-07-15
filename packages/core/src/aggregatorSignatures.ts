@@ -47,7 +47,9 @@ export const AGGREGATOR_SIGNATURES: Record<string, SettlementSignature> = {
 			'0x69db20ca9e32403e6c56e5193b3e3b2827ae5c430ccfdea392ba950d2d1ab2bc', // Swap v3
 			'0x2c96555a96d94780f3a97aeb724514e80e331842f3143742d85da5aa68df9d30', // SwapMulti v3
 		],
-		eventName: 'Swap', detectBy: 'event_anywhere',
+		// eventName is null because four topics across two routers share this entry
+		// (Swap + SwapMulti, v2 + v3) — no single name describes what fired.
+		eventName: null, detectBy: 'event_anywhere',
 	},
 	// 0x Settler emits an ANONYMOUS log (topics: []), so no topic rule can ever
 	// see it — `findSettlementEvents` skips zero-topic logs by construction.
@@ -138,7 +140,11 @@ export function matchSettlementEvent(
 	return null;
 }
 
-/** True if the aggregator's distinctive settlement event is present. */
+/** True if the aggregator's distinctive settlement event is present.
+ *  Thin wrapper over matchSettlementEvent — retained as the boolean predicate
+ *  the design spec names, and as the seam the Odos multi-topic tests assert
+ *  against. No production caller today: analyzeTransaction wants the matched
+ *  topic, not a boolean. */
 export function settlementEventPresent(
 	logs: readonly { address: string; topics: readonly string[] }[],
 	sig: SettlementSignature,

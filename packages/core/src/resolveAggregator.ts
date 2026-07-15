@@ -47,9 +47,14 @@ const SETTLERS_CONFIG_PATH = path.resolve(__dirname, '../../../configs/settlers.
 let settlerRegistry: SettlerRegistry;
 try {
 	settlerRegistry = await loadSettlerRegistry(SETTLERS_CONFIG_PATH);
-} catch {
+} catch (err) {
 	// Degrade to "no known settlers" rather than throw — resolveAggregator must
-	// never fail. Mirrors tagging.ts's contract.
+	// never fail. Mirrors tagging.ts's contract. But warn: silently resolving
+	// every 0x trade to unknown is precisely the bug this module exists to fix,
+	// so a missing/misplaced config must not be invisible.
+	console.warn(
+		`[resolveAggregator] could not load ${SETTLERS_CONFIG_PATH} — 0x Settler trades will not resolve: ${err instanceof Error ? err.message : String(err)}`,
+	);
 	settlerRegistry = { byAddressLower: new Map(), all: [] };
 }
 
