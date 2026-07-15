@@ -15,7 +15,8 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:check": "drizzle-kit check",
-		"settlers:refresh": "tsc --build && node packages/core/dist/scripts/refreshSettlers.js"
+		"settlers:refresh": "tsc --build && node packages/core/dist/scripts/refreshSettlers.js",
+		"aggregators:coverage": "tsc --build && node packages/core/dist/scripts/reportAggregatorCoverage.js"
 	},
 	"devDependencies": {
 		"@types/node": "^20.14.0",

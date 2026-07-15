@@ -1,0 +1,394 @@
+{
+	"protocols": [
+		{
+			"name": "1inch",
+			"displayName": "1inch",
+			"module": "1inch-agg",
+			"total24h": 2197890
+		},
+		{
+			"name": "De1",
+			"displayName": "De1",
+			"module": "openocean",
+			"total24h": 326445
+		},
+		{
+			"name": "Velora",
+			"displayName": "Velora",
+			"module": "paraswap",
+			"total24h": 3019582
+		},
+		{
+			"name": "Rubic",
+			"displayName": "Rubic",
+			"module": "rubic",
+			"total24h": 54
+		},
+		{
+			"name": "Unizen",
+			"displayName": "Unizen",
+			"module": "unizen",
+			"total24h": null
+		},
+		{
+			"name": "CoWSwap",
+			"displayName": "CoWSwap",
+			"module": "cowswap",
+			"total24h": 3416195
+		},
+		{
+			"name": "MetaMask Wallet",
+			"displayName": "MetaMask Wallet",
+			"module": "metamask",
+			"total24h": 279632
+		},
+		{
+			"name": "Houdini Swap",
+			"displayName": "Houdini Swap",
+			"module": "houdiniswap",
+			"total24h": 44985
+		},
+		{
+			"name": "Bitget Swap",
+			"displayName": "Bitget Swap",
+			"module": "bitgetwallet",
+			"total24h": 3074672
+		},
+		{
+			"name": "Jumper (LI.FI powered)",
+			"displayName": "Jumper (LI.FI powered)",
+			"module": "jumper-exchange",
+			"total24h": 862560
+		},
+		{
+			"name": "ApertureSwap",
+			"displayName": "ApertureSwap",
+			"module": "aperture-swap",
+			"total24h": null
+		},
+		{
+			"name": "Bebop Aggregator",
+			"displayName": "Bebop Aggregator",
+			"module": "bebop",
+			"total24h": 2031371
+		},
+		{
+			"name": "ODOS",
+			"displayName": "ODOS",
+			"module": "odos",
+			"total24h": 1000956
+		},
+		{
+			"name": "Conveyor",
+			"displayName": "Conveyor",
+			"module": "conveyor",
+			"total24h": 3685
+		},
+		{
+			"name": "KyberSwap Aggregator",
+			"displayName": "KyberSwap Aggregator",
+			"module": "kyberswap",
+			"total24h": 27838310
+		},
+		{
+			"name": "WOWMAX Exchange",
+			"displayName": "WOWMAX Exchange",
+			"module": "wowmax",
+			"total24h": null
+		},
+		{
+			"name": "Fibrous Finance",
+			"displayName": "Fibrous Finance",
+			"module": "fibrous-finance",
+			"total24h": 90773
+		},
+		{
+			"name": "fly.trade",
+			"displayName": "fly.trade",
+			"module": "magpie",
+			"total24h": 10835143
+		},
+		{
+			"name": "Hinkal",
+			"displayName": "Hinkal",
+			"module": "hinkal",
+			"total24h": 0
+		},
+		{
+			"name": "0x Aggregator",
+			"displayName": "0x Aggregator",
+			"module": "zrx",
+			"total24h": 21579327
+		},
+		{
+			"name": "EISEN Finance",
+			"displayName": "EISEN Finance",
+			"module": "eisen",
+			"total24h": 0
+		},
+		{
+			"name": "uDEX",
+			"displayName": "uDEX",
+			"module": "udex-agg",
+			"total24h": 0
+		},
+		{
+			"name": "Chainspot",
+			"displayName": "Chainspot",
+			"module": "chainspot",
+			"total24h": 0
+		},
+		{
+			"name": "SushiSwap Agg",
+			"displayName": "SushiSwap Agg",
+			"module": "sushiswap-agg",
+			"total24h": 342834
+		},
+		{
+			"name": "DODO Agg",
+			"displayName": "DODO Agg",
+			"module": "dodo-agg",
+			"total24h": 221
+		},
+		{
+			"name": "Tokenlon Agg",
+			"displayName": "Tokenlon Agg",
+			"module": "tokenlon-agg",
+			"total24h": 119
+		},
+		{
+			"name": "Wolfswap",
+			"displayName": "Wolfswap",
+			"module": "wolfswap",
+			"total24h": 0
+		},
+		{
+			"name": "OKX Swap",
+			"displayName": "OKX Swap",
+			"module": "okx",
+			"total24h": 11872209
+		},
+		{
+			"name": "Jeton",
+			"displayName": "Jeton",
+			"module": "jeton",
+			"total24h": null
+		},
+		{
+			"name": "Swing",
+			"displayName": "Swing",
+			"module": "swing",
+			"total24h": null
+		},
+		{
+			"name": "Starbase",
+			"displayName": "Starbase",
+			"module": "starbase",
+			"total24h": null
+		},
+		{
+			"name": "SuperSwap Ink DEX Aggregator",
+			"displayName": "SuperSwap Ink DEX Aggregator",
+			"module": "superswap",
+			"total24h": 0
+		},
+		{
+			"name": "1delta",
+			"displayName": "1delta",
+			"module": "1delta",
+			"total24h": 0
+		},
+		{
+			"name": "Enso",
+			"displayName": "Enso",
+			"module": "enso",
+			"total24h": 330899
+		},
+		{
+			"name": "Defi App Aggregator",
+			"displayName": "Defi App Aggregator",
+			"module": "defiapp",
+			"total24h": 6086316
+		},
+		{
+			"name": "ERC Burner",
+			"displayName": "ERC Burner",
+			"module": "erc-burner",
+			"total24h": 0
+		},
+		{
+			"name": "Bungee DEX",
+			"displayName": "Bungee DEX",
+			"module": "bungee-dex",
+			"total24h": 4347
+		},
+		{
+			"name": "LI.FI DEX Aggregator",
+			"displayName": "LI.FI DEX Aggregator",
+			"module": "lifi",
+			"total24h": 1055760
+		},
+		{
+			"name": "Haiku",
+			"displayName": "Haiku",
+			"module": "haiku",
+			"total24h": 10
+		},
+		{
+			"name": "GlueX",
+			"displayName": "GlueX",
+			"module": "gluex-protocol",
+			"total24h": 0
+		},
+		{
+			"name": "Rango",
+			"displayName": "Rango",
+			"module": "rango",
+			"total24h": 68731
+		},
+		{
+			"name": "DZap",
+			"displayName": "DZap",
+			"module": "dzap",
+			"total24h": 265
+		},
+		{
+			"name": "Orbiter Finance",
+			"displayName": "Orbiter Finance",
+			"module": "orbiter-finance",
+			"total24h": 5641
+		},
+		{
+			"name": "Nordstern.Finance",
+			"displayName": "Nordstern.Finance",
+			"module": "nordstern-finance",
+			"total24h": 4396265
+		},
+		{
+			"name": "SuperBoring",
+			"displayName": "SuperBoring",
+			"module": "superboring",
+			"total24h": 2334
+		},
+		{
+			"name": "OpenSea DEX Aggregator",
+			"displayName": "OpenSea DEX Aggregator",
+			"module": "opensea",
+			"total24h": 120918
+		},
+		{
+			"name": "LiquidMesh",
+			"displayName": "LiquidMesh",
+			"module": "liquidmesh",
+			"total24h": 650447
+		},
+		{
+			"name": "Binance Wallet",
+			"displayName": "Binance Wallet",
+			"module": "binancewallet",
+			"total24h": 702920
+		},
+		{
+			"name": "NanoPort Aggregator",
+			"displayName": "NanoPort Aggregator",
+			"module": "nanoport",
+			"total24h": 0
+		},
+		{
+			"name": "Lunar Finance Aggregator",
+			"displayName": "Lunar Finance Aggregator",
+			"module": "lunar-finance",
+			"total24h": 0
+		},
+		{
+			"name": "BIM Aggregator",
+			"displayName": "BIM Aggregator",
+			"module": "bim",
+			"total24h": 0
+		},
+		{
+			"name": "LilSwap",
+			"displayName": "LilSwap",
+			"module": "lilswap",
+			"total24h": 71525
+		},
+		{
+			"name": "DE1 Exchange",
+			"displayName": "DE1 Exchange",
+			"module": "deluthium",
+			"total24h": 133
+		},
+		{
+			"name": "DEXR",
+			"displayName": "DEXR",
+			"module": "dexr",
+			"total24h": 0
+		},
+		{
+			"name": "AlloX",
+			"displayName": "AlloX",
+			"module": "allox",
+			"total24h": 2702
+		},
+		{
+			"name": "SwapWizard",
+			"displayName": "SwapWizard",
+			"module": "swapwizard",
+			"total24h": 0
+		},
+		{
+			"name": "Zerion Aggregator",
+			"displayName": "Zerion Aggregator",
+			"module": "zerion",
+			"total24h": 13
+		},
+		{
+			"name": "WheelX.fi DEX Aggregator",
+			"displayName": "WheelX.fi DEX Aggregator",
+			"module": "wheelx",
+			"total24h": 50
+		},
+		{
+			"name": "Afi Swap",
+			"displayName": "Afi Swap",
+			"module": "afi-swap",
+			"total24h": 0
+		},
+		{
+			"name": "Gate Swap Aggregator",
+			"displayName": "Gate Swap Aggregator",
+			"module": "gateswap",
+			"total24h": 10853
+		},
+		{
+			"name": "Alien Base Epsilon",
+			"displayName": "Alien Base Epsilon",
+			"module": "epsilon",
+			"total24h": 3968
+		},
+		{
+			"name": "TeraSwap",
+			"displayName": "TeraSwap",
+			"module": "teraswap",
+			"total24h": 5
+		},
+		{
+			"name": "7.exchange",
+			"displayName": "7.exchange",
+			"module": "7-exchange",
+			"total24h": 0
+		},
+		{
+			"name": "DropSwap",
+			"displayName": "DropSwap",
+			"module": "dropswap",
+			"total24h": 1
+		},
+		{
+			"name": "Gensuki DEX Aggregator",
+			"displayName": "Gensuki DEX Aggregator",
+			"module": "gensuki",
+			"total24h": 0
+		}
+	]
+}
