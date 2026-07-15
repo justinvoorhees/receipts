@@ -418,7 +418,7 @@ In root `package.json`, add to `"scripts"` (note: `tsc --build`, **not** `npm ru
 - [ ] **Step 3: Run it and verify the output**
 
 ```bash
-source .env && npm run settlers:refresh
+set -a && source .env && set +a && npm run settlers:refresh
 ```
 
 Expected: `Wrote 57 settlers (features 1, 2, 3, 4, 5) → …/configs/settlers.json`
@@ -453,7 +453,7 @@ zero addr present: false
 If `total` is not 57, **stop** — either the scan is wrong or 0x rotated since 2026-07-15. Confirm against `ownerOf` before proceeding:
 
 ```bash
-source .env && curl -s -X POST "$TCA_RPC_URL" -H 'Content-Type: application/json' \
+set -a && source .env && set +a && curl -s -X POST "$TCA_RPC_URL" -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"0x00000000000004533fe15556b1e086bb1a72ceae","data":"0x6352211e0000000000000000000000000000000000000000000000000000000000000002"},"latest"]}'
 ```
 The last 40 hex chars must equal feature 2's newest address.
@@ -1454,7 +1454,7 @@ git commit -m "feat(core): add Base aggregator coverage gap report"
 - Consumes: `analyzeTransaction(hash, chainId, {rpcUrl})` (Task 6).
 - Produces: nothing downstream.
 
-**⚠️ Gotcha:** RPC e2e tests **silently skip** unless `TCA_RPC_URL` is exported. `dotenv` does not reliably pick up the repo-root `.env` from `packages/core`. Always `source .env` first, and confirm the test actually ran rather than trusting a green suite.
+**⚠️ Gotcha:** RPC e2e tests **silently skip** unless `TCA_RPC_URL` is exported. `dotenv` does not reliably pick up the repo-root `.env` from `packages/core`. And plain `source .env` is NOT enough — the file has no `export` keywords, so the vars stay shell-local and never reach the child process. Use `set -a && source .env && set +a` (verified in Task 3). Then confirm the test actually RAN rather than trusting a green suite.
 
 - [ ] **Step 1: Write the failing e2e test**
 
@@ -1487,7 +1487,7 @@ describe('analyzeTransaction — 0x Settler identity (e2e)', () => {
 - [ ] **Step 2: Run it and verify it actually ran**
 
 ```bash
-source .env && npx vitest run analyzeTransaction -t "0x Settler"
+set -a && source .env && set +a && npx vitest run analyzeTransaction -t "0x Settler"
 ```
 
 Expected: **2 passed** — not "2 skipped". If it reports skipped, `TCA_RPC_URL` is not exported; fix that before believing any result.
@@ -1495,7 +1495,7 @@ Expected: **2 passed** — not "2 skipped". If it reports skipped, `TCA_RPC_URL`
 - [ ] **Step 3: Confirm no regression on a non-0x aggregator**
 
 ```bash
-source .env && npx vitest run
+set -a && source .env && set +a && npx vitest run
 ```
 
 Expected: full suite passes. In particular the `Odos` rows' signature path still works — Task 4 changed Odos from a vacuous "any event" check to four specific topics.
@@ -1560,7 +1560,7 @@ git commit -m "test(core): e2e-verify 0x Settler resolves via the Deployer regis
 
 - [ ] `npx tsc --build` clean
 - [ ] `npx vitest run` — 28 files, all pass (baseline was 25 files / 312 tests at `3a6f718`)
-- [ ] `source .env && npx vitest run analyzeTransaction -t "0x Settler"` reports **passed**, not skipped
+- [ ] `set -a && source .env && set +a && npx vitest run analyzeTransaction -t "0x Settler"` reports **passed**, not skipped
 - [ ] `configs/settlers.json` holds 57 settlers across features 1–5, no zero address
 - [ ] Receipts 179 and 183 read `aggregator = '0x'`
 - [ ] No receipt has a 42-char raw-hex aggregator
