@@ -22,8 +22,11 @@ this aggregator.
 ## Scope
 
 **In:** keep the aggregators we already know correctly identified as they redeploy or rotate.
+Plus: visibility into which aggregators we don't cover (Decision 5), and the verified Odos
+topic/V3-router backfill that fell out of it.
 
-**Out:** discovering that a never-seen contract *is* an aggregator (structural detection). Out:
+**Out:** onboarding any of the uncovered aggregators — each is its own investigation (Decision
+5). Out: discovering that a never-seen contract *is* an aggregator (structural detection). Out:
 the relayer/AA trader-anchoring problem for 0x's gasless feature-3 flow — pre-existing and
 tracked separately.
 
@@ -117,7 +120,8 @@ PR — is the right cadence. No DB table.
 | `configs/settlers.json` | Generated, committed. `{aggregator, feature, address, fromBlock, source}` per entry, where `source` is the config-entry provenance (e.g. `'deployer-transfer-scan'`) — distinct from the runtime `detectedVia` tier below. |
 | `scripts/refresh-settlers.ts` | Scans Deployer `Transfer` logs → writes the config. Idempotent. |
 | `packages/core/src/aggregatorResolver.ts` | Sync set lookup. Loads `settlers.json` at module load, mirroring `tagging.ts`'s existing top-level-await pattern. |
-| `packages/core/src/aggregatorSignatures.ts` | Topic backfill; mark 0x anonymous-log. |
+| `packages/core/src/aggregatorSignatures.ts` | Topic backfill; widen `eventTopic0` to multiple topics (Odos needs it); mark 0x anonymous-log. |
+| `scripts/report-aggregator-coverage.ts` | Prints the DefiLlama coverage gap ranked by volume. Reports only; writes nothing. |
 | `analyzeTransaction.ts:271` | Call `resolveAggregator(tx.to, logs)` → `{label, detectedVia}`. |
 
 ### Refresh script details
@@ -148,7 +152,23 @@ inline comment. Do not open-endedly hunt.
 
 Per aggregator:
 
-- **Odos** — 2 receipts exist; discoverable now.
+- **Odos** — **done, verified.** Topics derived from the DefiLlama adapter's event ABIs and
+  confirmed against chain data:
+
+  | Signature | topic0 | Status |
+  |---|---|---|
+  | `Swap(address,uint256,address,uint256,address,int256,uint32)` | `0x823eaf01…` | ✅ emitted by v2 router in both receipts (id 75, 78) |
+  | `SwapMulti(address,uint256[],address[],uint256[],address[],uint32)` | `0x7d7fb035…` | v2, not yet observed in our rows |
+  | `Swap(address,uint256,address,uint256,address,int256,uint64,uint64,address)` | `0x69db20ca…` | ✅ 272 logs from the V3 router in ~9000 blocks |
+  | `SwapMulti(address,uint256[],address[],uint256[],address[],int256[],uint64,uint64,address)` | `0x2c96555a…` | v3, not yet observed |
+
+  Also resolves the standing `_comment: deferred` in `routers.json`: **Odos V3 router
+  `0x0D05a7D3448512B78fa8A9e46c4872C88C4a0D05`** — verified as a 17,084-byte contract on Base
+  and actively emitting `0x69db20ca…`. Add to the curated tier.
+
+  Because Odos has two live routers emitting different-arity events, its registry entry needs to
+  accept **multiple topics per aggregator**. `SettlementSignature.eventTopic0` is currently a
+  single nullable string; this is the one type change the backfill forces.
 - **1inch** — zero receipts; on-chain sample or defer per the stop rule.
 - **0x** — **excluded by construction.** Its Settler log is *anonymous* (`topics: []`):
 
@@ -160,6 +180,74 @@ Per aggregator:
 
   `findSettlementEvents` does `if (!topic0) continue`, so 0x is invisible to topic machinery by
   construction. The resolver covers it. Record this in the registry so nobody retries.
+
+## Design Decision 5: DefiLlama is a candidate source, never an identity source
+
+DefiLlama's Base aggregator list (`api.llama.fi/overview/aggregators/base`) is third-party
+inference, so by Decision 1 it must never auto-label. It feeds the **curated tier** through
+human + on-chain verification. The Odos work above is the pattern working end-to-end: DefiLlama
+proposed an address and an ABI, chain data confirmed both, and only then did it become curated.
+
+### What the source actually provides
+
+- **The API/website: names and 24h volume only.** Every one of the 65 protocols returns
+  `address: undefined`. It cannot tag anything. Its value is **knowing what we don't know**.
+- **The `dimension-adapters` repo: heterogeneous, per-aggregator.** The `module` field maps to
+  an adapter. Quality varies wildly — `odos/index.ts` has a chain→address dict *and* event ABIs;
+  `zrx/index.ts` has **no addresses at all**, calling 0x's private `api.0x.org` stats endpoint
+  with an API key.
+
+**Do not write a parser across the adapters.** 65 modules of arbitrary TypeScript in mutually
+incompatible shapes, for a payload of ~30 addresses, is a fragile mess. Reading one adapter by
+hand while onboarding one aggregator is minutes of work and yields more (Odos gave address +
+ABI). Address discovery stays artisanal; only the gap list is automated.
+
+Note the complementarity: zrx has no addresses to scrape *because* 0x rotates. The one
+aggregator this source cannot help with is exactly the one the resolver exists for.
+
+### Coverage gap (measured 2026-07-15)
+
+**$102.1M/day across 41 live Base aggregators.**
+
+| | 24h vol | Share |
+|---|---|---|
+| Covered **today** | $38.4M | 38% |
+| Covered **after this spec** (0x resolver lands) | $60.0M | 59% |
+| Remaining gap | $42.2M | 41% |
+
+0x alone is **$21.6M/day — 21% of all Base aggregator volume** — and it is currently landing as
+raw hex. That single number is the strongest argument for the resolver: rotation-proofing 0x is
+worth more than onboarding every remaining gap below the top two combined.
+
+| Gap | 24h vol | Shape |
+|---|---|---|
+| OKX Swap | $11.9M | wallet front-end |
+| fly.trade (magpie) | $10.8M | router |
+| Defi App | $6.1M | router |
+| CoWSwap | $3.5M | batch-auction intents |
+| Bitget Swap | $3.1M | wallet front-end |
+| Bebop | $2.0M | RFQ |
+| LI.FI | $1.1M | router/bridge |
+
+Two cautions this table makes concrete:
+
+1. **The gap list is a research queue, not a list of addresses to paste.** The wallet
+   front-ends (OKX, Bitget, Binance, MetaMask) plausibly route *through* other aggregators —
+   textbook case B from Decision 1. CoWSwap intents and Bebop RFQ have settlement shapes our
+   decomposition has never seen. Each is its own scoped investigation.
+2. **Bebop appears at $2.0M as an aggregator *and* settles inside trade 0xb02037…9e26's 0x
+   route.** The same contract is both an outer aggregator and inner liquidity depending on the
+   trade. This is the nesting hazard appearing in coverage data, not just in argument — and it
+   is why `to` anchors identity.
+
+Also: **the list is not a superset of what we need.** Relay (classified as a bridge) and Fabric
+are absent. DefiLlama cannot be the only source.
+
+### In scope here
+
+A re-runnable `scripts/report-aggregator-coverage.ts` that prints the ranked gap. Reporting
+only — it writes no config and labels nothing. Onboarding any specific aggregator above is
+explicitly **out of scope** for this spec.
 
 ## Data flow
 
@@ -194,6 +282,10 @@ needs to be queryable.
   Asserts we do *not* auto-label — the case-B guard.
 - **Regression:** the 41 currently-labeled receipts keep their labels.
 - **Refresh script:** against a recorded Deployer-logs fixture, not live RPC.
+- **Odos multi-topic:** a v2 receipt (id 75) and a V3-router log each satisfy
+  `settlementEventPresent` under the widened multi-topic entry — guards the type change.
+- **Coverage report:** against a recorded DefiLlama API fixture, not live HTTP, so the test
+  doesn't fail when volumes move.
 
 ## Expected outcome
 
@@ -202,6 +294,9 @@ needs to be queryable.
 - Future rotations need a `refresh-settlers` run and a config diff — no code change.
 - A future Nordstern-style redeploy surfaces as `unknown` + hint rather than silently passing
   through as raw hex.
+- Odos gains real settlement topics (its `settlement_event_seen` stops being vacuous) and its
+  V3 router, closing a standing `_comment: deferred`.
+- The 41% / $42.2M-per-day coverage gap becomes a re-runnable report instead of an unknown.
 
 ## Open / deferred
 
