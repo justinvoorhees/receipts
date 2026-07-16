@@ -228,6 +228,22 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(legs.filter((l) => typeof l.priceImpactBps === 'number').length).toBeGreaterThanOrEqual(1);
 		expect((r!.normalizeFlags as string[]).some((f) => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
 	}, 30_000);
+
+	it('reconstructs the 0x Settler RFQ+AMM hybrid route (id 189 pin: round-trip maker netting)', async () => {
+		// 2.8 ETH → 1.30M jesse. Pre-fix: the RFQ maker's USDC change flow broke
+		// intermediate-token conservation → ROUTE_NOT_DECOMPOSED, null LP/slippage.
+		const r = await analyzeTransaction(
+			'0xb02037466b0756a3972f77d674413a0d7468663aca62e8c6eb757f15ced59e26',
+			8453,
+			{ rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+		expect(r!.lpFeeBps).not.toBeNull();
+		expect(r!.slippageBps).not.toBeNull();
+		expect(r!.normalizeFlags.some((f) => f.startsWith('LEG_AMOUNTS_NETTED'))).toBe(true);
+		expect(r!.normalizeFlags.some((f) => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
+		expect(r!.decompConfidence).not.toBe('high');
+	}, 60_000);
 });
 
 describe('analyzeTransaction — 0x Settler identity (e2e)', () => {
