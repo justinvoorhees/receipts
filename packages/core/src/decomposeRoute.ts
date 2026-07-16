@@ -752,6 +752,14 @@ export async function decomposeRoute(
 		denylist: extendedDenylist,
 	});
 
+	// Round-trip netted legs (e.g. RFQ maker change flows): surface a per-leg
+	// flag; the reconstructed branch caps confidence at medium because netted
+	// amounts are an interpretation of the flows, not an observation.
+	const nettedLegs = graph.legs.filter((l) => l.amountsNetted);
+	for (const l of nettedLegs) {
+		routeFlags.push(`LEG_AMOUNTS_NETTED: leg ${l.venue.slice(0, 10)} had round-trip flows; amounts use net deltas`);
+	}
+
 	// Step 5: Resolve fee tiers for each leg
 	const feeReader = deps?.feeReader ?? createDefaultFeeReader(input.rpcUrl, input.blockNumber);
 	let allFeesResolved = true;
@@ -878,6 +886,11 @@ export async function decomposeRoute(
 		// Downgrade to medium if any leg has approximate notional or defaulted fee
 		const hasApproxLegs = legFeeInputs.some((lfi) => lfi.notionalApprox);
 		if (hasApproxLegs || !allFeesResolved) {
+			confidence = 'medium';
+		}
+
+		// Netted leg amounts (round-trip flows) are inferred — cap at medium.
+		if (nettedLegs.length > 0 && confidence === 'high') {
 			confidence = 'medium';
 		}
 

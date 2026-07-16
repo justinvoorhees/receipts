@@ -856,6 +856,78 @@ describe('decomposeRoute', () => {
       expect(result.routeShape).toBe('complex');
     });
   });
+
+  describe('RFQ maker round-trip netting (id 189 shape)', () => {
+    // 2-hop linear USDC→VIRTUAL→WETH where the FIRST hop is an event-less
+    // maker with a round-trip in the intermediate token: it sends 3.5 VIRTUAL
+    // gross through a helper, gets 0.5 back as change, and only 3.0 reaches
+    // the V3 pool. Pre-fix the VIRTUAL conservation check failed → complex.
+    const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+    const maker = '0x69a9f1560000000000000000000000000000dddd' as `0x${string}`;
+    const helper = '0x7c9768010000000000000000000000000000eeee' as `0x${string}`;
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`;
+
+    const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67' as `0x${string}`;
+    function swapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`, `0x${string}`, `0x${string}`] } {
+      return {
+        address: pool,
+        data: '0x' + '00'.repeat(160) as `0x${string}`,
+        topics: [UNI_V3_SWAP_TOPIC, '0x' + '00'.repeat(32) as `0x${string}`, '0x' + '00'.repeat(32) as `0x${string}`],
+      };
+    }
+
+    const syntheticTrace = {
+      from: syntheticTrader,
+      to: '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`,
+      input: '0x' as `0x${string}`,
+      logs: [
+        swapLog(poolB), // only the pool has a Swap event; the maker is event-less
+        transferLog(USDC as `0x${string}`, syntheticTrader, maker, 1_000000n),
+        transferLog(VIRTUAL as `0x${string}`, maker, helper, 3_500000000000000000n),
+        transferLog(VIRTUAL as `0x${string}`, helper, maker, 500000000000000000n),   // change
+        transferLog(VIRTUAL as `0x${string}`, helper, poolB, 3_000000000000000000n),
+        transferLog(WETH as `0x${string}`, poolB, syntheticTrader, 500000000000000n),
+      ],
+      calls: [],
+    };
+
+    const input: DecomposeTradeInput = {
+      trace: syntheticTrace as any,
+      txHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+      trader: syntheticTrader,
+      direction: 'buy_weth',
+      settledIn: 'WETH',
+      allInCostBps: -5.0,
+      notionalUsdc: 1.0,
+      realizedPrice: 1800,
+      gasCostUsd: 0.001,
+      aggregator: 'Unknown',
+      blockNumber: 100n,
+      rpcUrl: 'unused',
+      dustUsdc: 1e-6,
+      structuralFloorUsd: 0,
+      structuralFloorBps: 0.5,
+    };
+
+    it('reconstructs, flags LEG_AMOUNTS_NETTED, and caps confidence at medium', async () => {
+      const result = await decomposeRoute(input, {
+        trace: syntheticTrace as any,
+        // Both tiers resolved (defaulted: false) so any confidence downgrade
+        // must come from the netting cap, not the defaulted-fee path.
+        feeReader: async (_addr, type) =>
+          type === 'univ3' ? { bps: 5, defaulted: false } : { bps: 0, defaulted: false },
+      });
+
+      // Pre-fix this was complex/not-reconstructed with null LP/slippage.
+      expect(result.routeShape).toBe('linear');
+      expect(result.lpFeeBps).not.toBeNull();
+      expect(result.slippageBps).not.toBeNull();
+      expect(result.flags.some((f) => f.startsWith('LEG_AMOUNTS_NETTED'))).toBe(true);
+      expect(result.flags.some((f) => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
+      // Netted amounts are inferred, not observed → never 'high'.
+      expect(result.confidence).toBe('medium');
+    });
+  });
 });
 
 describe('extractNativeTransfers', () => {
