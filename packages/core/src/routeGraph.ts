@@ -121,12 +121,17 @@ function identifyTraderTokens(
 }
 
 /**
- * Leg amounts for a candidate address. Gross flows are the default measure;
- * when the address has a ROUND-TRIP in a leg token (it both sent and received
- * that token — e.g. an RFQ maker that paid gross and was given change), gross
- * double-counts the change, so the conserved measure is the net delta.
- * tokenIn is net-received (delta > 0) and tokenOut net-sent (delta < 0) by
- * construction in buildLegs, so the deltas carry the expected signs.
+ * Leg amounts for a candidate address. Gross flows are the default measure,
+ * with ONE exception: when the address has a round-trip in its OUTPUT token
+ * (it received some tokenOut back — e.g. an RFQ maker that paid gross and was
+ * given change), gross double-counts the change, so the conserved measure of
+ * its production is the net delta. The INPUT side always stays gross: upstream
+ * legs deliver gross, and a venue's same-token outflow on its input token
+ * (e.g. a V4 hook-fee fanout to fee recipients) leaks to non-participants —
+ * it does not reduce what was delivered INTO the venue, so netting it would
+ * BREAK conservation (observed on the ZORA leg of 0xb020…9e26).
+ * tokenOut is net-sent (delta < 0) by construction in buildLegs, so the
+ * negated delta is positive.
  */
 function legAmounts(
   addrDeltas: Map<string, bigint>,
@@ -134,14 +139,12 @@ function legAmounts(
   tokenIn: string,
   tokenOut: string,
 ): { amountInRaw: bigint; amountOutRaw: bigint; amountsNetted: boolean } {
-  const inFlows = addrGross.get(tokenIn) ?? { received: 0n, sent: 0n };
   const outFlows = addrGross.get(tokenOut) ?? { received: 0n, sent: 0n };
-  const inNetted = inFlows.sent > 0n;       // tokenIn also flowed out → round-trip
-  const outNetted = outFlows.received > 0n; // tokenOut also flowed in → round-trip
+  const outNetted = outFlows.received > 0n; // tokenOut also flowed back in → round-trip
   return {
-    amountInRaw: inNetted ? (addrDeltas.get(tokenIn) ?? 0n) : inFlows.received,
+    amountInRaw: addrGross.get(tokenIn)?.received ?? 0n,
     amountOutRaw: outNetted ? -(addrDeltas.get(tokenOut) ?? 0n) : outFlows.sent,
-    amountsNetted: inNetted || outNetted,
+    amountsNetted: outNetted,
   };
 }
 

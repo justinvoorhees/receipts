@@ -377,4 +377,31 @@ describe('RFQ maker round-trip netting (id 189 pin — 0xb020…9e26)', () => {
     expect(g.legs.every((l) => l.amountsNetted === undefined)).toBe(true);
     expect(g.legs[0]!.amountInRaw).toBe(2_000000n); // gross == net, unchanged
   });
+
+  it('keeps GROSS amountIn for a venue with a same-token fee fanout on its INPUT (V4 hook shape)', () => {
+    // Shaped like the V4 PoolManager leg of 0xb020…9e26: upstream delivers
+    // 100 VIRTUAL gross; the venue fans out 1 VIRTUAL to a fee recipient.
+    // Netting amountIn (99) would break VIRTUAL conservation (upstream
+    // produced 100); gross (100) conserves exactly.
+    const poolA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const v4pm = '0x498581ff00000000000000000000000000000003';
+    const feeSink = '0xc8d0774400000000000000000000000000000004';
+    const t2 = [
+      { token: USDC, from: trader, to: poolA, value: 1000_000000n },
+      { token: VIRTUAL, from: poolA, to: v4pm, value: 100_000000000000000000n },
+      { token: VIRTUAL, from: v4pm, to: feeSink, value: 1_000000000000000000n },
+      { token: WETH, from: v4pm, to: trader, value: 500000000000000000n },
+    ];
+    const g = buildRouteGraph({
+      transfers: t2,
+      trader,
+      venues: new Map([[poolA, { type: 'univ3' as const }], [v4pm, { type: 'univ4' as const }]]),
+      denylist: new Set(),
+    });
+    expect(g.reconstructed).toBe(true);
+    expect(g.shape).toBe('linear');
+    const pmLeg = g.legs.find((l) => l.venue === v4pm)!;
+    expect(pmLeg.amountInRaw).toBe(100_000000000000000000n); // gross, NOT 99e18
+    expect(pmLeg.amountsNetted).toBeUndefined();             // in-side round-trip ≠ netted
+  });
 });
