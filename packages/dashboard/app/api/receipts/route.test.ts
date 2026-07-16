@@ -27,6 +27,7 @@ const sampleReceipt: Receipt = {
 	chainId: 8453,
 	blockNumber: 123,
 	aggregator: '0xagg',
+	routerAddress: '0xagg',
 	trader: '0xtrader',
 	direction: 'buy_weth',
 	inputToken: '0xusdc',

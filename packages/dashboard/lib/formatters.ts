@@ -126,13 +126,17 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 };
 
 // Unidentified aggregators fall back to their raw router address as the
-// slug — truncate it the same way as a tx hash so it can't blow out the
-// History table's column width. Identifying these is separate work; this
-// is purely a layout guard.
-export function formatProvider(slug: string): string {
+// slug — by default truncate it the same way as a tx hash so it can't blow
+// out the History table's column width (purely a layout guard). The receipt
+// has room, so it passes `full: true` to show the whole address. Identifying
+// these is separate work.
+export function formatProvider(slug: string, opts?: { full?: boolean }): string {
 	const known = PROVIDER_DISPLAY_NAMES[slug];
 	if (known) return known;
-	return slug.startsWith('0x') && slug.length > 10 ? shortTxHash(slug) : slug;
+	if (slug.startsWith('0x') && slug.length > 10) {
+		return opts?.full ? slug : shortTxHash(slug);
+	}
+	return slug;
 }
 
 // Per-provider accent hexes. Values from the Figma trust-matrix spec — kept

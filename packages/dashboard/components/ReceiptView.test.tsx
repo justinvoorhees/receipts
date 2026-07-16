@@ -113,6 +113,34 @@ describe('Receipt header', () => {
 		expect(html).not.toContain('>A+<');
 	});
 
+	it('links an attributed aggregator to its router contract page via routerAddress', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const router = '0x6131b5fae19ea4f9d964eac0408e4408b66337b5';
+		const row = { ...fullUsdcWethRow, routerAddress: router };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain(`href="https://basescan.org/address/${router}"`);
+		expect(html).toContain('KyberSwap');
+	});
+
+	it('links an unattributed aggregator via its slug when routerAddress is absent (pre-column row)', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const unknownRouter = '0x77471234567890abcdef1234567890abcdef2359';
+		const row = { ...fullUsdcWethRow, aggregator: unknownRouter };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		// Full address shown (not truncated) and linked to its contract page.
+		expect(html).toContain(`href="https://basescan.org/address/${unknownRouter}"`);
+		expect(html).toContain(`>${unknownRouter}<`);
+	});
+
+	it('renders an attributed aggregator unlinked when no routerAddress exists (pre-column row)', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
+		);
+		expect(html).toContain('KyberSwap');
+		expect(html).not.toContain('basescan.org/address/');
+	});
+
 	it('renders a full USDC/WETH receipt with generalized token fields', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(

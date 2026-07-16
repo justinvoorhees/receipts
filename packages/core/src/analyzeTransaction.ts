@@ -134,6 +134,9 @@ export interface Receipt {
 	chainId: number;
 	blockNumber: number;
 	aggregator: string;
+	/** The contract the taker called (tx.to, lowercased) — the aggregator's
+	 *  router for this specific trade. Null only for contract creations. */
+	routerAddress: string | null;
 	trader: string;
 	direction: string;
 	inputToken: string;
@@ -386,6 +389,7 @@ export async function analyzeTransaction(
 			chainId,
 			blockNumber: Number(blockNumber),
 			aggregator,
+			routerAddress: tx.to ? tx.to.toLowerCase() : null,
 			trader,
 			direction: `${pricing.inputSymbol}->${pricing.outputSymbol}`,
 			inputToken: endpoints.inputToken,

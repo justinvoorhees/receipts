@@ -191,6 +191,37 @@ function DetailRow({
 	);
 }
 
+/**
+ * Aggregator detail value: the provider name (or the full router address when
+ * unattributed), linked to the router contract's Basescan page. The linked
+ * address is the contract this trade actually called (`routerAddress` = tx.to,
+ * persisted by core) — never a slug→address guess, since one aggregator can
+ * run several routers (Odos V2/V3, 0x's per-deploy Settlers). Rows persisted
+ * before `routerAddress` existed fall back to the slug when it IS the address
+ * (unattributed aggregators); otherwise the name renders unlinked.
+ */
+function AggregatorValue({ row }: { row: ReceiptRow }) {
+	const slug = row.aggregator.toLowerCase();
+	const address = row.routerAddress ?? (slug.startsWith('0x') && slug.length > 10 ? slug : null);
+	const label = (
+		<span className="break-all" style={{ color: providerColor(slug) }}>
+			{formatProvider(slug, { full: true })}
+		</span>
+	);
+	if (!address) return label;
+	return (
+		<a
+			href={`https://basescan.org/address/${address}`}
+			target="_blank"
+			rel="noreferrer"
+			className="underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+			style={{ textDecorationColor: providerColor(slug) }}
+		>
+			{label}
+		</a>
+	);
+}
+
 function BkdHeading({
 	label,
 	value,
@@ -432,9 +463,7 @@ export function Receipt({
 			{/* Detail table */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
 				<DetailRow label="Aggregator">
-					<span style={{ color: providerColor(row.aggregator.toLowerCase()) }}>
-						{formatProvider(row.aggregator.toLowerCase())}
-					</span>
+					<AggregatorValue row={row} />
 				</DetailRow>
 				<DetailRow label="Pair">{pairTitle}</DetailRow>
 				<DetailRow label="Chain">{chainLabel(row.chainId)}</DetailRow>

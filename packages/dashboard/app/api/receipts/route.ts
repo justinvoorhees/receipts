@@ -25,6 +25,7 @@ function toNewReceipt(r: Receipt): NewReceipt {
 		txHash: r.txHash,
 		chainId: r.chainId,
 		aggregator: r.aggregator,
+		routerAddress: r.routerAddress,
 		trader: r.trader,
 		direction: r.direction,
 		inputToken: r.inputToken,

@@ -11,6 +11,13 @@ describe('formatProvider', () => {
 		expect(formatProvider('0x77471234567890abcdef1234567890abcdef2359')).toBe('0x7747…2359');
 	});
 
+	it('returns the full router address for the receipt with `full: true`', () => {
+		expect(formatProvider('0x77471234567890abcdef1234567890abcdef2359', { full: true }))
+			.toBe('0x77471234567890abcdef1234567890abcdef2359');
+		// Known slugs still map to their display name regardless of `full`.
+		expect(formatProvider('fabric', { full: true })).toBe('Fabric');
+	});
+
 	it('passes through a short, non-address slug unchanged', () => {
 		expect(formatProvider('unknown')).toBe('unknown');
 	});

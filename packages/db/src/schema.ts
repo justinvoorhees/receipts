@@ -30,6 +30,10 @@ export const receipts = pgTable(
 		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 		// trade
 		aggregator: text('aggregator').notNull(),
+		// The contract the taker called (tx.to, lowercased) — the aggregator's
+		// router for this specific trade. Nullable: rows persisted before this
+		// column existed are backfilled best-effort.
+		routerAddress: text('router_address'),
 		trader: text('trader').notNull(),
 		direction: text('direction').notNull(),
 		inputToken: text('input_token').notNull(),
