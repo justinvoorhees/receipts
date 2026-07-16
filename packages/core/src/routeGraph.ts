@@ -18,6 +18,9 @@ export interface Leg {
   tokenOut: string;         // lowercase
   amountInRaw: bigint;
   amountOutRaw: bigint;
+  /** true → the address had a round-trip in a leg token (e.g. RFQ maker change),
+   *  so amounts are net deltas, not gross flows. Absent when gross == net. */
+  amountsNetted?: boolean;
   v4PoolId?: string;        // for univ4 (from Swap event id)
   v4FeeRaw?: number;        // for univ4 (from Swap event fee)
 }
@@ -118,6 +121,31 @@ function identifyTraderTokens(
 }
 
 /**
+ * Leg amounts for a candidate address. Gross flows are the default measure;
+ * when the address has a ROUND-TRIP in a leg token (it both sent and received
+ * that token — e.g. an RFQ maker that paid gross and was given change), gross
+ * double-counts the change, so the conserved measure is the net delta.
+ * tokenIn is net-received (delta > 0) and tokenOut net-sent (delta < 0) by
+ * construction in buildLegs, so the deltas carry the expected signs.
+ */
+function legAmounts(
+  addrDeltas: Map<string, bigint>,
+  addrGross: Map<string, { received: bigint; sent: bigint }>,
+  tokenIn: string,
+  tokenOut: string,
+): { amountInRaw: bigint; amountOutRaw: bigint; amountsNetted: boolean } {
+  const inFlows = addrGross.get(tokenIn) ?? { received: 0n, sent: 0n };
+  const outFlows = addrGross.get(tokenOut) ?? { received: 0n, sent: 0n };
+  const inNetted = inFlows.sent > 0n;       // tokenIn also flowed out → round-trip
+  const outNetted = outFlows.received > 0n; // tokenOut also flowed in → round-trip
+  return {
+    amountInRaw: inNetted ? (addrDeltas.get(tokenIn) ?? 0n) : inFlows.received,
+    amountOutRaw: outNetted ? -(addrDeltas.get(tokenOut) ?? 0n) : outFlows.sent,
+    amountsNetted: inNetted || outNetted,
+  };
+}
+
+/**
  * Build legs from venues (known swap addresses + discovered RFQ fillers).
  */
 function buildLegs(
@@ -161,10 +189,7 @@ function buildLegs(
         const tokenIn = netReceived[0]!;
         const tokenOut = netSent[0]!;
 
-        // amountIn = gross received for tokenIn at this address
-        // amountOut = gross sent for tokenOut at this address
-        const amountInRaw = addrGross.get(tokenIn)?.received ?? 0n;
-        const amountOutRaw = addrGross.get(tokenOut)?.sent ?? 0n;
+        const { amountInRaw, amountOutRaw, amountsNetted } = legAmounts(addrDeltas, addrGross, tokenIn, tokenOut);
 
         const leg: Leg = {
           venue: addr,
@@ -174,6 +199,7 @@ function buildLegs(
           amountInRaw,
           amountOutRaw,
         };
+        if (amountsNetted) leg.amountsNetted = true;
 
         if (knownVenue.v4PoolId) leg.v4PoolId = knownVenue.v4PoolId;
         if (knownVenue.v4FeeRaw !== undefined) leg.v4FeeRaw = knownVenue.v4FeeRaw;
@@ -189,17 +215,18 @@ function buildLegs(
         const tokenIn = netReceived[0]!;
         const tokenOut = netSent[0]!;
 
-        const amountInRaw = addrGross.get(tokenIn)?.received ?? 0n;
-        const amountOutRaw = addrGross.get(tokenOut)?.sent ?? 0n;
+        const { amountInRaw, amountOutRaw, amountsNetted } = legAmounts(addrDeltas, addrGross, tokenIn, tokenOut);
 
-        legs.push({
+        const leg: Leg = {
           venue: addr,
           type: 'unknown',
           tokenIn,
           tokenOut,
           amountInRaw,
           amountOutRaw,
-        });
+        };
+        if (amountsNetted) leg.amountsNetted = true;
+        legs.push(leg);
       }
     }
   }

@@ -331,3 +331,50 @@ describe('chainLegs — general DAG reconstruction', () => {
     expect(r.reconstructed).toBe(false);
   });
 });
+
+describe('RFQ maker round-trip netting (id 189 pin — 0xb020…9e26)', () => {
+  // Shaped like the 0x Settler route in receipts id 189: the maker pays USDC
+  // gross through a settlement helper and receives change back, so its gross
+  // USDC outflow (7000) overstates the conserved flow (4023). Pre-fix, legs
+  // used gross amounts and the intermediate-USDC conservation check failed →
+  // ROUTE_NOT_DECOMPOSED. Netting the round-trip makes the route reconstruct.
+  const maker = '0x69a9f15600000000000000000000000000000001';
+  const helper = '0x7c97680100000000000000000000000000000002';
+  const pool = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const t = [
+    // trader funds the maker via the helper (WETH passes through cleanly)
+    { token: WETH, from: trader, to: helper, value: 2_100000000000000000n },
+    { token: WETH, from: helper, to: maker, value: 2_100000000000000000n },
+    // maker pays 7000 USDC gross; helper returns 2977 change, forwards 4023
+    { token: USDC, from: maker, to: helper, value: 7000_000000n },
+    { token: USDC, from: helper, to: maker, value: 2977_000000n },
+    { token: USDC, from: helper, to: pool, value: 4023_000000n },
+    // pool produces the output token
+    { token: VIRTUAL, from: pool, to: trader, value: 1000_000000000000000000n },
+  ];
+  const venuesRT = new Map([[pool, { type: 'univ3' as const }]]);
+
+  it('nets the maker leg and reconstructs the route as linear', () => {
+    const g = buildRouteGraph({ transfers: t, trader, venues: venuesRT, denylist: new Set() });
+    expect(g.reconstructed).toBe(true);
+    expect(g.shape).toBe('linear');
+    const makerLeg = g.legs.find((l) => l.venue === maker)!;
+    expect(makerLeg).toBeDefined();
+    // Gross USDC out was 7000; net (conserved) is 4023.
+    expect(makerLeg.amountOutRaw).toBe(4023_000000n);
+    // WETH side had no round-trip → gross, unchanged.
+    expect(makerLeg.amountInRaw).toBe(2_100000000000000000n);
+    expect(makerLeg.amountsNetted).toBe(true);
+    // The clean pool leg is untouched and NOT marked netted.
+    const poolLeg = g.legs.find((l) => l.venue === pool)!;
+    expect(poolLeg.amountInRaw).toBe(4023_000000n);
+    expect(poolLeg.amountsNetted).toBeUndefined();
+  });
+
+  it('leaves routes without round-trips byte-identical (no amountsNetted)', () => {
+    // The module-level linear fixture: no address has a round-trip.
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set() });
+    expect(g.legs.every((l) => l.amountsNetted === undefined)).toBe(true);
+    expect(g.legs[0]!.amountInRaw).toBe(2_000000n); // gross == net, unchanged
+  });
+});
