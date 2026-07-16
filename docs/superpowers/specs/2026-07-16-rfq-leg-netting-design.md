@@ -43,18 +43,29 @@ notional-weighted rollup produces the trade-level LP fee and per-leg price impac
 
 ## Fix
 
-In `buildLegs`, when a candidate address has a **round-trip in a leg token** (it both
-sent and received the same token — gross ≠ net for the leg's `tokenIn` or `tokenOut`),
-build that side's amount from the **net delta** instead of gross:
+In `buildLegs`, when a candidate address has a **round-trip in its output leg token**
+(it both sent and received `tokenOut` — gross ≠ net), build `amountOutRaw` from the
+**net delta** instead of gross. `amountInRaw` always stays gross received.
 
-- `amountInRaw = |net delta|` for `tokenIn` when the address also *sent* some of `tokenIn`
-  (else gross received, unchanged);
-- `amountOutRaw = |net delta|` for `tokenOut` when the address also *received* some of
-  `tokenOut` (else gross sent, unchanged).
+**AMENDED 2026-07-16 (execution evidence, real-tx run):** the original design netted
+BOTH sides symmetrically. Running the real tx showed the input side must stay gross:
+the V4 PoolManager leg has a same-token outflow on its INPUT token (a 5,694-ZORA
+hook-fee fanout to fee recipients), and netting its `amountInRaw` (680,496.7 →
+674,802.7) broke a ZORA balance that gross kept exactly. The asymmetry is principled:
 
-Applies uniformly to known-venue and unknown legs — for conservation accounting, net is
-the correct measure whenever a round-trip exists; when no round-trip exists, net == gross
-and behavior is byte-identical to today.
+- **Out side → net.** Counterflow received back by a producer (maker change) never left
+  for the rest of the graph, so net is the conserved measure of its production.
+- **In side → gross.** Upstream legs' production arrives gross; a venue's same-token
+  outflow (hook fees, fee fanouts) goes to non-participant addresses and does not
+  reduce what upstream delivered INTO it.
+
+A venue whose only round-trip is on its input token is therefore NOT netted and NOT
+flagged — its amounts are fully observed. With out-side-only netting the real route
+balances every token (WETH pure source; USDC 0.010%; ZORA 0.000%; jesse pure sink)
+and all 8 legs place in the DAG.
+
+Applies uniformly to known-venue and unknown legs; when no out-side round-trip exists,
+net == gross and behavior is byte-identical to today.
 
 Surfacing:
 
