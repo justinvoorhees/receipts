@@ -548,11 +548,12 @@ describe('TradesTable', () => {
 		expect(html).toContain('Possible manipulation');
 	});
 
-	// base = WETH (output, anchor rank 1 < USDC's 2) → the user BOUGHT the base,
-	// so a *lower* realized price is better. Quote = USDC.
+	// base = WETH (output, anchor rank 1 < USDC's 2) → the user BOUGHT the base.
+	// Quote = USDC. The tooltip states where the fill landed; for a buy, below is
+	// the good half.
 	it.each([
-		['3005', '3000', '5.00 USDC', 'WETH was bought at worse than Market Price'],
-		['2995', '3000', '5.00 USDC', 'WETH was bought at better than Market Price'],
+		['3005', '3000', '5.00 USDC', 'WETH bought above Market Price'],
+		['2995', '3000', '5.00 USDC', 'WETH bought below Market Price'],
 		['3000', '3000', 'None', null],
 	])('realized=%s market=%s renders Price Delta "%s" with tooltip %s', async (realizedPrice, marketMid, expectedValue, expectedTooltip) => {
 		const { TransactionDetailsDialog } = await import('./TradesTable');

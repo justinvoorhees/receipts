@@ -30,7 +30,7 @@ import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
  * Price Delta value: the gap between the market mid and the executed rate, in
  * the pair's quote token — the same quote-per-base convention the Execution and
  * Market Price rows above it use, formatted by the same rule. Unsigned; the
- * tooltip carries the verdict. Computed from the STORED values, not the rounded
+ * tooltip carries the direction. Computed from the STORED values, not the rounded
  * ones on screen, so the delta is derived like every other number on the receipt.
  * An exact tie is "None" — there is no delta to describe, so no tooltip either.
  */
@@ -44,11 +44,12 @@ export function formatPriceDelta(marketMid: unknown, realizedPrice: unknown, quo
 }
 
 /**
- * Was the fill better or worse than the mid? Direction-aware, and that is the
- * whole point: prices are quote-per-BASE, so a lower price is better only when
- * the user is BUYING the base (baseIsOutput). When the base is the input the
- * user is selling it and a higher price is better. Reading the sign without the
- * direction inverts the verdict on every buy — the bug this replaces.
+ * Where the fill landed relative to the mid. Deliberately NOT direction-aware:
+ * this states a fact about the price, so it needs no notion of who was buying.
+ * The tooltip pairs it with bought/sold and lets the reader draw the conclusion;
+ * Total Execution Quality is the row that renders a verdict. That split is what
+ * keeps this safe — an earlier version used above/below AS the verdict, which
+ * hard-coded 'higher is better' and inverted on every buy.
  *
  * Reads the raw stored mid/realized in every case (USD-anchored, ETH-quoted, and
  * no-anchor alike): the display rescale that used to be applied is strictly
@@ -56,17 +57,12 @@ export function formatPriceDelta(marketMid: unknown, realizedPrice: unknown, quo
  * so it can never flip the sign. Null on an exact tie — matching formatPriceDelta's
  * "None", so the value and the tooltip can never disagree.
  */
-export function priceDeltaVerdict(
-	marketMid: unknown,
-	realizedPrice: unknown,
-	baseIsOutput: boolean,
-): 'better' | 'worse' | null {
+export function priceDeltaDirection(marketMid: unknown, realizedPrice: unknown): 'above' | 'below' | null {
 	const mid = marketMid == null ? null : Number(marketMid);
 	const exec = realizedPrice == null ? null : Number(realizedPrice);
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return null;
 	if (exec === mid) return null;
-	const better = baseIsOutput ? exec < mid : exec > mid;
-	return better ? 'better' : 'worse';
+	return exec > mid ? 'above' : 'below';
 }
 
 /**
@@ -74,9 +70,12 @@ export function priceDeltaVerdict(
  * that is what baseIsOutput means — so one flag picks both the token and the
  * verb. Naming the base is also what makes the tooltip describe the number on
  * screen, since Execution and Market Price are both quoted per base token.
+ *
+ * Verb and direction are independent facts; their combination carries the
+ * verdict without stating one (bought below / sold above are the good halves).
  */
-export function priceDeltaTooltip(base: string, baseIsOutput: boolean, verdict: 'better' | 'worse'): string {
-	return `${base} was ${baseIsOutput ? 'bought' : 'sold'} at ${verdict} than Market Price`;
+export function priceDeltaTooltip(base: string, baseIsOutput: boolean, direction: 'above' | 'below'): string {
+	return `${base} ${baseIsOutput ? 'bought' : 'sold'} ${direction} Market Price`;
 }
 
 // The title reads as the swap direction — inputSymbol→outputSymbol — so it
@@ -396,8 +395,8 @@ export function Receipt({
 	const priceDeltaText = hasMarketPrice
 		? formatPriceDelta(row.marketMid, row.realizedPrice, quote)
 		: undefined;
-	const verdict = hasMarketPrice ? priceDeltaVerdict(row.marketMid, row.realizedPrice, baseIsOutput) : null;
-	const priceDeltaTip = verdict ? priceDeltaTooltip(base, baseIsOutput, verdict) : undefined;
+	const direction = hasMarketPrice ? priceDeltaDirection(row.marketMid, row.realizedPrice) : null;
+	const priceDeltaTip = direction ? priceDeltaTooltip(base, baseIsOutput, direction) : undefined;
 
 	return (
 		<>

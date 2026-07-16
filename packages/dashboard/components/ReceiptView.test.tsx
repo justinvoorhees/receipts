@@ -43,50 +43,48 @@ describe('formatPriceDelta', () => {
 	});
 });
 
-describe('priceDeltaVerdict', () => {
-	// baseIsOutput === true  → user is BUYING the base  → cheaper is better
-	// baseIsOutput === false → user is SELLING the base → dearer is better
+describe('priceDeltaDirection', () => {
+	// A fact about the price, not a verdict: it reports where the fill landed and
+	// takes no view on who was buying, so there is no baseIsOutput to get wrong.
 
-	it('rates a cheaper fill better when buying the base (ETH→WBTC)', async () => {
-		const { priceDeltaVerdict } = await import('./ReceiptView');
-		expect(priceDeltaVerdict(35.02321455049866, 34.93402185961484, true)).toBe('better');
+	it('reports a fill under the mid as below', async () => {
+		const { priceDeltaDirection } = await import('./ReceiptView');
+		expect(priceDeltaDirection(35.02321455049866, 34.93402185961484)).toBe('below');
 	});
 
-	it('rates a dearer fill worse when buying the base (ETH→WBTC)', async () => {
-		const { priceDeltaVerdict } = await import('./ReceiptView');
-		expect(priceDeltaVerdict(34.93402185961484, 35.02321455049866, true)).toBe('worse');
+	it('reports a fill over the mid as above', async () => {
+		const { priceDeltaDirection } = await import('./ReceiptView');
+		expect(priceDeltaDirection(34.93402185961484, 35.02321455049866)).toBe('above');
 	});
 
-	it('rates a dearer fill better when selling the base (WETH→USDC)', async () => {
-		const { priceDeltaVerdict } = await import('./ReceiptView');
-		expect(priceDeltaVerdict(3000, 3005, false)).toBe('better');
-	});
-
-	it('rates a cheaper fill worse when selling the base (WETH→USDC)', async () => {
-		const { priceDeltaVerdict } = await import('./ReceiptView');
-		expect(priceDeltaVerdict(3000, 2995, false)).toBe('worse');
+	it('is unaffected by trade direction — the same numbers read the same either way', async () => {
+		const { priceDeltaDirection } = await import('./ReceiptView');
+		expect(priceDeltaDirection(3000, 3005)).toBe('above');
+		expect(priceDeltaDirection(3000, 2995)).toBe('below');
 	});
 
 	it('returns null for an exact tie', async () => {
-		const { priceDeltaVerdict } = await import('./ReceiptView');
-		expect(priceDeltaVerdict(3000, 3000, true)).toBeNull();
-		expect(priceDeltaVerdict(3000, 3000, false)).toBeNull();
+		const { priceDeltaDirection } = await import('./ReceiptView');
+		expect(priceDeltaDirection(3000, 3000)).toBeNull();
 	});
 
 	it('returns null for null or non-finite inputs', async () => {
-		const { priceDeltaVerdict } = await import('./ReceiptView');
-		expect(priceDeltaVerdict(null, 3000, true)).toBeNull();
-		expect(priceDeltaVerdict(3000, null, true)).toBeNull();
+		const { priceDeltaDirection } = await import('./ReceiptView');
+		expect(priceDeltaDirection(null, 3000)).toBeNull();
+		expect(priceDeltaDirection(3000, null)).toBeNull();
 	});
 });
 
 describe('priceDeltaTooltip', () => {
+	// The four quadrants. Verb and direction are independent facts; the reader
+	// combines them. bought+below and sold+above are the good halves — asserted
+	// against Total Execution Quality in the render tests below.
 	it('names the base token and the verb implied by the trade direction', async () => {
 		const { priceDeltaTooltip } = await import('./ReceiptView');
-		expect(priceDeltaTooltip('WBTC', true, 'better')).toBe('WBTC was bought at better than Market Price');
-		expect(priceDeltaTooltip('WBTC', true, 'worse')).toBe('WBTC was bought at worse than Market Price');
-		expect(priceDeltaTooltip('WETH', false, 'better')).toBe('WETH was sold at better than Market Price');
-		expect(priceDeltaTooltip('WETH', false, 'worse')).toBe('WETH was sold at worse than Market Price');
+		expect(priceDeltaTooltip('WBTC', true, 'below')).toBe('WBTC bought below Market Price');
+		expect(priceDeltaTooltip('WBTC', true, 'above')).toBe('WBTC bought above Market Price');
+		expect(priceDeltaTooltip('WETH', false, 'above')).toBe('WETH sold above Market Price');
+		expect(priceDeltaTooltip('WETH', false, 'below')).toBe('WETH sold below Market Price');
 	});
 });
 
@@ -483,28 +481,32 @@ describe('Price Delta row', () => {
 		allInCostBps: '-25.53', chainlinkPrice: null,
 	};
 
-	it('renders the quote-denominated delta with a "bought at better" tooltip, agreeing with Execution Quality', async () => {
+	it('renders the quote-denominated delta with a "bought below" tooltip, agreeing with Execution Quality', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
 		expect(html).toContain('0.0891927 ETH');
-		expect(html).toContain('WBTC was bought at better than Market Price');
-		// The verdict must agree with Total Execution Quality, which reads +25.53bps.
+		expect(html).toContain('WBTC bought below Market Price');
+		// bought below = a good fill, so it must agree with Total Execution Quality,
+		// which reads +25.53bps. This is the pairing the old inverted labels broke.
 		expect(html).toContain('+25.53bps');
-		// The old inverted labels are gone for good.
+		// The tooltip states a fact, never a verdict — that stays with Execution Quality.
+		expect(html).not.toContain('better');
+		expect(html).not.toContain('worse');
+		// The old verdict-labels are gone for good.
 		expect(html).not.toContain('Above Market');
 		expect(html).not.toContain('Below Market');
 		expect(html).not.toContain('At Market');
 	});
 
-	it('rates the same pair worse when the fill is above the mid', async () => {
+	it('flips to "bought above" when the fill is over the mid, agreeing with a negative Execution Quality', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, realizedPrice: '35.11', allInCostBps: '25' } as never} />,
 		);
-		expect(html).toContain('WBTC was bought at worse than Market Price');
+		expect(html).toContain('WBTC bought above Market Price');
 	});
 
-	it('inverts the verdict for a sell (WETH→USDC), where the base is the input', async () => {
+	it('reads "sold above" for a sell (WETH→USDC), where the base is the input', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		// base = WETH (input, rank 1 < USDC's 2) → the user SOLD the base.
 		// Received 3005 USDC/WETH vs a 3000 mid → better.
@@ -519,10 +521,10 @@ describe('Price Delta row', () => {
 			} as never} />,
 		);
 		expect(html).toContain('5.00 USDC');
-		expect(html).toContain('WETH was sold at better than Market Price');
+		expect(html).toContain('WETH sold above Market Price');
 	});
 
-	it('rates a sell worse when it received less than the mid', async () => {
+	it('reads "sold below" for a sell that received less than the mid', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{
@@ -534,7 +536,7 @@ describe('Price Delta row', () => {
 				marketMid: '3000', realizedPrice: '2995',
 			} as never} />,
 		);
-		expect(html).toContain('WETH was sold at worse than Market Price');
+		expect(html).toContain('WETH sold below Market Price');
 	});
 
 	it('renders None with no tooltip when execution exactly matches the mid', async () => {
@@ -564,21 +566,21 @@ describe('Price Delta row', () => {
 		);
 		expect(html).toContain('0.0292 GITLAWB');
 		expect(html).not.toContain('197178.79 GITLAWB'); // the old quantity-based delta
-		// base = LFI is the input → sold. 1.0724 < 1.1016 mid → received fewer → worse,
-		// agreeing with allInCostBps 265 (a cost).
-		expect(html).toContain('LFI was sold at worse than Market Price');
+		// base = LFI is the input → sold. 1.0724 < 1.1016 mid → received fewer, so
+		// "sold below" — the bad half of a sell, agreeing with allInCostBps 265 (a cost).
+		expect(html).toContain('LFI sold below Market Price');
 	});
 
-	it('rates a USDC→WETH buy above the mid as worse (this assertion was inverted)', async () => {
+	it('reads "bought above" for a USDC→WETH buy over the mid (this assertion was once inverted)', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		// base = WETH (output, rank 1 < USDC's 2) → the user BOUGHT the base.
-		// Paid 3005 USDC/WETH against a 3000 mid → a $5/ETH overpay → worse.
-		// ReceiptView.test.tsx:470 previously asserted this was "better".
+		// Paid 3005 USDC/WETH against a 3000 mid → a $5/ETH overpay → bought above.
+		// ReceiptView.test.tsx:470 once asserted this was "better".
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...fullUsdcWethRow, marketMid: '3000', realizedPrice: '3005' } as never} />,
 		);
 		expect(html).toContain('5.00 USDC');
-		expect(html).toContain('WETH was bought at worse than Market Price');
+		expect(html).toContain('WETH bought above Market Price');
 	});
 });
 
