@@ -109,6 +109,33 @@
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Verified via Blockscout: RelayApprovalProxyV3 contract (7746 bytes) on Base. All Relay trades in dataset route through this contract."
+		},
+		{
+			"name": "OpenOcean",
+			"address": "0x6352a56caadC4F1E25CD6c75970Fa768A3304e64",
+			"version": "OpenOceanExchangeProxy",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_verified": "Verified on-chain 2026-07-15: Basescan getsourcecode names it OpenOceanExchangeProxy (EIP-1967 proxy, 2161 bytes, dispatcher exposes upgradeTo(address)); impl slot resolves to 0x201263cea08e8f1d6e2fdd1fd2ca44bf6145e2af (9329 bytes). Live: 574 logs across 574 distinct txs in ~9000 blocks (~2700/day), consistent with DefiLlama's ~$326k/day. Confirmed as `to` of tx 0x7169fbb3…3084."
+		},
+		{
+			"name": "OKX",
+			"address": "0xc8f6b8ba0dc0f175b568b99440b0867f69a29265",
+			"version": "DexRouter",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_verified": "Verified on-chain 2026-07-15. Sourced from Basescan's project directory (basescan.org/directory/detail/68), labeled 'OKX: Dex Router 2'; getsourcecode confirms verified contract 'DexRouter' (24378 bytes, not a proxy). Live: 21210 logs / 5388 distinct txs in ~9000 blocks (~26k/day), the right order for DefiLlama's $11.9M/day. Emits OrderRecord 5445x over those 5388 txs (~1/tx). Sampled 40 recent OrderRecord txs: 31 had `to` == this router; the other 9 arrived via per-user EIP-1167 TradingVaultImplementation clones (0xbb07f41a…, 0xeedbb45f…) — smart accounts, not aggregators, and out of reach of to_address by design."
+		},
+		{
+			"name": "OKX",
+			"address": "0x77449ff075c0a385796da0762bcb46fd5cc884c6",
+			"version": "DexRouterExactOut",
+			"fee_recipients": [],
+			"detection": "to_address",
+			"active": true,
+			"_verified": "IDENTITY verified, LIVENESS not. Basescan directory labels it 'OKX: DEX Router (ExactOut)'; getsourcecode confirms verified contract 'DexRouterExactOut' (14314 bytes). But it emitted ZERO logs in ~9000 blocks, so unlike every other entry here its settlement event is unconfirmed — no sample existed to observe. Kept active because identity is solid and `to` is what labels: a trade here is an OKX trade. If it wakes up, expect a correct OKX label; SETTLEMENT_EVENT_SEEN depends on it emitting OrderRecord like DexRouter, which is an assumption, not an observation."
 		}
 	]
 }

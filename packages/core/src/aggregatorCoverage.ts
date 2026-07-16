@@ -49,6 +49,8 @@ export const COVERED_MODULES: Record<string, string> = {
 	'1inch-agg': '1inch',
 	paraswap: 'Velora',
 	'nordstern-finance': 'Nordstern',
+	openocean: 'OpenOcean',
+	okx: 'OKX',
 };
 
 export function computeCoverage(

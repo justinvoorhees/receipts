@@ -119,6 +119,8 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	'1inch': '1inch',
 	nordstern: 'Nordstern',
 	odos: 'Odos',
+	okx: 'OKX',
+	openocean: 'OpenOcean',
 	relay: 'Relay',
 	velora: 'Velora',
 };
@@ -145,6 +147,9 @@ const PROVIDER_COLOR_HEX: Record<string, string> = {
 	'0x': '#fa0b54',
 	'1inch': '#d82122',
 	velora: '#0bc1fa',
+	// No okx/openocean entries: the Figma spec predates both and carries no value
+	// for either, so they intentionally fall back to var(--color-primary) via
+	// providerColor() rather than ship invented hexes under a spec-sourced comment.
 };
 
 export function providerColor(slug: string): string {

@@ -55,8 +55,14 @@ describe('computeCoverage', () => {
 		const r = computeCoverage(fixture.protocols, COVERED_MODULES);
 		expect(r.liveCount).toBeGreaterThan(20);
 		expect(r.missingUsd).toBeGreaterThan(0);
-		expect(r.gaps.map((g) => g.module)).toContain('okx');
-		// 0x must count as COVERED once the resolver lands.
+		// magpie (fly.trade) is the top uncovered aggregator by volume. Expect this
+		// to fail the day it's covered — that's the point: the example must be a
+		// module we genuinely don't label, so swap it for the next real gap rather
+		// than weaken the assertion.
+		expect(r.gaps.map((g) => g.module)).toContain('magpie');
+		// These must count as COVERED — zrx via the Deployer resolver, okx via its
+		// curated DexRouter entry.
 		expect(r.gaps.map((g) => g.module)).not.toContain('zrx');
+		expect(r.gaps.map((g) => g.module)).not.toContain('okx');
 	});
 });

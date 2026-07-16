@@ -88,6 +88,36 @@ export const AGGREGATOR_SIGNATURES: Record<string, SettlementSignature> = {
 		aggregator: 'relay', settlementContract: '0xccc88a9d1b4ed6b0eaba998850414b24f1c315be',
 		eventTopics: ['0xafbab204e8271965231d37baed9b1abca8725b7409c70314455f68bc89142b91'], eventName: null,
 	}, // discovered: 0x8fa230b6…
+	// OpenOcean settles on the router itself, so plain 'router' mode works. Both
+	// topics are required: Swapped is 88% of live traffic (506/574 logs in ~9000
+	// blocks) but the discovery tx 0x7169fbb3… emits SimpleSwapped (68/574) — a
+	// Swapped-only entry would match `to`, label the trade, then flag
+	// SETTLEMENT_EVENT_MISSING on the very receipt that prompted the work.
+	// Topics derived from the verified impl ABI (0x201263ce…), not guessed.
+	openocean: {
+		aggregator: 'openocean', settlementContract: '0x6352a56caadc4f1e25cd6c75970fa768a3304e64',
+		eventTopics: [
+			'0x76af224a143865a50b41496e1a73622698692c565c1214bc862f18e22d829c5e', // Swapped
+			'0xab5ce61cc1108f6c770a3f1c268c5be3f795d9d805e8a5445a4b480323f5612f', // SimpleSwapped
+		],
+		// null because two distinct events share this entry — same reason as odos
+		eventName: null,
+	},
+	// OKX runs two routers (DexRouter + the dormant DexRouterExactOut), so like
+	// odos this needs event_anywhere: settlementContract can only name one, and a
+	// DexRouterExactOut trade would otherwise miss. Topic from the verified
+	// DexRouter ABI, observed 5445x over 5388 txs in ~9000 blocks (~1/tx).
+	//
+	// This entry also earns its keep on trades it CANNOT label: ~22% of sampled
+	// OKX flow arrives via per-user TradingVault clones, where `to` is the user's
+	// own smart account. Those stay `unknown` — correctly, since the vault is not
+	// an aggregator — but findAggregatorHints surfaces 'okx' from this topic, so
+	// they land triageable rather than opaque.
+	okx: {
+		aggregator: 'okx', settlementContract: '0xc8f6b8ba0dc0f175b568b99440b0867f69a29265',
+		eventTopics: ['0x1bb43f2da90e35f7b0cf38521ca95a49e68eb42fac49924930a5bd73cdf7576c'],
+		eventName: 'OrderRecord', detectBy: 'event_anywhere',
+	},
 };
 
 export interface EmittedEvent { address: string; topic0: string; count: number }
