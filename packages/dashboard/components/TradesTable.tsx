@@ -632,8 +632,8 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 // string next to the label (matching every other leg row's label+context
 // split) instead of baking it into the label itself.
 export function getStepContext(legType: RouteLeg['type']): string | undefined {
-	if (legType === 'wrap') return 'ETH→WETH';
-	if (legType === 'unwrap') return 'WETH→ETH';
+	if (legType === 'wrap') return 'ETH → WETH';
+	if (legType === 'unwrap') return 'WETH → ETH';
 	return undefined;
 }
 

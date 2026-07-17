@@ -560,8 +560,8 @@ describe('wrap/unwrap venue handling', () => {
 		const { getVenueLabel, getStepContext } = await import('./TradesTable');
 		expect(getVenueLabel({ type: 'unwrap' })).toBe('Unwrap');
 		expect(getVenueLabel({ type: 'wrap' })).toBe('Wrap');
-		expect(getStepContext('unwrap')).toBe('WETH→ETH');
-		expect(getStepContext('wrap')).toBe('ETH→WETH');
+		expect(getStepContext('unwrap')).toBe('WETH → ETH');
+		expect(getStepContext('wrap')).toBe('ETH → WETH');
 		expect(getStepContext('univ3')).toBeUndefined();
 	});
 	it('includes wrap/unwrap legs in price-impact rows with a dash value and no impact tooltip', async () => {
@@ -573,7 +573,7 @@ describe('wrap/unwrap venue handling', () => {
 		expect(rows).toHaveLength(2);
 		expect(rows[1]).toMatchObject({
 			label: 'Unwrap',
-			context: 'WETH→ETH',
+			context: 'WETH → ETH',
 			value: '–',
 			color: undefined,
 			valueTooltip: undefined,

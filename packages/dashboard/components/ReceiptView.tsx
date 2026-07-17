@@ -81,13 +81,13 @@ export function priceDeltaTooltip(base: string, baseIsOutput: boolean, direction
 	return `${base} ${baseIsOutput ? 'bought' : 'sold'} ${direction} Market Price`;
 }
 
-// The title reads as the swap direction — inputSymbol→outputSymbol — so it
-// always matches the Token In / Token Out rows below it (USDC→WETH shows
-// "USDC→WETH", WARP→ETH shows "WARP→ETH"). Price rows are separately quoted
+// The title reads as the swap direction — inputSymbol → outputSymbol — so it
+// always matches the Token In / Token Out rows below it (USDC → WETH shows
+// "USDC → WETH", WARP → ETH shows "WARP → ETH"). Price rows are separately quoted
 // USD-per-base and are unaffected by this ordering. input/output are populated
 // consistently for seed and computed rows, so we never parse `direction`.
 function receiptPairTitle(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): string {
-	return `${row.inputSymbol}→${row.outputSymbol}`;
+	return `${row.inputSymbol} → ${row.outputSymbol}`;
 }
 
 const NAMED_CHAINS: Record<number, string> = {

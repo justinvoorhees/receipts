@@ -147,8 +147,8 @@ describe('Receipt header', () => {
 			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
 		// Pair detail row reads as the swap direction (input→output), matching Token In/Out.
-		expect(html).toContain('USDC→WETH');
-		expect(html).not.toContain('WETH→USDC');
+		expect(html).toContain('USDC → WETH');
+		expect(html).not.toContain('WETH → USDC');
 		// Token In / Token Out render the generalized symbols + amounts (USDC padded to 2 dp).
 		expect(html).toContain('1000.00 USDC');
 		expect(html).toContain('0.33 WETH');
@@ -240,7 +240,7 @@ describe('Receipt partial state', () => {
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
 		);
 		// Pair title shows the exotic pair in swap direction (input→output).
-		expect(html).toContain('AAA→BBB');
+		expect(html).toContain('AAA → BBB');
 		// Token symbols/amounts still render.
 		expect(html).toContain('1000 AAA');
 		expect(html).toContain('5 BBB');
@@ -273,8 +273,8 @@ describe('Receipt token-denominated price rows', () => {
 		expect(html).not.toContain('$0.000000667735');
 		// Header pair title reads as the swap direction (input→output), matching
 		// Token In/Out. It must NOT invert to ETH→WARP.
-		expect(html).toContain('WARP→ETH');
-		expect(html).not.toContain('ETH→WARP');
+		expect(html).toContain('WARP → ETH');
+		expect(html).not.toContain('ETH → WARP');
 	});
 
 	it('renders stablecoin-quoted (USDC/WETH) price rows with the USDC quote symbol', async () => {
@@ -347,7 +347,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('Uniswap v3');
 		expect(html).toContain('Unwrap');
-		expect(html).toContain('WETH→ETH');
+		expect(html).toContain('WETH → ETH');
 		expect(html).not.toContain('No Route Found');
 	});
 
