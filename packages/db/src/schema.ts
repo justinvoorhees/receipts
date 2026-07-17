@@ -35,6 +35,10 @@ export const receipts = pgTable(
 		// column existed are backfilled best-effort.
 		routerAddress: text('router_address'),
 		trader: text('trader').notNull(),
+		// The filler/relayer EOA (tx.from) that submitted a UniswapX-anchored
+		// fill; null for self- and net-flow-anchored trades, and for rows
+		// persisted before this column existed (no backfill).
+		fillerAddress: text('filler_address'),
 		direction: text('direction').notNull(),
 		inputToken: text('input_token').notNull(),
 		outputToken: text('output_token').notNull(),
