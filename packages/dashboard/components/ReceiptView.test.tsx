@@ -380,6 +380,29 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).toContain('Market Maker');
 		expect(html).toContain('Filled from a market maker');
 	});
+
+	// The Price Impact section (populated by TradesTable's getPriceImpactRows,
+	// consumed here at ~line 610) is a SEPARATE null-tooltip code path from the
+	// LP Fee section's RFQ_LEG_TOOLTIP above. An rfq leg's price impact is null
+	// BY DESIGN — off-chain quote, no on-chain mid — not because a mid was
+	// "discovered ... implausible or stale" (the legacy, now-false, copy).
+	it('gives an rfq leg\'s null Price Impact the market-maker tooltip, not the legacy "implausible or stale" copy', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const row = { ...base, pricingStatus: 'full', routeLegs: [
+			{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
+				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2 },
+			{ venue: '0x69a9f156d5902191dce331ab348f3e9e96e48b22', type: 'rfq',
+				tokenIn: '0x4200000000000000000000000000000000000006',
+				tokenOut: 'native',
+				feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
+		] };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		const priceImpactSection = html.slice(html.indexOf('Price Impact'), html.indexOf('Slippage'));
+		expect(priceImpactSection).toContain('Filled from a market maker');
+		expect(priceImpactSection).not.toContain('implausible or stale');
+	});
 });
 
 // Regression coverage for the leg "context" (token-pair) label in the Cost

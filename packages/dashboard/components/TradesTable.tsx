@@ -508,9 +508,17 @@ export function getPriceImpactRows(
 	});
 }
 
+// Shared with ReceiptView's LP-fee tooltip (imported from here) so the two
+// null-cell explanations for an rfq leg — Price Impact here, LP Fee there —
+// state the same, current semantics: an rfq leg's price impact and LP fee
+// are null BY DESIGN (off-chain quote, no on-chain mid), never because a mid
+// was "discovered ... implausible or stale" (that failure mode no longer exists).
+export const RFQ_LEG_TOOLTIP =
+	"Filled from a market maker's inventory at an off-chain quoted price; no pool fee or on-chain mid exists for this hop.";
+
 function getNullPriceImpactTooltip(leg: Pick<RouteLeg, 'type' | 'venue'>): string {
 	if (leg.type === 'rfq' && !KNOWN_NON_RFQ_VENUES.has(leg.venue.toLowerCase())) {
-		return 'The discovered RFQ reference mid was implausible or stale, so this leg is excluded from price-impact attribution.';
+		return RFQ_LEG_TOOLTIP;
 	}
 	return 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.';
 }

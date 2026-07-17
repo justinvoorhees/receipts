@@ -23,6 +23,7 @@ import {
 	getVenueLabel,
 	getAggregatorFeeAttribution,
 	ShareButton,
+	RFQ_LEG_TOOLTIP,
 } from './TradesTable';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
 
@@ -124,9 +125,6 @@ function pairBaseQuote(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): {
 }
 
 const UNAVAILABLE = 'Unavailable for this pair';
-
-const RFQ_LEG_TOOLTIP =
-	"Filled from a market maker's inventory at an off-chain quoted price; no pool fee or on-chain mid exists for this hop.";
 
 function Divider({ dashed = false, color }: { dashed?: boolean; color?: string }) {
 	if (dashed) {
