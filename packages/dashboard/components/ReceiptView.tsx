@@ -24,6 +24,8 @@ import {
 	getAggregatorFeeAttribution,
 	ShareButton,
 	RFQ_LEG_TOOLTIP,
+	isMakerLeg,
+	NULL_PRICE_TOOLTIP,
 } from './TradesTable';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
 
@@ -228,12 +230,14 @@ function BkdHeading({
 	value,
 	color,
 	tooltip,
+	valueTooltip,
 	plain = false,
 }: {
 	label: string;
 	value?: string | undefined;
 	color?: string | undefined;
 	tooltip?: string | undefined;
+	valueTooltip?: string | undefined;
 	plain?: boolean;
 }) {
 	return (
@@ -252,9 +256,21 @@ function BkdHeading({
 				<span className={plain ? '' : 'underline decoration-dotted underline-offset-[3px]'}>{label}</span>
 			)}
 			{value != null && (
-				<span className="text-right" style={color ? { color } : undefined}>
-					{value}
-				</span>
+				valueTooltip ? (
+					<span className="group relative text-right cursor-default" style={color ? { color } : undefined}>
+						<span className="underline decoration-dotted underline-offset-[3px] group-hover:decoration-solid">{value}</span>
+						<span
+							role="tooltip"
+							className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+						>
+							{valueTooltip}
+						</span>
+					</span>
+				) : (
+					<span className="text-right" style={color ? { color } : undefined}>
+						{value}
+					</span>
+				)
 			)}
 		</div>
 	);
@@ -266,6 +282,7 @@ function BkdRow({
 	context,
 	href,
 	color,
+	labelColor,
 	valueTooltip,
 	tooltip,
 	secondary = false,
@@ -276,6 +293,7 @@ function BkdRow({
 	context?: string | undefined;
 	href?: string | undefined;
 	color?: string | undefined;
+	labelColor?: string | undefined;
 	valueTooltip?: string | undefined;
 	tooltip?: string | undefined;
 	secondary?: boolean;
@@ -287,12 +305,21 @@ function BkdRow({
 	]
 		.filter(Boolean)
 		.join(' ');
+	const labelStyle = labelColor ? { color: labelColor } : undefined;
 	const labelNode = href ? (
-		<a href={href} target="_blank" rel="noreferrer" className={`${labelClass} hover:decoration-solid`}>
+		<a
+			href={href}
+			target="_blank"
+			rel="noreferrer"
+			className={`${labelClass} hover:decoration-solid`}
+			style={labelStyle}
+		>
 			{label}
 		</a>
 	) : (
-		<span className={labelClass}>{label}</span>
+		<span className={labelClass} style={labelStyle}>
+			{label}
+		</span>
 	);
 	return (
 		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
@@ -319,7 +346,7 @@ function BkdRow({
 					<span className="underline decoration-dotted underline-offset-[3px] group-hover:decoration-solid">{value}</span>
 					<span
 						role="tooltip"
-						className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-[280px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+						className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
 					>
 						{valueTooltip}
 					</span>
@@ -358,6 +385,7 @@ function LegRow({
 	const isStep = stepContext != null;
 	const hasPair = leg.tokenIn && leg.tokenOut;
 	const hideContext = requirePair && !isStep && !hasPair;
+	const maker = isMakerLeg(leg);
 	return (
 		<BkdRow
 			label={getVenueLabel(leg)}
@@ -366,7 +394,7 @@ function LegRow({
 			value={value}
 			color={color}
 			secondary
-			{...(leg.type === 'rfq' ? { tooltip: RFQ_LEG_TOOLTIP } : {})}
+			{...(maker ? { labelColor: 'var(--color-primary)', valueTooltip: RFQ_LEG_TOOLTIP } : {})}
 		/>
 	);
 }
@@ -490,10 +518,13 @@ export function Receipt({
 						? UNAVAILABLE
 						: formatExecutionPrice(row.realizedPrice, base, quote)}
 				</DetailRow>
-				<DetailRow label="Market Price" tooltip={marketTooltip}>
+				<DetailRow
+					label="Market Price"
+					{...(hasMarketPrice ? { tooltip: marketTooltip } : { valueTooltip: NULL_PRICE_TOOLTIP })}
+				>
 					{hasMarketPrice
 						? formatExecutionPrice(row.marketMid, base, quote)
-						: UNAVAILABLE}
+						: 'Null'}
 					{hasMarketPrice && row.manipulationFlag ? (
 						<span
 							className="ml-2"
@@ -506,9 +537,9 @@ export function Receipt({
 				</DetailRow>
 				<DetailRow
 					label="Price Delta"
-					{...(priceDeltaTip ? { valueTooltip: priceDeltaTip } : {})}
+					{...(hasMarketPrice ? (priceDeltaTip ? { valueTooltip: priceDeltaTip } : {}) : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
-					{hasMarketPrice ? priceDeltaText : UNAVAILABLE}
+					{hasMarketPrice ? priceDeltaText : 'Null'}
 				</DetailRow>
 
 				<Divider dashed />
@@ -536,8 +567,11 @@ export function Receipt({
 					<>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						{legs.map((leg, index) => {
-							const { text: lpText, color: lpColor } =
-								leg.lpFeeBps == null ? { text: '–', color: undefined } : formatDialogBps(-leg.lpFeeBps);
+							const { text: lpText, color: lpColor } = isMakerLeg(leg)
+								? { text: 'Null', color: undefined }
+								: leg.lpFeeBps == null
+									? { text: '–', color: undefined }
+									: formatDialogBps(-leg.lpFeeBps);
 							return (
 								<LegRow
 									key={`${leg.venue}-${index}`}
@@ -576,7 +610,6 @@ export function Receipt({
 						<BkdRow
 							label={aggAttribution.label}
 							href={aggAttribution.href}
-							tooltip={aggAttribution.tooltip}
 							value={agg.text}
 							color={agg.color}
 							secondary
@@ -589,7 +622,10 @@ export function Receipt({
 				<Divider dashed />
 
 				{isPartial || (legs.length > 0 && !hasCostedLeg) ? (
-					<BkdHeading label={`Price Impact / Slippage ${UNAVAILABLE.toLowerCase()}`} plain />
+					<>
+						<BkdHeading label="Price Impact" value="Null" valueTooltip={NULL_PRICE_TOOLTIP} plain />
+						<BkdHeading label="Slippage" value="Null" valueTooltip={NULL_PRICE_TOOLTIP} plain />
+					</>
 				) : (
 					<>
 						<BkdHeading

@@ -182,28 +182,28 @@ describe('Receipt header', () => {
 
 describe('Receipt Fabric partner-fee attribution', () => {
 	// A Fabric-routed swap where an integrator/partner feeBps (80bps here) is
-	// forwarded through the Fabric router. Fabric's own fee caps at 10bps, so the
-	// receipt must NOT present this as a "Fabric Fee".
+	// forwarded through the Fabric router. Fabric is only ever the router, so
+	// the receipt must NOT present this as a "Fabric Fee" — it's a neutral,
+	// no-tooltip "Integrator Fee" linking to the fee recipient's contract.
 	const fabricPartnerRow = {
 		...fullUsdcWethRow,
 		aggregator: 'Fabric',
 		aggFeeBps: '80',
-		// Farcaster/Warplet's known fee-collection wallet — resolved to a display
-		// name via the INTEGRATOR_FEE_RECIPIENTS registry in TradesTable.tsx.
 		feeRecipient: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5',
 	};
 
-	it('does not render "Fabric Fee" for a large Fabric-routed integrator fee', async () => {
+	it('links a large Fabric-routed integrator fee to its recipient contract, with no tooltip', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fabricPartnerRow as never} hash={fabricPartnerRow.txHash} />,
 		);
-		expect(html).toContain('Integrator Fee (Farcaster)');
+		expect(html).toContain('Integrator Fee');
 		expect(html).not.toContain('Fabric Fee');
-		expect(html).toContain('not Fabric revenue');
+		expect(html).toContain('href="https://basescan.org/address/0x403560800cb7e03a06ebbc991dba0f6ac751a1c5"');
+		expect(html).not.toContain('not Fabric revenue');
 	});
 
-	it('labels an unrecognized Fabric-routed integrator fee neutrally, without inventing a name', async () => {
+	it('labels a Fabric-routed integrator fee neutrally and links out even without a known name', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
 		const unknownIntegratorRow = {
 			...fullUsdcWethRow,
@@ -215,9 +215,8 @@ describe('Receipt Fabric partner-fee attribution', () => {
 			<ReceiptView trade={unknownIntegratorRow as never} hash={unknownIntegratorRow.txHash} />,
 		);
 		expect(html).toContain('Integrator Fee');
-		expect(html).not.toContain('Farcaster');
 		expect(html).not.toContain('Fabric Fee');
-		expect(html).toContain('not Fabric revenue');
+		expect(html).toContain('href="https://basescan.org/address/0x00000000000000000000000000000000000bad"');
 	});
 });
 
@@ -315,7 +314,7 @@ describe('Receipt estimated pricing tier', () => {
 		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(0);
 	});
 
-	it('shows Execution Price on a fully partial receipt but leaves Market/Delta unavailable', async () => {
+	it('shows Execution Price on a fully partial receipt but leaves Market/Delta null', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
 		const partialRow = {
 			...fullUsdcWethRow,
@@ -329,8 +328,11 @@ describe('Receipt estimated pricing tier', () => {
 		);
 		// Execution Price now renders (previously "Unavailable for this pair").
 		expect(html).toContain('Execution Price');
-		// Execution Price renders (realizedPrice present); only Market + Delta are unavailable.
-		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(2);
+		// Execution Price renders (realizedPrice present); Market Price, Price Delta,
+		// Price Impact, and Slippage are all null on a fully partial receipt, each
+		// carrying the generic "no market price" tooltip.
+		expect((html.match(/>Null</g) ?? []).length).toBe(4);
+		expect((html.match(/No market price available/g) ?? []).length).toBeGreaterThanOrEqual(4);
 	});
 });
 
@@ -371,14 +373,25 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).not.toContain('>Route<');
 	});
 
-	it('labels an rfq leg "Market Maker" with an off-chain-quote tooltip', async () => {
+	it('labels an rfq leg "Market Maker", linked to its contract, with a null LP Fee and off-chain-quote tooltip', async () => {
 		const { ReceiptView } = await import('./ReceiptView');
+		const venue = '0x69a9f156d5902191dce331ab348f3e9e96e48b22';
+		// A costed leg alongside the rfq leg puts this route in the "Liquidity
+		// Provider Fee" branch (hasCostedLeg), not the uncosted "Pools Touched"
+		// branch, so the maker leg's LP Fee value/tooltip actually render.
 		const row = { ...base, pricingStatus: 'partial', routeLegs: [
-			{ venue: '0x69a9f156d5902191dce331ab348f3e9e96e48b22', type: 'rfq', tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
+			{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
+				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2 },
+			{ venue, type: 'rfq', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: 0, priceImpactBps: null },
 		] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('Market Maker');
-		expect(html).toContain('Filled from a market maker');
+		expect(html).toContain(`href="https://basescan.org/address/${venue}"`);
+		expect(html).toContain('color:var(--color-primary)');
+		expect(html).toContain('Market maker inventory, no L.P. fee or market price available');
+		expect(html).toContain('>Null<');
 	});
 
 	// The Price Impact section (populated by TradesTable's getPriceImpactRows,
@@ -400,7 +413,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		const priceImpactSection = html.slice(html.indexOf('Price Impact'), html.indexOf('Slippage'));
-		expect(priceImpactSection).toContain('Filled from a market maker');
+		expect(priceImpactSection).toContain('Market maker inventory, no L.P. fee or market price available');
 		expect(priceImpactSection).not.toContain('implausible or stale');
 	});
 });

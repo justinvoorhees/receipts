@@ -159,7 +159,7 @@ describe('TradesTable', () => {
 				context: 'USDC/WETH',
 				value: 'Null',
 				color: undefined,
-				valueTooltip: 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.',
+				valueTooltip: 'No market price available',
 			},
 		]);
 	});
@@ -315,7 +315,7 @@ describe('TradesTable', () => {
 
 		expect(rows[0]).toMatchObject({
 			label: 'Curve StableNG',
-			valueTooltip: 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.',
+			valueTooltip: 'No market price available',
 		});
 	});
 
@@ -339,7 +339,7 @@ describe('TradesTable', () => {
 			label: 'Unknown Pool',
 			context: 'USDC/VIRTUAL',
 			value: 'Null',
-			valueTooltip: 'No reliable reference mid was available for this leg, so it is excluded from price-impact attribution.',
+			valueTooltip: 'No market price available',
 		});
 	});
 
@@ -434,13 +434,11 @@ describe('TradesTable', () => {
 		});
 	});
 
-	it('does not attribute a large Fabric-router fee to Fabric itself', async () => {
-		// Regression for the WARP->ETH tx (0xa21e4d82...): an 80bps fee retained
-		// by an address reached via the Fabric router. Fabric's own protocol fee
-		// caps at 10bps (surplus-sharing only), so anything larger routed through
-		// Fabric is necessarily a partner/integrator's feeBps, not Fabric revenue.
-		// The "Farcaster" name comes from the INTEGRATOR_FEE_RECIPIENTS registry
-		// (keyed on this exact feeRecipient address), not a hardcoded label.
+	it('attributes any nonzero Fabric-router fee to the integrator, not Fabric itself, linking to the fee recipient', async () => {
+		// Fabric is only ever the *router*; any fee retained by an address
+		// reached via the Fabric router belongs to whichever integrator/partner
+		// set it up, never to Fabric. No name-resolution, no tooltip — just a
+		// neutral "Integrator Fee" label linking out to the recipient's contract.
 		const { getAggregatorFeeAttribution } = await import('./TradesTable');
 
 		const result = getAggregatorFeeAttribution({
@@ -448,54 +446,25 @@ describe('TradesTable', () => {
 			aggFeeBps: 11.58,
 			feeRecipient: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5',
 		} as never);
-		expect(result.label).toBe('Integrator Fee (Farcaster)');
+		expect(result.label).toBe('Integrator Fee');
 		expect(result.label).not.toMatch(/^Fabric Fee$/);
-		expect(result.tooltip).toMatch(/not Fabric revenue/);
-		// Links to the persisted integrator fee wallet.
+		expect(result).not.toHaveProperty('tooltip');
 		expect(result.href).toBe('https://basescan.org/address/0x403560800cb7e03a06ebbc991dba0f6ac751a1c5');
 	});
 
-	it('resolves a known integrator fee-recipient address to its display name', async () => {
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
-
-		const result = getAggregatorFeeAttribution({
-			aggregator: 'fabric',
-			aggFeeBps: 25,
-			feeRecipient: '0x403560800CB7E03A06EBBC991DBA0F6AC751A1C5', // mixed-case, must still match
-		} as never);
-		expect(result.label).toBe('Integrator Fee (Farcaster)');
-		expect(result.href).toBe('https://basescan.org/address/0x403560800CB7E03A06EBBC991DBA0F6AC751A1C5');
-	});
-
-	it('labels an unrecognized Fabric-router integrator fee neutrally, without inventing a name', async () => {
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
-
-		const result = getAggregatorFeeAttribution({
-			aggregator: 'fabric',
-			aggFeeBps: 42,
-			feeRecipient: '0x00000000000000000000000000000000000bad',
-		} as never);
-		expect(result.label).toBe('Integrator Fee');
-		expect(result.label).not.toContain('Farcaster');
-		expect(result.href).toBe('https://basescan.org/address/0x00000000000000000000000000000000000bad');
-		expect(result.tooltip).toMatch(/not Fabric revenue/);
-		expect(result.tooltip).toMatch(/has not been identified/);
-	});
-
-	it('labels a large Fabric-router fee neutrally when no feeRecipient is persisted', async () => {
+	it('labels a Fabric-router fee neutrally when no feeRecipient is persisted (no link)', async () => {
 		const { getAggregatorFeeAttribution } = await import('./TradesTable');
 
 		const result = getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 42 } as never);
 		expect(result.label).toBe('Integrator Fee');
-		expect(result.label).not.toContain('Farcaster');
 		expect(result.href).toBeUndefined();
 	});
 
-	it('labels a small Fabric-router fee neutrally (cannot distinguish Fabric surplus-share from a small partner fee)', async () => {
+	it('labels a small Fabric-router fee the same as a large one — no ambiguous "Router Fee" case', async () => {
 		const { getAggregatorFeeAttribution } = await import('./TradesTable');
 
 		const result = getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 5 } as never);
-		expect(result.label).toBe('Router Fee');
+		expect(result.label).toBe('Integrator Fee');
 		expect(result.label).not.toMatch(/^Fabric Fee$/);
 	});
 
