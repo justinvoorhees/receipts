@@ -5,6 +5,7 @@ import {
 	cleanSwapFromNets,
 	findCleanSwapCandidates,
 	selectBeneficiary,
+	detectBeneficiaryByNetFlow,
 	type CleanSwap,
 } from './endpoints.js';
 
@@ -172,5 +173,44 @@ describe('selectBeneficiary', () => {
 	it('excludes the trader from selection', () => {
 		const traderCand: CleanSwap = { ...candA, address: RELAYER.toLowerCase() };
 		expect(selectBeneficiary([traderCand], RELAYER, () => true)).toBeNull();
+	});
+});
+
+const TRANSFER2 = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const pad2 = (a: string) => ('0x' + a.replace(/^0x/, '').toLowerCase().padStart(64, '0')) as string;
+const word2 = (v: bigint) => ('0x' + v.toString(16).padStart(64, '0')) as string;
+const xfer2 = (token: string, from: string, to: string, value: bigint) => ({
+	address: token,
+	topics: [TRANSFER2, pad2(from), pad2(to)],
+	data: word2(value),
+});
+
+const TKA = '0xaa00000000000000000000000000000000000001';
+const TKB = '0xbb00000000000000000000000000000000000002';
+const RELAYER2 = '0x1111111111111111111111111111111111111111'; // tx.from, zero net
+const BENE_EOA = '0x2222222222222222222222222222222222222222';
+const INTERMEDIARY = '0x3333333333333333333333333333333333333333';
+
+describe('detectBeneficiaryByNetFlow', () => {
+	// Beneficiary EOA sells TKA, gets TKB; an intermediary contract does the
+	// mirror TKB->TKA hop. Two clean-swap addresses; EOA must win.
+	const trace = { logs: [
+		xfer2(TKA, BENE_EOA, INTERMEDIARY, 100n),
+		xfer2(TKB, INTERMEDIARY, BENE_EOA, 90n),
+		xfer2(TKA, INTERMEDIARY, '0x9999999999999999999999999999999999999999', 100n),
+		xfer2(TKB, '0x9999999999999999999999999999999999999999', INTERMEDIARY, 90n),
+	] };
+	const isEoa = async (a: string) => a.toLowerCase() === BENE_EOA.toLowerCase();
+
+	it('selects the EOA beneficiary, never the contract intermediary', async () => {
+		const d = await detectBeneficiaryByNetFlow(trace as never, RELAYER2, isEoa);
+		expect(d?.beneficiary.toLowerCase()).toBe(BENE_EOA.toLowerCase());
+		expect(d?.inputToken.toLowerCase()).toBe(TKA);
+		expect(d?.outputToken.toLowerCase()).toBe(TKB);
+	});
+
+	it('fails closed to null when two contract candidates are ambiguous', async () => {
+		const d = await detectBeneficiaryByNetFlow(trace as never, RELAYER2, async () => false);
+		expect(d).toBeNull();
 	});
 });

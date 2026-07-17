@@ -2,8 +2,7 @@ import { createPublicClient, http, TransactionNotFoundError } from 'viem';
 import { base } from 'viem/chains';
 import {
 	extractEndpoints,
-	findCleanSwapCandidates,
-	selectBeneficiary,
+	detectBeneficiaryByNetFlow,
 	type AnalyzeFailure,
 	type TraceNode,
 } from './endpoints.js';
@@ -49,20 +48,15 @@ export async function classifyTransaction(
 		// Defensive: if endpoints actually resolve, this wasn't a real failure.
 		if (extractEndpoints({ trace, trader })) return { reason: 'ANALYZE_ERROR' };
 
-		const candidates = findCleanSwapCandidates(trace, trader);
-		const addrs = [...new Set(candidates.map((c) => c.address.toLowerCase()))];
-		const eoaFlags = new Map<string, boolean>();
-		await Promise.all(
-			addrs.map(async (a) => {
-				try {
-					const code = await rpc.getBytecode({ address: a as `0x${string}` });
-					eoaFlags.set(a, !code || code === '0x');
-				} catch {
-					eoaFlags.set(a, false); // unknown → treat as contract (conservative)
-				}
-			}),
-		);
-		const detail = selectBeneficiary(candidates, trader, (a) => eoaFlags.get(a.toLowerCase()) ?? false);
+		const isEoa = async (a: string): Promise<boolean> => {
+			try {
+				const code = await rpc.getBytecode({ address: a as `0x${string}` });
+				return !code || code === '0x';
+			} catch {
+				return false; // unknown → treat as contract (conservative)
+			}
+		};
+		const detail = await detectBeneficiaryByNetFlow(trace, trader, isEoa);
 		if (!detail) return { reason: 'NOT_DECODABLE' };
 		return { reason: 'RELAYER_THIRD_PARTY', detail };
 	} catch {

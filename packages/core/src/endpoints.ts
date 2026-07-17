@@ -139,6 +139,21 @@ export function selectBeneficiary(
 	return null;
 }
 
+/** Shared net-flow beneficiary detection: resolve EOA flags for every clean-swap
+ *  candidate, then delegate to selectBeneficiary. Used by classifyTransaction
+ *  (detection) and resolveTrader tier 3 (decoding) so the two never diverge. */
+export async function detectBeneficiaryByNetFlow(
+	trace: TraceNode,
+	trader: string,
+	isEoa: (address: string) => Promise<boolean>,
+): Promise<RelayerDetail | null> {
+	const candidates = findCleanSwapCandidates(trace, trader);
+	const addrs = [...new Set(candidates.map((c) => c.address.toLowerCase()))];
+	const flags = new Map<string, boolean>();
+	await Promise.all(addrs.map(async (a) => flags.set(a, await isEoa(a))));
+	return selectBeneficiary(candidates, trader, (a) => flags.get(a.toLowerCase()) ?? false);
+}
+
 export function extractEndpoints(args: { trace: TraceNode; trader: string }): Endpoints | null {
 	const trader = args.trader.toLowerCase();
 	const nets = perAddressTokenDeltas(args.trace).get(trader) ?? new Map<string, bigint>();
