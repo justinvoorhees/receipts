@@ -293,6 +293,13 @@ describe('TradesTable', () => {
 		expect(getVenueLabel({ venue: '0xnotpinned', type: 'unipool' } as never)).toBe('UniPool');
 	});
 
+	it('labels rfq legs Market Maker and unknown legs Unknown Pool', async () => {
+		const { getVenueLabel } = await import('./TradesTable');
+
+		expect(getVenueLabel({ type: 'rfq', venue: '0x69a9f156d5902191dce331ab348f3e9e96e48b22' } as never)).toBe('Market Maker');
+		expect(getVenueLabel({ type: 'unknown', venue: '0x51c72848c68a965f66fa7a88855f9f7784502a7f' } as never)).toBe('Unknown Pool');
+	});
+
 	it('uses generic null impact copy for manually tagged Curve pools even if persisted as RFQ', async () => {
 		const { getPriceImpactRows } = await import('./TradesTable');
 
@@ -319,7 +326,6 @@ describe('TradesTable', () => {
 			venue: '0xbee3211ab312a8d065c4fef0247448e17a8da000',
 			type: 'unknown',
 		} as never)).toBe('Unknown Pool');
-		expect(getVenueLabel({ venue: '0xother', type: 'rfq' } as never)).toBe('Unknown Pool');
 
 		expect(getPriceImpactRows([
 			{

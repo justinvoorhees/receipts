@@ -370,6 +370,16 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).toContain('No Route Found');
 		expect(html).not.toContain('>Route<');
 	});
+
+	it('labels an rfq leg "Market Maker" with an off-chain-quote tooltip', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const row = { ...base, pricingStatus: 'partial', routeLegs: [
+			{ venue: '0x69a9f156d5902191dce331ab348f3e9e96e48b22', type: 'rfq', tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
+		] };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain('Market Maker');
+		expect(html).toContain('Filled from a market maker');
+	});
 });
 
 // Regression coverage for the leg "context" (token-pair) label in the Cost

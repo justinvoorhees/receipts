@@ -608,7 +608,8 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	if (leg.type === 'univ2') return 'Uniswap v2';
 	if (leg.type === 'unwrap') return 'Unwrap';
 	if (leg.type === 'wrap') return 'Wrap';
-	if (leg.type === 'rfq' || leg.type === 'unknown') return 'Unknown Pool';
+	if (leg.type === 'rfq') return 'Market Maker';
+	if (leg.type === 'unknown') return 'Unknown Pool';
 	return leg.type.toUpperCase();
 }
 
