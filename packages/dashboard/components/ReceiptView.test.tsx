@@ -389,7 +389,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('Market Maker');
 		expect(html).toContain(`href="https://basescan.org/address/${venue}"`);
-		expect(html).toContain('color:var(--color-primary)');
+		expect(html).toContain('color:var(--color-secondary)');
 		expect(html).toContain('Market maker inventory, no L.P. fee or market price available');
 		expect(html).toContain('>Null<');
 	});

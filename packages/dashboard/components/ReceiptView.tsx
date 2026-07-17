@@ -394,7 +394,7 @@ function LegRow({
 			value={value}
 			color={color}
 			secondary
-			{...(maker ? { labelColor: 'var(--color-primary)', valueTooltip: RFQ_LEG_TOOLTIP } : {})}
+			{...(maker ? { labelColor: 'var(--color-secondary)', valueTooltip: RFQ_LEG_TOOLTIP } : {})}
 		/>
 	);
 }
