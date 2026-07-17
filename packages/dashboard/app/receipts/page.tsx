@@ -4,7 +4,7 @@ import { classifyTransaction, type AnalyzeFailure } from '@fabric-tca/core';
 
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_HASH = '0x9703bfa335528a8e01c6b63dd3046ccd6e13a66ba2e6954956aa2df39da269c1';
+const DEFAULT_HASH = '0xa21e4d82b961726614ce6f310e30e29a4b55b8eca1d6a46621c3adaf8edf6ab1';
 const DEFAULT_CHAIN_ID = 8453;
 
 export default async function ReceiptsPage({

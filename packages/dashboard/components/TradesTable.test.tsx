@@ -645,60 +645,54 @@ describe('formatSubvalueUsd sub-cent precision', () => {
 	});
 });
 
-describe('token amount decimal clamp', () => {
-	it('caps headline (>$0.01/unit) token decimals at 6, no separators', async () => {
+describe('token amount significant-figure clamp', () => {
+	it('caps a sub-1 amount at 6 significant digits (leading zeros are free), no separators', async () => {
 		const { formatTokenOut } = await import('./TradesTable');
-		// unit price = 3.7 / 0.00122969043150473 ≈ $3009/unit → headline → cap at 6 decimals
-		expect(
-			formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473', notionalUsd: '3.7' }),
-		).toBe('0.00123 WETH');
+		// leading zeros after the decimal don't count as sig figs, so this keeps 8 decimal places
+		expect(formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473' })).toBe(
+			'0.00122969 WETH',
+		);
 	});
 
-	it('leaves large whole numbers intact without separators', async () => {
+	it('never rounds away the whole part, even when the fraction alone exceeds 6 sig figs', async () => {
 		const { formatTokenIn } = await import('./TradesTable');
-		expect(
-			formatTokenIn({ inputSymbol: 'WETH', inputAmount: '1000000000.123456789', notionalUsd: '1000000000' }),
-		).toBe('1000000000.123457 WETH');
+		expect(formatTokenIn({ inputSymbol: 'WETH', inputAmount: '1000000000.123456789' })).toBe(
+			'1000000000.123457 WETH',
+		);
+		// id-117-shaped WARP amount: 9-digit whole part stays intact; fraction clamps to 6 sig figs.
+		expect(formatTokenIn({ inputSymbol: 'WARP', inputAmount: '202116011.4518599' })).toBe(
+			'202116011.45186 WARP',
+		);
 	});
 
 	it('special-cases stablecoins to exactly 2 decimals (currency style, padded)', async () => {
 		const { formatTokenIn, formatTokenOut } = await import('./TradesTable');
-		expect(
-			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '2.25005', notionalUsd: '2.25' }),
-		).toBe('2.25 USDC');
+		expect(formatTokenOut({ outputSymbol: 'USDC', outputAmount: '2.25005' })).toBe('2.25 USDC');
 		// Every stablecoin in STABLE_SYMBOLS clamps, incl. 18-decimal DAI + USDbC.
-		expect(
-			formatTokenOut({ outputSymbol: 'DAI', outputAmount: '2.250050000000000000', notionalUsd: '2.25' }),
-		).toBe('2.25 DAI');
-		expect(
-			formatTokenIn({ inputSymbol: 'USDbC', inputAmount: '2.25005', notionalUsd: '2.25' }),
-		).toBe('2.25 USDbC');
+		expect(formatTokenOut({ outputSymbol: 'DAI', outputAmount: '2.250050000000000000' })).toBe('2.25 DAI');
+		expect(formatTokenIn({ inputSymbol: 'USDbC', inputAmount: '2.25005' })).toBe('2.25 USDbC');
 		// Padded to exactly 2 decimals (whole and half values gain trailing zeros).
-		expect(
-			formatTokenIn({ inputSymbol: 'USDC', inputAmount: '1000.00', notionalUsd: '1000' }),
-		).toBe('1000.00 USDC');
-		expect(
-			formatTokenOut({ outputSymbol: 'USDC', outputAmount: '0.5', notionalUsd: '0.5' }),
-		).toBe('0.50 USDC');
-		// A non-stable headline token still uses the 6-decimal cap.
-		expect(
-			formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473', notionalUsd: '3.7' }),
-		).toBe('0.00123 WETH');
+		expect(formatTokenIn({ inputSymbol: 'USDC', inputAmount: '1000.00' })).toBe('1000.00 USDC');
+		expect(formatTokenOut({ outputSymbol: 'USDC', outputAmount: '0.5' })).toBe('0.50 USDC');
 	});
 
-	it('does not clamp sub-cent (<$0.01/unit) token decimals', async () => {
+	it('clamps a memecoin-scale amount to 6 sig figs on the fraction, whole part intact', async () => {
 		const { formatTokenOut } = await import('./TradesTable');
-		// unit price = 2.25 / 3369822.1456789 ≈ $6.7e-7 → sub-cent → keep precision
-		expect(
-			formatTokenOut({ outputSymbol: 'PEPE', outputAmount: '3369822.1456789', notionalUsd: '2.25' }),
-		).toBe('3369822.1456789 PEPE');
+		expect(formatTokenOut({ outputSymbol: 'PEPE', outputAmount: '3369822.1456789' })).toBe('3369822.145679 PEPE');
+		// id-189-shaped jesse amount.
+		expect(formatTokenOut({ outputSymbol: 'jesse', outputAmount: '1301340.4246528773' })).toBe(
+			'1301340.424653 jesse',
+		);
 	});
 
-	it('defaults to clamped (6 decimals) when unit price is unknown', async () => {
+	it('applies the same 6-sig-fig fractional cap regardless of unit price', async () => {
 		const { formatTokenIn } = await import('./TradesTable');
-		expect(
-			formatTokenIn({ inputSymbol: 'WETH', inputAmount: '0.123456789012' }),
-		).toBe('0.123457 WETH');
+		expect(formatTokenIn({ inputSymbol: 'WETH', inputAmount: '0.123456789012' })).toBe('0.123457 WETH');
+	});
+
+	it('leaves an exact whole number with no fraction untouched', async () => {
+		const { formatTokenIn } = await import('./TradesTable');
+		expect(formatTokenIn({ inputSymbol: 'WBTC', inputAmount: '48601527' })).toBe('48601527 WBTC');
 	});
 
 	it('tokenUnitPriceUsd returns null on missing/zero inputs', async () => {

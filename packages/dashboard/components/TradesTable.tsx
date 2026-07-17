@@ -590,12 +590,12 @@ export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'd
 
 // Generalized token display: reads the input/output symbol + amount fields that
 // exist on both `ReceiptRow` (ReceiptView) and the History dialog's adapter.
-export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number; notionalUsd?: string | number | null }): string {
-	return `${formatTokenAmount(row.inputAmount, tokenUnitPriceUsd(row.notionalUsd, row.inputAmount), row.inputSymbol)} ${row.inputSymbol}`;
+export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number }): string {
+	return `${formatTokenAmount(row.inputAmount, row.inputSymbol)} ${row.inputSymbol}`;
 }
 
-export function formatTokenOut(row: { outputSymbol: string; outputAmount: string | number; notionalUsd?: string | number | null }): string {
-	return `${formatTokenAmount(row.outputAmount, tokenUnitPriceUsd(row.notionalUsd, row.outputAmount), row.outputSymbol)} ${row.outputSymbol}`;
+export function formatTokenOut(row: { outputSymbol: string; outputAmount: string | number }): string {
+	return `${formatTokenAmount(row.outputAmount, row.outputSymbol)} ${row.outputSymbol}`;
 }
 
 export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLeg, 'venue'>>): string {
@@ -745,16 +745,27 @@ export function tokenUnitPriceUsd(
 // consumers of TradesTable's STABLE_SYMBOLS / ETH_SYMBOLS keep working unchanged.
 export { STABLE_SYMBOLS, ETH_SYMBOLS };
 
-// Whole part unlimited (no separators); decimals capped at 6 for headline /
-// unknown-price tokens and 18 for sub-cent (<$0.01/unit) tokens. Stablecoins are
-// dollar-denominated, so they render exactly 2 decimals (currency style, padded)
-// regardless of price. Non-stable trailing zeros are trimmed.
-export function formatTokenAmount(amount: string | number, unitPriceUsd: number | null, symbol?: string): string {
+// The whole part is always shown in full — never rounded away — only the
+// fractional part is capped, at 6 significant digits. Leading zeros right after
+// the decimal point don't count against that cap, so a sub-cent dust amount
+// still renders with real precision instead of collapsing toward zero.
+function fractionDigitsForSixSigFigs(n: number): number {
+	const frac = Math.abs(n) % 1;
+	if (frac === 0) return 0;
+	const leadingZeros = Math.max(0, -Math.floor(Math.log10(frac)) - 1);
+	return leadingZeros + 6;
+}
+
+// Stablecoins are dollar-denominated, so they render exactly 2 decimals
+// (currency style, padded) regardless of magnitude. No separators either way.
+export function formatTokenAmount(amount: string | number, symbol?: string): string {
 	const n = Number(amount);
 	if (!Number.isFinite(n)) return String(amount);
 	if (symbol != null && STABLE_SYMBOLS.has(symbol)) {
 		return n.toLocaleString('en-US', { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2 });
 	}
-	const subCent = unitPriceUsd != null && unitPriceUsd < 0.01;
-	return n.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: subCent ? 18 : 6 });
+	return n.toLocaleString('en-US', {
+		useGrouping: false,
+		maximumFractionDigits: fractionDigitsForSixSigFigs(n),
+	});
 }
