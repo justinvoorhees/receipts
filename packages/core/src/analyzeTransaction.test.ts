@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
-import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice, splitFabricFee, attachLegSymbols } from './analyzeTransaction.js';
+import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice, splitFabricFee, attachLegSymbols, deriveFillerAddress } from './analyzeTransaction.js';
 
 const RPC = process.env.TCA_RPC_URL;
 
@@ -65,6 +65,22 @@ describe('splitFabricFee', () => {
 	});
 	it('is case-insensitive on the aggregator slug', () => {
 		expect(splitFabricFee('Fabric', 50)).toEqual({ integratorFeeBps: 50, fabricFeeBps: 0 });
+	});
+});
+
+describe('deriveFillerAddress', () => {
+	const TXFROM = '0xABCDEF1234567890ABCDEF1234567890ABCDEF12';
+
+	it('returns the lowercased tx.from when anchored via UniswapX', () => {
+		expect(deriveFillerAddress({ kind: 'beneficiary', method: 'uniswapx' }, TXFROM)).toBe(TXFROM.toLowerCase());
+	});
+
+	it('returns null for a self-anchored trade (no separate filler concept)', () => {
+		expect(deriveFillerAddress({ kind: 'self' }, TXFROM)).toBeNull();
+	});
+
+	it('returns null for a net-flow-anchored trade (generic relayer, not UniswapX)', () => {
+		expect(deriveFillerAddress({ kind: 'beneficiary', method: 'net-flow' }, TXFROM)).toBeNull();
 	});
 });
 

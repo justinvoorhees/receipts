@@ -14,6 +14,8 @@ d('beneficiary-anchored decoding e2e', () => {
 		expect(r!.inputSymbol).toBe('USDC');
 		expect(r!.outputSymbol).toBe('ETH');
 		expect(r!.normalizeFlags.some((f) => f.startsWith('BENEFICIARY_ANCHORED'))).toBe(true);
+		// Net-flow anchoring, not UniswapX — no filler concept applies.
+		expect(r!.fillerAddress).toBeNull();
 	}, 60000);
 
 	it('decodes a UniswapX single fill anchored on the swapper', async () => {
@@ -22,5 +24,7 @@ d('beneficiary-anchored decoding e2e', () => {
 		expect(r).not.toBeNull();
 		expect(r!.normalizeFlags.some((f) => f.startsWith('ANCHOR_VIA_UNISWAPX'))).toBe(true);
 		expect(r!.trader.length).toBe(42); // a resolved swapper address
+		expect(r!.fillerAddress).not.toBeNull();
+		expect(r!.fillerAddress!.length).toBe(42); // a resolved filler EOA
 	}, 60000);
 });

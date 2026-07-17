@@ -29,6 +29,7 @@ const sampleReceipt: Receipt = {
 	aggregator: '0xagg',
 	routerAddress: '0xagg',
 	trader: '0xtrader',
+	fillerAddress: null,
 	direction: 'buy_weth',
 	inputToken: '0xusdc',
 	outputToken: '0xweth',

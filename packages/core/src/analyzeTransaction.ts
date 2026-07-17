@@ -33,7 +33,7 @@ import { AGGREGATOR_SIGNATURES, matchSettlementEvent } from './aggregatorSignatu
 import { resolveAggregator } from './resolveAggregator.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { resolveTrader, anchorFlags } from './resolveTrader.js';
+import { resolveTrader, anchorFlags, type Anchor } from './resolveTrader.js';
 import { loadReactors } from './settlementDecoders.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -136,6 +136,16 @@ export function attachLegSymbols<T extends { tokenIn: string; tokenOut: string }
 	});
 }
 
+/**
+ * The filler/relayer EOA that submitted the transaction, exposed only for
+ * UniswapX-anchored trades (resolveTrader tier 2) — self- and net-flow-
+ * anchored trades have no separate "filler" concept, so this is null. Pure
+ * so it's unit-testable without a live RPC call.
+ */
+export function deriveFillerAddress(anchor: Anchor, txFrom: string): string | null {
+	return anchor.kind === 'beneficiary' && anchor.method === 'uniswapx' ? txFrom.toLowerCase() : null;
+}
+
 export interface Receipt {
 	txHash: string;
 	chainId: number;
@@ -145,6 +155,10 @@ export interface Receipt {
 	 *  router for this specific trade. Null only for contract creations. */
 	routerAddress: string | null;
 	trader: string;
+	/** The filler/relayer EOA that submitted the tx, populated only when
+	 *  resolveTrader anchored via UniswapX (see deriveFillerAddress); null
+	 *  for self- and net-flow-anchored trades. */
+	fillerAddress: string | null;
 	direction: string;
 	inputToken: string;
 	outputToken: string;
@@ -415,6 +429,7 @@ export async function analyzeTransaction(
 			aggregator,
 			routerAddress: tx.to ? tx.to.toLowerCase() : null,
 			trader,
+			fillerAddress: deriveFillerAddress(resolved.anchor, tx.from),
 			direction: `${pricing.inputSymbol}->${pricing.outputSymbol}`,
 			inputToken: endpoints.inputToken,
 			outputToken: endpoints.outputToken,
