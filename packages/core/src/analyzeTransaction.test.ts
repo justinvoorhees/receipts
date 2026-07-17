@@ -244,6 +244,40 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(r!.normalizeFlags.some((f) => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
 		expect(r!.decompConfidence).not.toBe('high');
 	}, 60_000);
+
+	it('types the 0x Settler maker leg rfq and prices around it (id 189 follow-on)', async () => {
+		const r = await analyzeTransaction(
+			'0xb02037466b0756a3972f77d674413a0d7468663aca62e8c6eb757f15ced59e26',
+			8453,
+			{ rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+		const legs = r!.routeLegs as { venue: string; type: string; priceImpactBps: number | null }[];
+		const maker = legs.find((l) => l.venue === '0x69a9f156d5902191dce331ab348f3e9e96e48b22');
+		expect(maker).toBeDefined();
+		expect(maker!.type).toBe('rfq');
+		expect(maker!.priceImpactBps).toBeNull();
+		expect(r!.normalizeFlags.some((f) => f.startsWith('RFQ_LEG_UNPRICED'))).toBe(true);
+		// The maker leg must not carry a garbage AMM benchmark anymore…
+		expect(r!.normalizeFlags.some((f) => f.startsWith('PI_IMPLAUSIBLE') && f.includes('0x69a9f156'))).toBe(false);
+		// …and the netting-era reconstruction must still hold.
+		expect(r!.lpFeeBps).not.toBeNull();
+		expect(r!.normalizeFlags.some((f) => f.startsWith('ROUTE_NOT_DECOMPOSED'))).toBe(false);
+	}, 60_000);
+
+	it('types an EOA limit-order maker leg rfq (row 118 pin)', async () => {
+		const r = await analyzeTransaction(
+			'0x1bc9fb0965659a9768c3f71f7ea57bbe41a25682416dcfc3652baf5b10364e69',
+			8453,
+			{ rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+		const legs = r!.routeLegs as { venue: string; type: string; priceImpactBps: number | null }[];
+		const maker = legs.find((l) => l.venue === '0x7d94baf661d5ed8ad30d7241d1a50f3883083ef7');
+		expect(maker).toBeDefined();
+		expect(maker!.type).toBe('rfq'); // bare EOA → tier 2
+		expect(maker!.priceImpactBps).toBeNull();
+	}, 60_000);
 });
 
 describe('analyzeTransaction — 0x Settler identity (e2e)', () => {
