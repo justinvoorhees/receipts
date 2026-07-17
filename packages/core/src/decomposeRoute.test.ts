@@ -928,6 +928,102 @@ describe('decomposeRoute', () => {
       expect(result.confidence).toBe('medium');
     });
   });
+
+  describe('rfq maker retype pass', () => {
+    const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+    const maker = '0x69a9f1560000000000000000000000000000aaaa' as `0x${string}`;
+    const poolB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`;
+    const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67' as `0x${string}`;
+    const RFQ_FILL_TOPIC = '0x51ab1232a73b82b6b0acb0fa91b834cf6e258a1858c4e23c72ce97241c71aa0d' as `0x${string}`;
+    function swapLog(pool: `0x${string}`): { address: `0x${string}`; data: `0x${string}`; topics: [`0x${string}`, `0x${string}`, `0x${string}`] } {
+      return {
+        address: pool,
+        data: '0x' + '00'.repeat(160) as `0x${string}`,
+        topics: [UNI_V3_SWAP_TOPIC, '0x' + '00'.repeat(32) as `0x${string}`, '0x' + '00'.repeat(32) as `0x${string}`],
+      };
+    }
+    // trader USDC → maker → VIRTUAL → poolB → WETH (2-hop linear)
+    function makeTrace(withFillEvent: boolean) {
+      return {
+        from: syntheticTrader,
+        to: '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`,
+        input: '0x' as `0x${string}`,
+        logs: [
+          ...(withFillEvent ? [{
+            address: maker,
+            data: '0x' + '00'.repeat(96) as `0x${string}`,
+            topics: [RFQ_FILL_TOPIC, '0x' + '00'.repeat(32) as `0x${string}`] as [`0x${string}`, `0x${string}`],
+          }] : []),
+          swapLog(poolB),
+          transferLog(USDC as `0x${string}`, syntheticTrader, maker, 1_000000n),
+          transferLog(VIRTUAL as `0x${string}`, maker, poolB, 3_000000000000000000n),
+          transferLog(WETH as `0x${string}`, poolB, syntheticTrader, 500000000000000n),
+        ],
+        calls: [],
+      };
+    }
+    function makeInput(trace: unknown): DecomposeTradeInput {
+      return {
+        trace: trace as any,
+        txHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        trader: syntheticTrader,
+        direction: 'buy_weth',
+        settledIn: 'WETH',
+        allInCostBps: -5.0,
+        notionalUsdc: 1.0,
+        realizedPrice: 1800,
+        gasCostUsd: 0.001,
+        aggregator: 'Unknown',
+        blockNumber: 100n,
+        rpcUrl: 'unused',
+        dustUsdc: 1e-6,
+        structuralFloorUsd: 0,
+        structuralFloorBps: 0.5,
+      };
+    }
+    const feeReader = async (_addr: string, type: string) =>
+      type === 'univ3' ? { bps: 5, defaulted: false } : { bps: 0, defaulted: false };
+
+    it('tier 1: retypes a leg whose venue emitted a known maker-fill topic (no probe call)', async () => {
+      const trace = makeTrace(true);
+      const probeCalls: string[] = [];
+      const result = await decomposeRoute(makeInput(trace), {
+        trace: trace as any,
+        feeReader,
+        rfqProbe: (addr) => { probeCalls.push(addr); return 'contract'; },
+      });
+      const makerLeg = result.legs.find((l) => l.leg.venue === maker)!;
+      expect(makerLeg.leg.type).toBe('rfq');
+      expect(result.flags.some((f) => f.startsWith('RFQ_LEG_UNPRICED'))).toBe(true);
+      expect(probeCalls).not.toContain(maker); // tier 1 short-circuits tier 2
+    });
+
+    it('tier 2: retypes an EOA / EIP-1967-proxy counterparty; plain contracts stay unknown', async () => {
+      const trace = makeTrace(false);
+      for (const [probeResult, expected] of [['eoa', 'rfq'], ['proxy1967', 'rfq'], ['contract', 'unknown']] as const) {
+        const result = await decomposeRoute(makeInput(trace), {
+          trace: trace as any,
+          feeReader,
+          rfqProbe: (addr) => (addr === maker ? probeResult : 'contract'),
+        });
+        const makerLeg = result.legs.find((l) => l.leg.venue === maker)!;
+        expect(makerLeg.leg.type).toBe(expected);
+      }
+    }, 20_000);
+
+    it('never retypes or probes a recognized venue', async () => {
+      const trace = makeTrace(false);
+      const probeCalls: string[] = [];
+      const result = await decomposeRoute(makeInput(trace), {
+        trace: trace as any,
+        feeReader,
+        rfqProbe: (addr) => { probeCalls.push(addr); return 'eoa'; },
+      });
+      const poolLeg = result.legs.find((l) => l.leg.venue === poolB)!;
+      expect(poolLeg.leg.type).toBe('univ3');
+      expect(probeCalls).not.toContain(poolB); // only `unknown` legs are candidates
+    });
+  });
 });
 
 describe('extractNativeTransfers', () => {

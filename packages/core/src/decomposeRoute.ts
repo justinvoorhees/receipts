@@ -30,6 +30,15 @@ const UNI_V3_SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed80
 const WETH_DEPOSIT_TOPIC = '0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c';
 const WETH_WITHDRAWAL_TOPIC = '0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65';
 
+/** topic0s emitted BY a market maker's own contract when it fills an RFQ order.
+ *  Seed verified on-chain 2026-07-16: emitted 8x by 0x Settler maker proxy
+ *  0x69a9f156… in 0xb020…9e26. Extend like venue event-topics — never by address. */
+const RFQ_FILL_TOPICS: ReadonlySet<string> = new Set([
+	'0x51ab1232a73b82b6b0acb0fa91b834cf6e258a1858c4e23c72ce97241c71aa0d',
+]);
+/** EIP-1967 implementation slot (keccak256('eip1967.proxy.implementation') - 1). */
+const EIP1967_IMPL_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+
 const V4_SWAP_EVENT = parseAbiItem(
 	'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
 );
@@ -128,6 +137,8 @@ export interface DecomposeRouteDeps {
 	midReader?: (leg: Leg, blockNumber: bigint) => Promise<PairMidResult | null> | PairMidResult | null;
 	/** Custom decimals reader (for realized-price computation). Falls back to inline USDC=6/else=18. */
 	decimalsReader?: (token: string) => Promise<number> | number;
+	/** Structural maker probe for the rfq retype pass (block-pinned in production). */
+	rfqProbe?: (addr: string) => Promise<'eoa' | 'proxy1967' | 'contract'> | 'eoa' | 'proxy1967' | 'contract';
 }
 
 // ─── Helpers ───
@@ -522,6 +533,24 @@ function createDefaultV3FactoryReader(rpcUrl: string, blockNumber: bigint): (add
 	};
 }
 
+function createDefaultRfqProbe(rpcUrl: string, blockNumber: bigint): (addr: string) => Promise<'eoa' | 'proxy1967' | 'contract'> {
+	if (rpcUrl === 'unused' || rpcUrl === 'http://invalid') {
+		return async () => 'contract';
+	}
+	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	return async (addr: string): Promise<'eoa' | 'proxy1967' | 'contract'> => {
+		try {
+			const code = await rpc.getBytecode({ address: addr as `0x${string}`, blockNumber });
+			if (!code || code === '0x') return 'eoa';
+			const slot = await rpc.getStorageAt({ address: addr as `0x${string}`, slot: EIP1967_IMPL_SLOT as `0x${string}`, blockNumber });
+			if (slot != null && BigInt(slot) !== 0n) return 'proxy1967';
+			return 'contract';
+		} catch {
+			return 'contract'; // fail closed: an unprobeable address stays `unknown`
+		}
+	};
+}
+
 // ─── Default mid reader (live RPC) ───
 
 export function createDefaultMidReader(
@@ -758,6 +787,27 @@ export async function decomposeRoute(
 	const nettedLegs = graph.legs.filter((l) => l.amountsNetted);
 	for (const l of nettedLegs) {
 		routeFlags.push(`LEG_AMOUNTS_NETTED: leg ${l.venue.slice(0, 10)} had round-trip flows; amounts use net deltas`);
+	}
+
+	// Step 4b: retype market-maker fills. A 1-in-1-out counterparty typed
+	// `unknown` is re-typed `rfq` when it is provably a maker: tier 1 — it
+	// emitted a known maker-fill event in THIS tx (no RPC); tier 2 — it is an
+	// EOA or an EIP-1967 proxy at the trade block. Real AMM pools (plain
+	// contracts, impl slot 0) stay `unknown`. ⚠️ "emitted no logs" is NOT a
+	// maker signal — measured backwards on 0xb020…9e26 (the maker emitted 8
+	// logs; the real pool emitted 0). See spec 2026-07-16-rfq-maker-legs.
+	const rfqProbe = deps?.rfqProbe ?? createDefaultRfqProbe(input.rpcUrl, input.blockNumber);
+	const fillEmitters = new Set<string>();
+	for (const log of logs) {
+		const topic0 = log.topics?.[0]?.toLowerCase();
+		if (topic0 && RFQ_FILL_TOPICS.has(topic0)) fillEmitters.add(log.address.toLowerCase());
+	}
+	for (const leg of graph.legs) {
+		if (leg.type !== 'unknown') continue;
+		const isMaker = fillEmitters.has(leg.venue) || (await rfqProbe(leg.venue)) !== 'contract';
+		if (!isMaker) continue;
+		leg.type = 'rfq';
+		routeFlags.push(`RFQ_LEG_UNPRICED: leg ${leg.venue.slice(0, 10)} — off-chain quote, no on-chain mid exists`);
 	}
 
 	// Step 5: Resolve fee tiers for each leg
