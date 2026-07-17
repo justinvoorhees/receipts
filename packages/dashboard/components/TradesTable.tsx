@@ -600,6 +600,16 @@ export function beneficiaryAnchorNote(row: Partial<Pick<ReceiptRow, 'normalizeFl
 	return 'Executed on your behalf by a solver';
 }
 
+/** True when this receipt should show the Filler row (UniswapX-anchored AND
+ *  a fillerAddress was persisted) in place of the Aggregator row. Rows
+ *  anchored via UniswapX before the fillerAddress column existed (null)
+ *  fall back to the ordinary Aggregator row — see ReceiptView. */
+export function isUniswapXFillerRow(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'fillerAddress'>>): boolean {
+	if (row.fillerAddress == null) return false;
+	const flags = Array.isArray(row.normalizeFlags) ? row.normalizeFlags.filter((f): f is string => typeof f === 'string') : [];
+	return flags.some((f) => f.startsWith('ANCHOR_VIA_UNISWAPX'));
+}
+
 export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'decompConfidence'>>): string {
 	const flags = Array.isArray(row.normalizeFlags)
 		? row.normalizeFlags.filter((flag): flag is string => typeof flag === 'string' && flag.trim().length > 0 && !isAnchorToken(flag))

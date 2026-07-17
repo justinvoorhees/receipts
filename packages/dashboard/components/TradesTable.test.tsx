@@ -720,6 +720,37 @@ describe('beneficiaryAnchorNote', () => {
 	});
 });
 
+describe('isUniswapXFillerRow', () => {
+	it('is false for a normal (self-anchored) receipt', async () => {
+		const { isUniswapXFillerRow } = await import('./TradesTable');
+		expect(isUniswapXFillerRow({ normalizeFlags: ['SETTLEMENT_EVENT_MISSING: x'], fillerAddress: null })).toBe(false);
+	});
+
+	it('is true when UniswapX-anchored and fillerAddress is present', async () => {
+		const { isUniswapXFillerRow } = await import('./TradesTable');
+		expect(isUniswapXFillerRow({
+			normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'],
+			fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
+		})).toBe(true);
+	});
+
+	it('is false when UniswapX-anchored but fillerAddress is null (legacy pre-column row)', async () => {
+		const { isUniswapXFillerRow } = await import('./TradesTable');
+		expect(isUniswapXFillerRow({
+			normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'],
+			fillerAddress: null,
+		})).toBe(false);
+	});
+
+	it('is false for a net-flow-anchored (non-UniswapX) relayer trade even with a fillerAddress', async () => {
+		const { isUniswapXFillerRow } = await import('./TradesTable');
+		expect(isUniswapXFillerRow({
+			normalizeFlags: ['BENEFICIARY_ANCHORED: y'],
+			fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
+		})).toBe(false);
+	});
+});
+
 describe('getFlagLabel excludes provenance tokens', () => {
 	it('does not surface anchor tokens as warning flags', async () => {
 		const { getFlagLabel } = await import('./TradesTable');

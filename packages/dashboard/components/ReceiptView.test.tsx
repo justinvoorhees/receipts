@@ -180,6 +180,47 @@ describe('Receipt header', () => {
 	});
 });
 
+describe('UniswapX Filler row', () => {
+	const fillerRow = {
+		...fullUsdcWethRow,
+		fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
+		normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'],
+	};
+
+	it('replaces the Aggregator row with Filler / via UniswapX + a Basescan link to the filler', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={fillerRow as never} hash={fillerRow.txHash} />);
+		expect(html).toContain('Filler');
+		expect(html).toContain('via UniswapX');
+		expect(html).toContain(`href="https://basescan.org/address/${fillerRow.fillerAddress}"`);
+		expect(html).not.toContain('>Aggregator<');
+		// The row itself now conveys "via UniswapX" — the separate note is redundant.
+		expect(html).not.toContain('Executed on your behalf via UniswapX');
+	});
+
+	it('falls back to the ordinary Aggregator row + note when fillerAddress is null (legacy row)', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const legacyRow = { ...fillerRow, fillerAddress: null };
+		const html = renderToStaticMarkup(<ReceiptView trade={legacyRow as never} hash={legacyRow.txHash} />);
+		expect(html).toContain('>Aggregator<');
+		expect(html).toContain('Executed on your behalf via UniswapX');
+		expect(html).not.toContain('>Filler<');
+	});
+
+	it('leaves a non-UniswapX beneficiary-anchored (net-flow) row unaffected', async () => {
+		const { ReceiptView } = await import('./ReceiptView');
+		const netFlowRow = {
+			...fullUsdcWethRow,
+			fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
+			normalizeFlags: ['BENEFICIARY_ANCHORED: y'],
+		};
+		const html = renderToStaticMarkup(<ReceiptView trade={netFlowRow as never} hash={netFlowRow.txHash} />);
+		expect(html).toContain('>Aggregator<');
+		expect(html).toContain('Executed on your behalf by a solver');
+		expect(html).not.toContain('>Filler<');
+	});
+});
+
 describe('Receipt Fabric partner-fee attribution', () => {
 	// A Fabric-routed swap where an integrator/partner feeBps (80bps here) is
 	// forwarded through the Fabric router. Fabric is only ever the router, so

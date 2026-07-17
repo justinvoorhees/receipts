@@ -27,6 +27,7 @@ import {
 	isMakerLeg,
 	NULL_PRICE_TOOLTIP,
 	beneficiaryAnchorNote,
+	isUniswapXFillerRow,
 } from './TradesTable';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
 
@@ -223,6 +224,33 @@ function AggregatorValue({ row }: { row: ReceiptRow }) {
 		>
 			{label}
 		</a>
+	);
+}
+
+/**
+ * Filler detail row: replaces the Aggregator row for UniswapX-anchored
+ * trades — there is no aggregator here, only the filler who submitted the
+ * fill on the swapper's behalf. Two-line label (Filler / via UniswapX),
+ * same grid shell as DetailRow so it lines up with every other row.
+ */
+function FillerRow({ address }: { address: string }) {
+	return (
+		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
+			<div className="flex flex-col gap-[10px]">
+				<span className="text-[var(--color-primary)]">Filler</span>
+				<span className="text-[var(--color-secondary)]">via UniswapX</span>
+			</div>
+			<span className="min-w-0 text-right">
+				<a
+					href={`https://basescan.org/address/${address}`}
+					target="_blank"
+					rel="noreferrer"
+					className="break-all text-[var(--color-primary)] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+				>
+					{address}
+				</a>
+			</span>
+		</div>
 	);
 }
 
@@ -432,6 +460,7 @@ export function Receipt({
 	onDelete?: () => void;
 }) {
 	const legs = normalizeRouteLegs(row.routeLegs);
+	const showFillerRow = isUniswapXFillerRow(row);
 	const hasCostedLeg = legs.some((l) => typeof l.lpFeeBps === 'number');
 	// Partial receipts have no reference mid, so price/impact/slippage are null.
 	// Guard every numeric read against null instead of `Number(null) === 0`.
@@ -493,10 +522,14 @@ export function Receipt({
 
 			{/* Detail table */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
-				<DetailRow label="Aggregator">
-					<AggregatorValue row={row} />
-				</DetailRow>
-				{beneficiaryAnchorNote(row) && (
+				{showFillerRow ? (
+					<FillerRow address={row.fillerAddress as string} />
+				) : (
+					<DetailRow label="Aggregator">
+						<AggregatorValue row={row} />
+					</DetailRow>
+				)}
+				{!showFillerRow && beneficiaryAnchorNote(row) && (
 					<p className="text-[var(--color-secondary)]">{beneficiaryAnchorNote(row)}</p>
 				)}
 				<DetailRow label="Pair">{pairTitle}</DetailRow>
