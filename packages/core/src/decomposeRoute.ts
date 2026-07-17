@@ -869,11 +869,20 @@ export async function decomposeRoute(
 		// reconResidualBps stays null, and confidence is unchanged.
 		const midReader = deps?.midReader ?? null;
 		let hasNullMid = !midReader; // no reader → treat as all-null (skip loop body)
+		let hasRfqLeg = false;       // rfq legs are DELIBERATELY unpriced — tracked separately
 
 		const decReader = deps?.decimalsReader ?? null;
 		for (const lwl of legsWithLp) {
 			if (!midReader) continue;
 			const leg = lwl.leg;
+			// RFQ fills are quoted off-chain: there is no pool mid to compare to.
+			// Null is deliberate (flagged RFQ_LEG_UNPRICED at retype), NOT a
+			// pricing failure — do not set hasNullMid, do not call the midReader.
+			if (leg.type === 'rfq') {
+				lwl.priceImpactBps = null;
+				hasRfqLeg = true;
+				continue;
+			}
 			// Use RPC-backed decimals when available, else fall back to inline
 			const decIn = decReader ? await decReader(leg.tokenIn) : decimalsOf(leg.tokenIn);
 			const decOut = decReader ? await decReader(leg.tokenOut) : decimalsOf(leg.tokenOut);
@@ -924,7 +933,9 @@ export async function decomposeRoute(
 		// reconResidualBps = allIn − (Σ legLpFeeBps + Σ legPriceImpactBps + aggFeeBps)
 		// Only computed when all legs have valid mids.
 		let reconResidualBps: number | null = null;
-		if (!hasNullMid && legsWithLp.some((l) => l.priceImpactBps !== null)) {
+		// An rfq leg's spread is real cost that per-leg PI cannot see; a residual
+		// would just re-absorb it and trigger a spurious RECON_LOW downgrade.
+		if (!hasNullMid && !hasRfqLeg && legsWithLp.some((l) => l.priceImpactBps !== null)) {
 			const sumLp = legsWithLp.reduce((s, l) => s + l.lpFeeBps, 0);
 			const sumImpact = legsWithLp.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0);
 			reconResidualBps = input.allInCostBps - (sumLp + sumImpact + base.aggFeeBps);

@@ -1023,6 +1023,32 @@ describe('decomposeRoute', () => {
       expect(poolLeg.leg.type).toBe('univ3');
       expect(probeCalls).not.toContain(poolB); // only `unknown` legs are candidates
     });
+
+    it('prices around an rfq leg: deliberate null, no confidence downgrade, recon null', async () => {
+      const trace = makeTrace(true); // tier-1 maker
+      const stubMids: Record<string, number> = {
+        [`${VIRTUAL}:${WETH}`]: 0.000166667, // matches realized → tiny PI for poolB
+      };
+      const result = await decomposeRoute(makeInput(trace), {
+        trace: trace as any,
+        feeReader,
+        rfqProbe: () => 'contract',
+        midReader: async (leg) => {
+          if (leg.type === 'rfq') throw new Error('midReader must never see an rfq leg');
+          const price = stubMids[`${leg.tokenIn}:${leg.tokenOut}`];
+          return price === undefined ? null : { price, poolAddress: 'stub', poolKind: 'stub' };
+        },
+      });
+      const makerLeg = result.legs.find((l) => l.leg.type === 'rfq')!;
+      expect(makerLeg.priceImpactBps).toBeNull();       // deliberate null
+      const poolLeg = result.legs.find((l) => l.leg.type === 'univ3')!;
+      expect(poolLeg.priceImpactBps).not.toBeNull();     // other legs still priced
+      expect(result.reconResidualBps).toBeNull();        // recon incomplete by design
+      // The rfq null is NOT a pricing failure: no MID_NULL flag, confidence 'high'
+      // (fees resolved, no approx legs, no netting — only the rfq null could downgrade).
+      expect(result.flags.some((f) => f.startsWith('MID_NULL'))).toBe(false);
+      expect(result.confidence).toBe('high');
+    });
   });
 });
 
