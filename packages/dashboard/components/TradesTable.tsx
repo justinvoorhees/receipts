@@ -588,9 +588,21 @@ export function routePath(legs: RouteLeg[]): string {
 	return tokens.join('->');
 }
 
+const ANCHOR_TOKEN_PREFIXES = ['BENEFICIARY_ANCHORED', 'ANCHOR_VIA_'];
+const isAnchorToken = (flag: string): boolean => ANCHOR_TOKEN_PREFIXES.some((p) => flag.startsWith(p));
+
+/** Human disclosure that a receipt was anchored on the beneficiary, not tx.from.
+ *  null for ordinary self-anchored receipts. */
+export function beneficiaryAnchorNote(row: Partial<Pick<ReceiptRow, 'normalizeFlags'>>): string | null {
+	const flags = Array.isArray(row.normalizeFlags) ? row.normalizeFlags.filter((f): f is string => typeof f === 'string') : [];
+	if (!flags.some((f) => f.startsWith('BENEFICIARY_ANCHORED'))) return null;
+	if (flags.some((f) => f.startsWith('ANCHOR_VIA_UNISWAPX'))) return 'Executed on your behalf via UniswapX';
+	return 'Executed on your behalf by a solver';
+}
+
 export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'decompConfidence'>>): string {
 	const flags = Array.isArray(row.normalizeFlags)
-		? row.normalizeFlags.filter((flag): flag is string => typeof flag === 'string' && flag.trim().length > 0)
+		? row.normalizeFlags.filter((flag): flag is string => typeof flag === 'string' && flag.trim().length > 0 && !isAnchorToken(flag))
 		: [];
 	return flags.length > 0 ? flags.join('; ') : 'None';
 }

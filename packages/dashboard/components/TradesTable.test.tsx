@@ -700,3 +700,35 @@ describe('formatExecutionPrice value clamp', () => {
 		expect(formatExecutionPrice(null, 'WETH', 'USDC')).toBe('–');
 	});
 });
+
+describe('beneficiaryAnchorNote', () => {
+	it('is null for a normal (self-anchored) receipt', async () => {
+		const { beneficiaryAnchorNote } = await import('./TradesTable');
+		expect(beneficiaryAnchorNote({ normalizeFlags: ['SETTLEMENT_EVENT_MISSING: x'] })).toBeNull();
+	});
+
+	it('names UniswapX when anchored via the Fill event', async () => {
+		const { beneficiaryAnchorNote } = await import('./TradesTable');
+		expect(beneficiaryAnchorNote({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'] }))
+			.toBe('Executed on your behalf via UniswapX');
+	});
+
+	it('is generic for a net-flow relayer anchor', async () => {
+		const { beneficiaryAnchorNote } = await import('./TradesTable');
+		expect(beneficiaryAnchorNote({ normalizeFlags: ['BENEFICIARY_ANCHORED: y'] }))
+			.toBe('Executed on your behalf by a solver');
+	});
+});
+
+describe('getFlagLabel excludes provenance tokens', () => {
+	it('does not surface anchor tokens as warning flags', async () => {
+		const { getFlagLabel } = await import('./TradesTable');
+		expect(getFlagLabel({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'] })).toBe('None');
+	});
+
+	it('still surfaces genuine warnings alongside an anchor token', async () => {
+		const { getFlagLabel } = await import('./TradesTable');
+		expect(getFlagLabel({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'SETTLEMENT_EVENT_MISSING: x'] }))
+			.toBe('SETTLEMENT_EVENT_MISSING: x');
+	});
+});

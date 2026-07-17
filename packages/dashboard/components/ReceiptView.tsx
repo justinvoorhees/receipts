@@ -26,6 +26,7 @@ import {
 	RFQ_LEG_TOOLTIP,
 	isMakerLeg,
 	NULL_PRICE_TOOLTIP,
+	beneficiaryAnchorNote,
 } from './TradesTable';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
 
@@ -495,6 +496,9 @@ export function Receipt({
 				<DetailRow label="Aggregator">
 					<AggregatorValue row={row} />
 				</DetailRow>
+				{beneficiaryAnchorNote(row) && (
+					<p className="text-[var(--color-secondary)]">{beneficiaryAnchorNote(row)}</p>
+				)}
 				<DetailRow label="Pair">{pairTitle}</DetailRow>
 				<DetailRow label="Chain">{chainLabel(row.chainId)}</DetailRow>
 				<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
