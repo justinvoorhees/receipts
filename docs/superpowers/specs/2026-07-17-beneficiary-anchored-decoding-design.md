@@ -39,8 +39,13 @@ resolveTrader(trace, tx, receiptLogs, rpc) → { trader, anchor } | null
 
 anchor =
   | { kind: 'self' }                            // tx.from is the trader (today's path)
-  | { kind: 'beneficiary', via, method }        // re-anchored; via = tx.from; method = 'uniswapx' | 'net-flow'
+  | { kind: 'beneficiary', method }             // re-anchored; method = 'uniswapx' | 'net-flow'
 ```
+
+> **Reconciled with implementation (2026-07-17):** the shipped `Anchor` carries only
+> `method`, not a `via` field. The solver EOA (`tx.from`) is deliberately **not**
+> persisted — `router_address` (= `tx.to`, the reactor/relayer) plus the anchor method
+> already give the receipt everything it needs to disclose provenance (YAGNI).
 
 **Precedence** (mirrors `resolveAggregator`'s resolver → address → unknown tiering):
 
@@ -59,7 +64,7 @@ anchor =
     beneficiary(tx, logs): string | null // decoded swapper; null if multi-order/ambiguous
   }
   ```
-  UniswapX: `matches` = the tx carries a `Fill` log whose **emitter address is a known reactor** (matching on the log emitter, not `tx.to`, so a filler contract that is itself `tx.to` and calls the reactor internally still matches); `beneficiary` = decoded `swapper` from the single `Fill`, or `null` if the tx carries more than one `Fill` (multi-order → out of scope). The reactor address set and the verified `Fill` topic0 are pinned in a `configs/*.json`, gathered on-chain during implementation (same provenance discipline as `routers.json`/`settlers.json`). Adding CoW / 1inch Fusion / 0x gasless later = one registry entry; the orchestrator does not change.
+  UniswapX: `matches` = the tx carries a `Fill` log whose **emitter address is a known reactor** (matching on the log emitter, not `tx.to`, so a filler contract that is itself `tx.to` and calls the reactor internally still matches); `beneficiary` = decoded `swapper` from the single `Fill`, or `null` if the tx carries more than one `Fill` (multi-order → out of scope). The reactor address set and the verified `Fill` topic0 are pinned in `configs/reactors.json`. **Reconciled with implementation (2026-07-17):** the `Fill(bytes32,address,address,uint256)` topic0 is **not UniswapX-exclusive** — other protocols emit an identically-signatured event — so an on-chain scan of topic0 emitters yields false positives (the first scan returned 9 emitters; only 2 are genuine Base reactors). The allowlist is therefore **human-curated** against Uniswap's official published deployments (Base: PriorityOrderReactor `0x000000001Ec5656…De729` + DutchV3OrderReactor `0x000000008a8330B5…27ba0`), exactly the "never ingest a page wholesale, per-entry human filter stays" discipline `routers.json` already uses. `refreshReactors.ts` is a candidate **lister** (prints emitters for verification); it never writes the curated config. Adding CoW / 1inch Fusion / 0x gasless later = one registry entry; the orchestrator does not change.
 - **`endpoints.ts`** (existing). `findCleanSwapCandidates` / `selectBeneficiary` gain a second consumer (`resolveTrader` tier 3) alongside `classifyTransaction`. No logic change.
 - **`analyzeTransaction.ts`** (existing). Swap the one anchor line for a `resolveTrader` call; on `null` return `null` as today; on success write anchor provenance into `normalizeFlags`.
 - **`ReceiptView.tsx`** (existing, dashboard). A light provenance line when the receipt is beneficiary-anchored ("executed on your behalf via UniswapX / a solver"). No structural change.
@@ -69,11 +74,12 @@ anchor =
 1. `analyzeTransaction` calls `resolveTrader`.
 2. `null` → return `null` (unchanged; paste path shows the `RELAYER_THIRD_PARTY` DiagnosticCard via `classifyTransaction`).
 3. Success → `trader` = resolved address; the **entire existing pipeline runs unchanged** (pricing, `decomposeRoute`, decomposition). `decomposeRoute` uses `trader` only to exclude it from settlement-proxy/venue detection, so feeding it the beneficiary is strictly more correct — the relayer/reactor then correctly falls into the settlement-proxy bucket.
-4. **Persistence — no migration.** The `trader` column stores the beneficiary (its meaning was already "the party whose trade this is"). Provenance goes into the existing `normalizeFlags` jsonb:
+4. **Persistence — no migration.** The `trader` column stores the beneficiary (its meaning was already "the party whose trade this is"). Provenance goes into the existing `normalizeFlags` — which is a **`string[]`**, not a free-form object, so provenance is stored as enum-style flag tokens (reconciled with implementation 2026-07-17):
    ```
-   { beneficiaryAnchored: true, solver: <tx.from lowercased>, method: 'uniswapx' | 'net-flow' }
+   'BENEFICIARY_ANCHORED: …'        // always, when re-anchored
+   'ANCHOR_VIA_UNISWAPX: …'         // additionally, when the UniswapX decoder fired
    ```
-   `router_address` already holds `tx.to` (the reactor/relayer). So the receipt renders provenance from data it already stores.
+   The solver EOA is not stored (see the Architecture reconciliation note). `router_address` already holds `tx.to` (the reactor/relayer). The dashboard reads these tokens via `beneficiaryAnchorNote(row)` and keeps them out of the warning-flag display (`getFlagLabel`). So the receipt renders provenance from data it already stores.
 
 ## Error handling / fail-closed semantics
 
