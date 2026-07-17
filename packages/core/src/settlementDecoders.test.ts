@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decodeUniswapXBeneficiary, FILL_TOPIC0, type LogLite } from './settlementDecoders.js';
+import { decodeUniswapXBeneficiary, FILL_TOPIC0, parseReactors, type LogLite } from './settlementDecoders.js';
 
 const REACTOR = '0x1111111111111111111111111111111111111111';
 const SWAPPER = '0x00000000000000000000000000000000000000aa';
@@ -24,5 +24,17 @@ describe('decodeUniswapXBeneficiary', () => {
 	});
 	it('returns null for a multi-order batch (more than one reactor Fill)', () => {
 		expect(decodeUniswapXBeneficiary([fillLog(REACTOR, SWAPPER), fillLog(REACTOR, '0x00000000000000000000000000000000000000cc')], reactors)).toBeNull();
+	});
+});
+
+describe('parseReactors', () => {
+	it('lowercases and indexes reactor addresses', () => {
+		const json = JSON.stringify({ _comment: 'x', generatedAt: 't', chainId: 8453, reactors: ['0xAbC0000000000000000000000000000000000001'] });
+		const set = parseReactors(json);
+		expect(set.has('0xabc0000000000000000000000000000000000001')).toBe(true);
+		expect(set.size).toBe(1);
+	});
+	it('returns an empty set for a config with no reactors array', () => {
+		expect(parseReactors(JSON.stringify({ chainId: 8453 })).size).toBe(0);
 	});
 });

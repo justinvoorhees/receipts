@@ -9,6 +9,8 @@
  * being a known reactor (not tx.to), so a filler contract that is itself tx.to
  * and calls the reactor internally still matches.
  */
+import { readFile } from 'node:fs/promises';
+
 export type LogLite = { address: string; topics: readonly string[] };
 
 export const FILL_TOPIC0 = '0x78ad7ec0e9f89e74012afa58738b6b661c024cb0fd185ee2f616c0a28924bd66';
@@ -25,4 +27,30 @@ export function decodeUniswapXBeneficiary(
 	);
 	if (fills.length !== 1) return null; // 0 = not UniswapX; >1 = batch (out of scope)
 	return topicToAddress(fills[0]!.topics[3]!);
+}
+
+export interface ReactorsConfig {
+	_comment: string;
+	generatedAt: string;
+	chainId: number;
+	reactors: string[];
+}
+
+export function parseReactors(json: string): Set<string> {
+	const parsed = JSON.parse(json) as Partial<ReactorsConfig>;
+	const out = new Set<string>();
+	for (const a of parsed.reactors ?? []) out.add(a.toLowerCase());
+	return out;
+}
+
+/** Load the reactor allowlist; degrade to an empty set on any error (never throw). */
+export async function loadReactors(path: string): Promise<Set<string>> {
+	try {
+		return parseReactors(await readFile(path, 'utf8'));
+	} catch (err) {
+		console.warn(
+			`[settlementDecoders] could not load ${path} — UniswapX trades will not re-anchor: ${err instanceof Error ? err.message : String(err)}`,
+		);
+		return new Set();
+	}
 }
