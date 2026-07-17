@@ -29,7 +29,7 @@ const sampleReceipt: Receipt = {
 	aggregator: '0xagg',
 	routerAddress: '0xagg',
 	trader: '0xtrader',
-	fillerAddress: null,
+	fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
 	direction: 'buy_weth',
 	inputToken: '0xusdc',
 	outputToken: '0xweth',
@@ -122,5 +122,6 @@ describe('POST /api/receipts', () => {
 		expect(arg.routeLegs).toEqual([{ venue: '0xpool' }]);
 		expect(arg.blockNumber).toBe(123);
 		expect(arg.settlementEventSeen).toBe(true);
+		expect(arg.fillerAddress).toBe('0xfiller1234567890abcdef1234567890abcdef12');
 	});
 });

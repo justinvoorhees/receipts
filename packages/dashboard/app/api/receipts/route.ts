@@ -27,6 +27,7 @@ function toNewReceipt(r: Receipt): NewReceipt {
 		aggregator: r.aggregator,
 		routerAddress: r.routerAddress,
 		trader: r.trader,
+		fillerAddress: r.fillerAddress,
 		direction: r.direction,
 		inputToken: r.inputToken,
 		outputToken: r.outputToken,
