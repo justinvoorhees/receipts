@@ -300,7 +300,7 @@ export function TransactionDetailsDialog({
 					role="dialog"
 					aria-modal="true"
 					aria-label="Transaction receipt"
-					className="relative flex w-full max-w-[694px] flex-col gap-[40px] bg-[var(--color-surface-base)] px-[40px] pt-[40px] pb-[40px] text-[var(--color-primary)] shadow-[8px_0px_8px_rgba(15,15,15,0.06),-8px_0px_8px_rgba(15,15,15,0.06)]"
+					className="relative flex w-full max-w-[720px] flex-col gap-[40px] bg-[var(--color-surface-base)] px-[40px] pt-[40px] pb-[40px] text-[var(--color-primary)] shadow-[8px_0px_8px_rgba(15,15,15,0.06),-8px_0px_8px_rgba(15,15,15,0.06)]"
 				>
 					<Receipt row={row} sharePath={`/receipts?tx=${row.txHash}`} onClose={onClose} onDelete={handleDelete} />
 				</section>
