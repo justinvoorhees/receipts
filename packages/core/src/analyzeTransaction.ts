@@ -31,6 +31,13 @@ import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
 import { AGGREGATOR_SIGNATURES, matchSettlementEvent } from './aggregatorSignatures.js';
 import { resolveAggregator } from './resolveAggregator.js';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { resolveTrader, anchorFlags } from './resolveTrader.js';
+import { loadReactors } from './settlementDecoders.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REACTORS = await loadReactors(path.resolve(__dirname, '../../../configs/reactors.json'));
 
 const WETH = '0x4200000000000000000000000000000000000006';
 const NATIVE = 'native';
@@ -213,11 +220,29 @@ export async function analyzeTransaction(
 		]);
 
 		const trace = rawTrace as TraceNode;
-		const trader = tx.from.toLowerCase();
+		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, topics: l.topics }));
+		const isEoa = async (a: string): Promise<boolean> => {
+			try {
+				const code = await rpc.getBytecode({ address: a as `0x${string}` });
+				return !code || code === '0x';
+			} catch {
+				return false; // unknown → contract (conservative)
+			}
+		};
+		const resolved = await resolveTrader({
+			trace,
+			txFrom: tx.from,
+			logs: receiptLogs,
+			reactors: REACTORS,
+			isEoa,
+		});
+		if (!resolved) return null;
+		const trader = resolved.trader;
 		const blockNumber = receipt.blockNumber; // bigint
 
-		// Anchor endpoints on the trader. STRICT clean-2-token rule; null → not a
-		// swap we can produce a receipt for.
+		// Anchor endpoints on the trader (now the resolved beneficiary, not
+		// necessarily tx.from) — this doubles as the fail-closed check: STRICT
+		// clean-2-token rule; null → not a swap we can produce a receipt for.
 		const endpoints = extractEndpoints({ trace, trader });
 		if (!endpoints) return null;
 
@@ -271,8 +296,6 @@ export async function analyzeTransaction(
 		const ethUsd = await bestEffortEthUsd(rpcUrl, blockNumber);
 		const gasCostEth = (Number(receipt.gasUsed) * Number(receipt.effectiveGasPrice ?? 0n)) / 1e18;
 		const gasCostUsd = ethUsd != null && ethUsd > 0 ? gasCostEth * ethUsd : null;
-
-		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, topics: l.topics }));
 
 		// Aggregator identity: Deployer registry → curated routers → unknown.
 		// Never inferred from event topics; see resolveAggregator.ts.
@@ -329,6 +352,7 @@ export async function analyzeTransaction(
 		const settlementEventSeen = matchedTopic !== null;
 
 		const flags = [...route.flags];
+		flags.push(...anchorFlags(resolved.anchor));
 		if (midImplausible)
 			flags.push(
 				`IMPLAUSIBLE_MID: deviation ${allInCostBpsRaw?.toExponential(2)}bps exceeds the plausibility cap — reference mid discarded, degraded to partial`,
