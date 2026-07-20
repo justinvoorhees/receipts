@@ -1,0 +1,1 @@
+ALTER TABLE "receipts" DROP COLUMN IF EXISTS "anchor_price_usd";

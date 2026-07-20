@@ -92,9 +92,6 @@ export const receipts = pgTable(
 		offchainPrice: numeric('offchain_price'),
 		offchainDevBps: numeric('offchain_dev_bps'),
 		chainlinkStalenessSecs: numeric('chainlink_staleness_secs'),
-		// Independent Chainlink USD price of the non-anchored side (e.g. WBTC via
-		// BTC/USD). Lets the dashboard value that side as a true anchor. (Phase 2)
-		anchorPriceUsd: numeric('anchor_price_usd'),
 	},
 	(t) => ({
 		byUserTxChain: uniqueIndex('receipts_user_tx_chain_idx').on(t.userId, t.txHash, t.chainId),

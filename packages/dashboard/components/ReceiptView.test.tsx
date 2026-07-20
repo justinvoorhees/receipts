@@ -776,10 +776,10 @@ describe('Receipt makes no fair-value claim (MVP thesis)', () => {
 		expect(html).not.toContain('+$4.57');
 	});
 
-	it('renders no Execution Result even with an independent oracle anchor present', async () => {
+	it('renders no Execution Result on an estimated-tier pair', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated', anchorPriceUsd: '62000' } as never} />,
+			<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />,
 		);
 		expect(html).not.toContain('Execution Result');
 		expect(html).not.toContain('independent Chainlink oracle');

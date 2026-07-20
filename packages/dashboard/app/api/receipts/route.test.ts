@@ -71,7 +71,6 @@ const sampleReceipt: Receipt = {
 	offchainPrice: null,
 	offchainDevBps: null,
 	chainlinkStalenessSecs: 12,
-	anchorPriceUsd: null,
 };
 
 describe('POST /api/receipts', () => {

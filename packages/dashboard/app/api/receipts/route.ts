@@ -70,7 +70,6 @@ function toNewReceipt(r: Receipt): NewReceipt {
 		offchainPrice: num(r.offchainPrice),
 		offchainDevBps: num(r.offchainDevBps),
 		chainlinkStalenessSecs: num(r.chainlinkStalenessSecs),
-		anchorPriceUsd: num(r.anchorPriceUsd),
 	};
 }
 
