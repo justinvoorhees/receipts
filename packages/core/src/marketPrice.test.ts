@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeMarketPrice, type Estimator } from './marketPrice.js';
+import { computeMarketPrice, type Estimator, getMarketPriceForPair, type MarketPriceDeps } from './marketPrice.js';
 import { reconciledResult } from './marketPrice.js';
 
 const direct = (price: number): Estimator => ({ price, class: 'direct', label: 'direct pool' });
@@ -67,5 +67,49 @@ describe('reconciledResult (single-ruler invariant)', () => {
     expect(qualityBps).toBeLessThan(30);
     expect(execResultUsd).toBeGreaterThan(4);
     expect(execResultUsd).toBeLessThan(5);
+  });
+});
+
+const IN = '0x4200000000000000000000000000000000000006';  // WETH
+const OUT = '0x0555e30da8f98308edb960aa94c0db47230d2b9c'; // WBTC
+
+function makeMpDeps(over: Partial<MarketPriceDeps> = {}): MarketPriceDeps {
+  return {
+    getDirectMid: async () => null,
+    getBridgedMid: async () => null,
+    getOracleImpliedMid: async () => null,
+    ...over,
+  };
+}
+
+describe('getMarketPriceForPair', () => {
+  it('is full when direct and bridged agree', async () => {
+    const deps = makeMpDeps({ getDirectMid: async () => 100, getBridgedMid: async () => 100.1 });
+    const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+    expect(r.tier).toBe('full');
+    expect(r.corroboratedBy.sort()).toEqual(['bridged', 'direct']);
+  });
+
+  it('is estimated with only a direct pool', async () => {
+    const deps = makeMpDeps({ getDirectMid: async () => 100 });
+    const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+    expect(r.tier).toBe('estimated');
+    expect(r.marketMid).toBe(100);
+  });
+
+  it('is none with no estimators', async () => {
+    const r = await getMarketPriceForPair(makeMpDeps(), IN, OUT, 100n);
+    expect(r.tier).toBe('none');
+    expect(r.marketMid).toBeNull();
+  });
+
+  it('never throws — a rejecting dep just drops that estimator', async () => {
+    const deps = makeMpDeps({
+      getDirectMid: async () => { throw new Error('rpc'); },
+      getBridgedMid: async () => 100,
+    });
+    const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+    expect(r.tier).toBe('estimated'); // only bridged survived
+    expect(r.marketMid).toBe(100);
   });
 });

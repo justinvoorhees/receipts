@@ -88,3 +88,41 @@ export function reconciledResult(args: {
   const ratio = args.realizedPrice / args.marketMid - 1;
   return { execResultUsd: args.notionalUsd * ratio, qualityBps: ratio * 10_000 };
 }
+
+export interface MarketPriceDeps {
+  /** Guarded deepest direct pool mid (output-per-input), or null. */
+  getDirectMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<number | null>;
+  /** (in/WETH) x (WETH/out) bridged mid (output-per-input), or null. */
+  getBridgedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<number | null>;
+  /** usd(in)/usd(out) implied ratio when BOTH sides have USD feeds, else null. */
+  getOracleImpliedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<number | null>;
+}
+
+async function safeMid(
+  fn: (a: string, b: string, blk: bigint) => Promise<number | null>,
+  a: string, b: string, blk: bigint,
+): Promise<number | null> {
+  try {
+    return await fn(a, b, blk);
+  } catch {
+    return null;
+  }
+}
+
+export async function getMarketPriceForPair(
+  deps: MarketPriceDeps,
+  inputToken: string,
+  outputToken: string,
+  blockNumber: bigint,
+): Promise<MarketPriceResult> {
+  const [d, b, o] = await Promise.all([
+    safeMid(deps.getDirectMid, inputToken, outputToken, blockNumber),
+    safeMid(deps.getBridgedMid, inputToken, outputToken, blockNumber),
+    safeMid(deps.getOracleImpliedMid, inputToken, outputToken, blockNumber),
+  ]);
+  const estimators: Estimator[] = [];
+  if (d != null) estimators.push({ price: d, class: 'direct', label: 'direct pool' });
+  if (b != null) estimators.push({ price: b, class: 'bridged', label: 'WETH bridge' });
+  if (o != null) estimators.push({ price: o, class: 'oracle', label: 'oracle ratio' });
+  return computeMarketPrice(estimators);
+}
