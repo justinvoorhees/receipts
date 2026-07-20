@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { priceReceipt, defaultGetPairMid, type PricingDeps, type PoolMidReaders } from './pricing.js';
 import type { BenchmarkResult } from './benchmarkPrice.js';
+import type { MarketPriceResult } from './marketPrice.js';
 
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH = '0x4200000000000000000000000000000000000006';
@@ -22,6 +23,7 @@ function makeDeps(over: Partial<PricingDeps> = {}): PricingDeps {
     },
     getPairMid: async () => null,
     getEstimatedMid: async () => null,
+    getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] }),
     getUsdValue: async () => null,
     readDecimals: async () => 18,
     readSymbol: async () => 'TKN',
@@ -106,12 +108,12 @@ describe('priceReceipt', () => {
     expect(r.marketMid).toBeCloseTo(1 / 1800, 10); // WETH per USDC
   });
 
-  // (d) generic full: one side is a stablecoin, a pool mid is available
-  it('returns full for an exotic/USDC pair when a pool mid exists (USD-anchored)', async () => {
+  // (d) generic full: one side is a stablecoin, the apparatus corroborates a full-tier mid
+  it('returns full for an exotic/USDC pair when the apparatus reports a corroborated (full) mid (USD-anchored)', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: USDC },
       makeDeps({
-        getPairMid: async () => ({ price: 0.5, poolAddress: '0xpool', poolKind: 'univ3' }),
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 0.5, corroboratedBy: ['direct', 'bridged'], flags: [] }),
         getUsdValue: async () => 500,
         readDecimals: async (t) => (t.toLowerCase() === USDC ? 6 : 18),
         readSymbol: async (t) => (t.toLowerCase() === USDC ? 'USDC' : 'AAA'),
@@ -129,24 +131,25 @@ describe('priceReceipt', () => {
     expect(r.chainlinkStalenessSecs).toBeNull();
   });
 
-  // pool found but NO USD anchor on either side -> partial
-  it('returns partial when a pool mid exists but neither side anchors to USD', async () => {
+  // apparatus reports a corroborated (full) mid but NEITHER side anchors to USD -> downgraded to estimated
+  it('downgrades a full-tier apparatus mid to estimated when neither side anchors to USD', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
       makeDeps({
-        getPairMid: async () => ({ price: 3.3, poolAddress: '0xpool', poolKind: 'univ3' }),
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 3.3, corroboratedBy: ['direct', 'bridged'], flags: [] }),
       }),
     );
-    expect(r.status).toBe('partial');
-    expect(r.marketMid).toBeNull();
+    expect(r.status).toBe('estimated');
+    expect(r.marketMid).toBe(3.3);
+    expect(r.tier).toBe('full'); // the apparatus's own tier is passed through verbatim
   });
 
   // (c) never throws — an injected reader that throws still degrades to partial
-  it('never throws: a throwing getPairMid degrades to partial', async () => {
+  it('never throws: a throwing getMarketPrice degrades to partial', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: USDC },
       makeDeps({
-        getPairMid: async () => {
+        getMarketPrice: async () => {
           throw new Error('transient RPC failure');
         },
       }),
@@ -251,8 +254,7 @@ describe('priceReceipt', () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
       makeDeps({
-        getPairMid: async () => null, // no direct pool → not full
-        getEstimatedMid: async () => ({ price: 0.0005, poolAddress: 'bridged', poolKind: 'estimated' }),
+        getMarketPrice: async () => ({ tier: 'estimated', marketMid: 0.0005, corroboratedBy: ['bridged'], flags: ['SINGLE_CLASS'] }),
         getUsdValue: async () => 135, // best-effort notional from the anchored side
       }),
     );
@@ -263,21 +265,20 @@ describe('priceReceipt', () => {
     expect(r.chainlinkPrice).toBeNull();
   });
 
-  it('stays partial when neither a full nor a bridged mid is available', async () => {
+  it('stays partial when the apparatus finds no usable mid', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
-      makeDeps({ getPairMid: async () => null, getEstimatedMid: async () => null }),
+      makeDeps({ getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] }) }),
     );
     expect(r.status).toBe('partial');
     expect(r.marketMid).toBeNull();
   });
 
-  it('prefers full over estimated when a direct anchored mid exists', async () => {
+  it('prefers full over estimated when the apparatus reports a corroborated anchored mid', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: USDC },
       makeDeps({
-        getPairMid: async () => ({ price: 0.5, poolAddress: '0xpool', poolKind: 'univ3' }),
-        getEstimatedMid: async () => ({ price: 999, poolAddress: 'bridged', poolKind: 'estimated' }),
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 0.5, corroboratedBy: ['direct', 'bridged'], flags: [] }),
         getUsdValue: async () => 500,
       }),
     );
@@ -384,5 +385,54 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
     };
     const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
     expect(mid).toBeNull();
+  });
+});
+
+// ── priceReceipt tier wiring: routed through the single Market Price apparatus ──
+const fullMid = (price: number): MarketPriceResult =>
+  ({ tier: 'full', marketMid: price, corroboratedBy: ['direct', 'bridged'], flags: [] });
+const estMid = (price: number): MarketPriceResult =>
+  ({ tier: 'estimated', marketMid: price, corroboratedBy: ['direct'], flags: ['SINGLE_CLASS'] });
+const noMid = (): MarketPriceResult =>
+  ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] });
+
+describe('priceReceipt tier wiring', () => {
+  it('full tier -> status full, marketMid set, methodology mentions corroboration', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: USDC },
+      makeDeps({
+        getMarketPrice: async () => fullMid(1800),
+        getUsdValue: async () => 1800,
+        readSymbol: async (t) => (t === WETH ? 'WETH' : 'USDC'),
+      }),
+    );
+    expect(r.status).toBe('full');
+    expect(r.marketMid).toBe(1800);
+    expect(r.tier).toBe('full');
+    expect(r.methodology.toLowerCase()).toContain('corroborat');
+  });
+
+  it('estimated tier -> status estimated, marketMid set, methodology flags single-pool', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({
+        getMarketPrice: async () => estMid(1800),
+        getUsdValue: async () => 1800,
+      }),
+    );
+    expect(r.status).toBe('estimated');
+    expect(r.marketMid).toBe(1800);
+    expect(r.tier).toBe('estimated');
+    expect(r.methodology.toLowerCase()).toContain('single');
+  });
+
+  it('none tier -> status partial, marketMid null', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({ getMarketPrice: async () => noMid() }),
+    );
+    expect(r.status).toBe('partial');
+    expect(r.marketMid).toBeNull();
+    expect(r.tier).toBe('none');
   });
 });

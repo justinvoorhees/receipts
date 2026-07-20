@@ -36,6 +36,12 @@ import {
   ESTIMATED_MID_MIN_LIQUIDITY,
   type PairMidResult,
 } from './tokenPricing.js';
+import {
+  getMarketPriceForPair,
+  type MarketPriceResult,
+  type MarketPriceTier,
+} from './marketPrice.js';
+import { readTokenUsd } from './tokenOracle.js';
 
 // ── Anchor token allowlist (Base) ────────────────────────────────────────────
 
@@ -95,6 +101,9 @@ export interface PricingResult {
   chainlinkPrice: number | null;
   poolDivergenceBps: number | null;
   manipulationFlag: boolean;
+  tier: MarketPriceTier;
+  methodology: string;
+  marketPriceFlags: string[];
   chainlinkDevBps: number | null;
   offchainPrice: number | null;
   offchainDevBps: number | null;
@@ -110,6 +119,8 @@ export interface PricingDeps {
   getPairMid: (tokenIn: string, tokenOut: string, blockNumber: bigint) => Promise<PairMidResult | null>;
   /** Best-effort bridged mid (output-per-input) for illiquid pairs, or null. */
   getEstimatedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<PairMidResult | null>;
+  /** The single Market Price apparatus: one corroborated mid + tier. */
+  getMarketPrice: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<MarketPriceResult>;
   /** Best-effort USD value of `amountRaw` of `token` at `blockNumber`. */
   getUsdValue: (
     token: string,
@@ -247,6 +258,31 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
         blockNumber,
         ESTIMATED_MID_MIN_LIQUIDITY,
       ),
+    getMarketPrice: (inputToken, outputToken, blockNumber) =>
+      getMarketPriceForPair(
+        {
+          getDirectMid: async (i, o, blk) => (await defaultGetPairMid(poolReaders, i, o, blk))?.price ?? null,
+          getBridgedMid: async (i, o, blk) => (await getEstimatedMidAtBlock(
+            {
+              getDeepestPoolWithDepth: async (a, b, b2) => {
+                const best = await getDeepestPoolWithDepth(client, a, b, b2);
+                return best ? { address: best.pool.address, depth: best.depth } : null;
+              },
+              readSlot0: (pool, b2) => readSlot0(client, pool as `0x${string}`, b2),
+              readDecimals: decCache,
+            }, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null,
+          getOracleImpliedMid: async (i, o, blk) => {
+            const [ui, uo] = await Promise.all([
+              readTokenUsd(i, blk + 1n, rpcUrl),
+              readTokenUsd(o, blk + 1n, rpcUrl),
+            ]);
+            return ui != null && uo != null && uo > 0 ? ui / uo : null; // output-per-input = usd(in)/usd(out)
+          },
+        },
+        inputToken,
+        outputToken,
+        blockNumber,
+      ),
     getUsdValue: (token, amountRaw, blockNumber, precomputedWethUsd) =>
       getTokenUsdcValue(client, token, amountRaw, blockNumber, decCache, precomputedWethUsd),
     readDecimals: decCache,
@@ -259,6 +295,16 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
 /** Best-effort symbol guess used when even the metadata reads fail (never throw). */
 function fallbackSymbolFor(token: string): string {
   return KNOWN_SYMBOLS.get(token.toLowerCase()) ?? '???';
+}
+/** Human-readable methodology string derived from a Market Price apparatus result. */
+function methodologyFor(mp: MarketPriceResult): string {
+  if (mp.tier === 'none') return 'No reliable market price available.';
+  if (mp.tier === 'estimated') {
+    return mp.flags.includes('CROSS_CLASS_DISAGREE')
+      ? 'Estimated: price sources disagreed; showing the deepest pool mid.'
+      : 'Estimated: single uncorroborated pool mid at block N-1.';
+  }
+  return `Corroborated market price (${mp.corroboratedBy.join(' + ')}) at block N-1.`;
 }
 /** Best-effort decimals guess used when even the metadata reads fail (never throw). */
 function fallbackDecimalsFor(token: string): number {
@@ -317,6 +363,9 @@ export async function priceReceipt(
     chainlinkPrice: null,
     poolDivergenceBps: null,
     manipulationFlag: false,
+    tier: 'none',
+    methodology: 'No reliable market price available.',
+    marketPriceFlags: [],
     chainlinkDevBps: null,
     offchainPrice: null,
     offchainDevBps: null,
@@ -359,6 +408,9 @@ export async function priceReceipt(
         chainlinkPrice: bench.chainlinkPrice,
         poolDivergenceBps: bench.poolDivergenceBps,
         manipulationFlag: bench.manipulationSuspect,
+        tier: 'full',
+        methodology: 'Corroborated WETH/USD benchmark (median pools + oracle) at block N-1.',
+        marketPriceFlags: bench.flags,
         chainlinkDevBps: bench.chainlinkDevBps,
         offchainPrice: bench.offchainPrice,
         offchainDevBps: bench.offchainDevBps,
@@ -366,57 +418,27 @@ export async function priceReceipt(
       };
     }
 
-    // ── Branch 2/3: generic pair ──
-    const mid = await deps.getPairMid(inputToken, outputToken, refBlock);
+    // ── Generic pair via the single Market Price apparatus ──
+    const mp = await deps.getMarketPrice(inputToken, outputToken, refBlock);
     const anchored = anchorsToUsd(inputToken) || anchorsToUsd(outputToken);
+    const methodology = methodologyFor(mp);
 
-    if (mid !== null && mid.price > 0 && anchored) {
+    if (mp.marketMid != null && mp.marketMid > 0) {
       const notionalUsd = await bestEffortNotional(deps, args, refBlock);
+      const status: PricingResult['status'] = mp.tier === 'full' && anchored ? 'full' : 'estimated';
       return {
-        status: 'full',
-        marketMid: mid.price,
+        status,
+        marketMid: mp.marketMid,
         notionalUsd,
-        inputSymbol,
-        outputSymbol,
-        inputDecimals,
-        outputDecimals,
-        chainlinkPrice: null,
-        poolDivergenceBps: null,
-        manipulationFlag: false,
-        chainlinkDevBps: null,
-        offchainPrice: null,
-        offchainDevBps: null,
-        chainlinkStalenessSecs: null,
+        inputSymbol, outputSymbol, inputDecimals, outputDecimals,
+        chainlinkPrice: null, poolDivergenceBps: null, manipulationFlag: false,
+        chainlinkDevBps: null, offchainPrice: null, offchainDevBps: null, chainlinkStalenessSecs: null,
+        tier: mp.tier, methodology, marketPriceFlags: mp.flags,
       };
     }
 
-    // ── Branch 2.5: best-effort estimated mid (illiquid/multi-hop pair) ──
-    // No direct anchored pool, but we can bridge each side through its deepest
-    // token/WETH pool above the liquidity floor. Best-effort, not oracle-validated.
-    const estMid = await deps.getEstimatedMid(inputToken, outputToken, refBlock);
-    if (estMid !== null && estMid.price > 0) {
-      const notionalUsd = await bestEffortNotional(deps, args, refBlock);
-      return {
-        status: 'estimated',
-        marketMid: estMid.price,
-        notionalUsd,
-        inputSymbol,
-        outputSymbol,
-        inputDecimals,
-        outputDecimals,
-        chainlinkPrice: null,
-        poolDivergenceBps: null,
-        manipulationFlag: false,
-        chainlinkDevBps: null,
-        offchainPrice: null,
-        offchainDevBps: null,
-        chainlinkStalenessSecs: null,
-      };
-    }
-
-    // No reliable mid, or no USD anchor → partial (notionalUsd still best-effort).
     const notionalUsd = await bestEffortNotional(deps, args, refBlock);
-    return partial(notionalUsd);
+    return { ...partial(notionalUsd), tier: 'none', methodology, marketPriceFlags: mp.flags };
   } catch {
     // Any failure (transient RPC, decode, etc.) degrades to partial — never throw.
     return partial(null);
