@@ -51,6 +51,11 @@ export const receipts = pgTable(
 		marketMid: numeric('market_mid'),
 		allInCostBps: numeric('all_in_cost_bps'),
 		pricingStatus: text('pricing_status').notNull(), // 'full' | 'partial'
+		// single Market Price apparatus (Phase 2): tier = full|estimated|none,
+		// methodology = human string for the receipt, marketPriceFlags = jsonb string[].
+		tier: text('tier'),
+		methodology: text('methodology'),
+		marketPriceFlags: jsonb('market_price_flags'),
 		blockNumber: integer('block_number').notNull(),
 		// decomposition
 		executionBps: numeric('execution_bps'),
