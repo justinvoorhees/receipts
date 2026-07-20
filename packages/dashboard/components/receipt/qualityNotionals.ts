@@ -13,7 +13,7 @@
 import type { ReceiptRow } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 import { formatUsdMagnitude } from './usdFormat';
-import { reconciledResult } from '@fabric-tca/core';
+import { reconciledResult, baseIsOutputLeg, anchorsToUsd } from '@fabric-tca/core';
 
 // A token independently anchors to USD when it's a stablecoin (≈ $1) or ETH/WETH
 // (priced via the benchmark mid). Tier-independent — it says the pair *has* a USD
@@ -23,25 +23,33 @@ export function isAnchorable(symbol: string): boolean {
 }
 
 /**
- * Single-ruler per-side USD notionals + Execution Result, from the ONE stored
- * anchor notional (`notionalUsd`) + the ONE `marketMid`. Feeds `reconciledResult`
- * the INPUT (paid) side notional so the identity execResult = notionalOut -
- * notionalIn holds exactly (see spec). Null unless a side anchors and a mid exists.
+ * Single-ruler per-side USD notionals + Execution Result. Stored marketMid is
+ * DISPLAY-oriented (core's toDisplayPrice inverts it for base-is-output pairs), but
+ * reconciledResult needs output-per-input — so un-invert with the SAME core predicate
+ * (baseIsOutputLeg) and take realized straight from the raw amounts (orientation-free).
+ * Anchor detection uses core's address-based anchorsToUsd so the side we pin notionalUsd
+ * to matches exactly what bestEffortNotional valued. Feeds reconciledResult the INPUT
+ * (paid) notional, so execResult = notionalOut - notionalIn holds exactly. Null unless a
+ * side anchors and a usable mid exists.
  */
 export function receiptDollars(
-	row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol' | 'inputAmount' | 'outputAmount' | 'marketMid' | 'notionalUsd' | 'realizedPrice'>,
+	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputAmount' | 'outputAmount' | 'marketMid' | 'notionalUsd'>,
 ): { notionalIn: number; notionalOut: number; execResultUsd: number } | null {
-	const mid = row.marketMid == null ? null : Number(row.marketMid);
-	const realized = row.realizedPrice == null ? null : Number(row.realizedPrice);
+	const inAmt = Number(row.inputAmount);
+	const outAmt = Number(row.outputAmount);
+	const midStored = row.marketMid == null ? null : Number(row.marketMid);
 	const notional = row.notionalUsd == null ? null : Number(row.notionalUsd);
-	if (mid == null || realized == null || notional == null) return null;
-	if (![mid, realized, notional].every(Number.isFinite) || mid <= 0 || realized <= 0) return null;
-	const inAnchor = isAnchorable(row.inputSymbol);
-	const outAnchor = isAnchorable(row.outputSymbol);
+	if (midStored == null || notional == null) return null;
+	if (![inAmt, outAmt, midStored, notional].every(Number.isFinite) || inAmt <= 0 || outAmt <= 0 || midStored <= 0) return null;
+	const inAnchor = anchorsToUsd(row.inputToken);
+	const outAnchor = anchorsToUsd(row.outputToken);
 	if (!inAnchor && !outAnchor) return null;
-	const preferOutput = outAnchor && !inAnchor; // stored notionalUsd is the OUTPUT side
-	const notionalIn = preferOutput ? (notional * mid) / realized : notional;
-	const { execResultUsd } = reconciledResult({ marketMid: mid, realizedPrice: realized, notionalUsd: notionalIn });
+	const baseIsOutput = baseIsOutputLeg(row.inputToken, row.outputToken);
+	const midOPi = baseIsOutput ? 1 / midStored : midStored; // output-per-input
+	const realizedOPi = outAmt / inAmt;                        // output-per-input, orientation-free
+	const preferOutput = outAnchor && !inAnchor;               // stored notionalUsd is the OUTPUT side
+	const notionalIn = preferOutput ? (notional * midOPi) / realizedOPi : notional;
+	const { execResultUsd } = reconciledResult({ marketMid: midOPi, realizedPrice: realizedOPi, notionalUsd: notionalIn });
 	const notionalOut = notionalIn + execResultUsd;
 	if (![notionalIn, notionalOut, execResultUsd].every(Number.isFinite)) return null;
 	return { notionalIn, notionalOut, execResultUsd };

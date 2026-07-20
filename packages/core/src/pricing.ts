@@ -64,7 +64,7 @@ const isNative = (t: string): boolean => t.toLowerCase() === NATIVE;
  * leg is the trustworthy side to derive `notionalUsd` from; the volatile,
  * possibly-illiquid other side may not be.
  */
-const anchorsToUsd = (t: string): boolean => isStable(t) || isWeth(t) || isNative(t);
+export const anchorsToUsd = (t: string): boolean => isStable(t) || isWeth(t) || isNative(t);
 
 const isUsdcWethPair = (input: string, output: string): boolean => {
   const i = input.toLowerCase();

@@ -11,3 +11,5 @@ export { resolveAggregator, type AggregatorResolution, type DetectedVia } from '
 export { loadSettlerRegistry, parseDeployerTransfers, type SettlerEntry, type SettlerRegistry } from './settlerRegistry.js';
 export { reconciledResult, computeMarketPrice, getMarketPriceForPair } from './marketPrice.js';
 export type { MarketPriceTier, MarketPriceResult, Estimator } from './marketPrice.js';
+export { anchorsToUsd } from './pricing.js';
+export { baseIsOutputLeg } from './analyzeTransaction.js';
