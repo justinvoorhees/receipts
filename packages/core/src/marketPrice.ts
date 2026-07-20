@@ -31,47 +31,52 @@ export interface MarketPriceResult {
 /** Cross-class agreement tolerance (matches benchmark MANIPULATION_TOL_BPS). */
 export const CORROBORATE_TOL_BPS = 50;
 
-const CLASS_PRIORITY: EstimatorClass[] = ['direct', 'bridged', 'oracle'];
+const LIQUIDITY_CLASSES: EstimatorClass[] = ['direct', 'bridged'];
 
 export function computeMarketPrice(
   estimators: Estimator[],
   tolBps: number = CORROBORATE_TOL_BPS,
 ): MarketPriceResult {
   const valid = estimators.filter((e) => Number.isFinite(e.price) && e.price > 0);
-  if (valid.length === 0) {
-    return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] };
-  }
 
-  // Reduce to one price per class (median of that class's pools/reads).
-  const byClass = new Map<EstimatorClass, number>();
-  for (const cls of CLASS_PRIORITY) {
+  // The mid is pool-relative: it comes ONLY from liquidity classes. Median within
+  // each class first, then the mid is the median across the liquidity classes.
+  const liq = new Map<EstimatorClass, number>();
+  for (const cls of LIQUIDITY_CLASSES) {
     const prices = valid.filter((e) => e.class === cls).map((e) => e.price);
-    if (prices.length > 0) byClass.set(cls, median(prices));
+    if (prices.length > 0) liq.set(cls, median(prices));
+  }
+  if (liq.size === 0) {
+    return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'] };
   }
 
-  const classes = [...byClass.keys()];
-  if (classes.length === 1) {
-    const only = classes[0]!;
-    return { tier: 'estimated', marketMid: byClass.get(only)!, corroboratedBy: [only], flags: ['SINGLE_CLASS'] };
+  const liqClasses = [...liq.keys()];
+  const marketMid = median([...liq.values()]);
+  const within = (p: number) => (Math.abs(p - marketMid) / marketMid) * 10_000 <= tolBps;
+
+  const flags: string[] = [];
+  const corroboratedBy: EstimatorClass[] = [];
+  for (const c of liqClasses) if (within(liq.get(c)!)) corroboratedBy.push(c);
+
+  // Independent liquidity corroboration: >=2 liquidity classes that all agree.
+  const liquidityCorroborated = liqClasses.length >= 2 && liqClasses.every((c) => within(liq.get(c)!));
+  if (liqClasses.length >= 2 && !liquidityCorroborated) flags.push('LIQUIDITY_DISAGREE');
+
+  // Oracle: corroborate-only. It confirms the tier but never enters the mid.
+  const oraclePrices = valid.filter((e) => e.class === 'oracle').map((e) => e.price);
+  let oracleCorroborated = false;
+  if (oraclePrices.length > 0) {
+    if (within(median(oraclePrices))) {
+      oracleCorroborated = true;
+      corroboratedBy.push('oracle');
+    } else {
+      flags.push('ORACLE_DISAGREE');
+    }
   }
 
-  // >=2 classes: the agreeing subset is those within tol of all class prices' median.
-  const classPrices = classes.map((c) => byClass.get(c)!);
-  const m = median(classPrices);
-  const agree = classes.filter((c) => (Math.abs(byClass.get(c)! - m) / m) * 10_000 <= tolBps);
-
-  if (agree.length >= 2) {
-    return {
-      tier: 'full',
-      marketMid: median(agree.map((c) => byClass.get(c)!)),
-      corroboratedBy: agree,
-      flags: [],
-    };
-  }
-
-  // No corroboration: fall back to the highest-priority class, flagged.
-  const pick = CLASS_PRIORITY.find((c) => byClass.has(c))!;
-  return { tier: 'estimated', marketMid: byClass.get(pick)!, corroboratedBy: [pick], flags: ['CROSS_CLASS_DISAGREE'] };
+  const corroborated = liquidityCorroborated || oracleCorroborated;
+  if (!corroborated && flags.length === 0) flags.push('SINGLE_SOURCE');
+  return { tier: corroborated ? 'full' : 'estimated', marketMid, corroboratedBy, flags };
 }
 
 /**

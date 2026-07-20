@@ -7,46 +7,56 @@ const bridged = (price: number): Estimator => ({ price, class: 'bridged', label:
 const oracle = (price: number): Estimator => ({ price, class: 'oracle', label: 'oracle ratio' });
 
 describe('computeMarketPrice', () => {
-  it('returns tier none when no estimators survive', () => {
+  it('returns none when no LIQUIDITY estimator survives (oracle alone is not a mid)', () => {
     expect(computeMarketPrice([]).tier).toBe('none');
     expect(computeMarketPrice([direct(0)]).tier).toBe('none');
-    expect(computeMarketPrice([direct(Number.NaN)]).marketMid).toBeNull();
+    const oracleOnly = computeMarketPrice([oracle(100)]);
+    expect(oracleOnly.tier).toBe('none');       // pool-relative: no pool => no market price
+    expect(oracleOnly.marketMid).toBeNull();
   });
 
-  it('returns estimated with a single class present', () => {
+  it('single liquidity pool, no corroborator => estimated, mid = pool', () => {
     const r = computeMarketPrice([direct(100)]);
     expect(r.tier).toBe('estimated');
     expect(r.marketMid).toBe(100);
     expect(r.corroboratedBy).toEqual(['direct']);
-    expect(r.flags).toContain('SINGLE_CLASS');
+    expect(r.flags).toContain('SINGLE_SOURCE');
   });
 
-  it('medians multiple pools within one class before tiering', () => {
+  it('medians multiple pools within the direct class before tiering', () => {
     const r = computeMarketPrice([direct(100), direct(102), direct(101)]);
-    expect(r.tier).toBe('estimated'); // still one class
     expect(r.marketMid).toBe(101);
+    expect(r.tier).toBe('estimated'); // still one class
   });
 
-  it('returns full when two classes agree within tolerance', () => {
-    const r = computeMarketPrice([direct(100), bridged(100.2)]); // 20 bps apart
+  it('two independent liquidity classes agree => full, mid = liquidity median', () => {
+    const r = computeMarketPrice([direct(100), bridged(100.2)]);
     expect(r.tier).toBe('full');
     expect(r.marketMid).toBeCloseTo(100.1, 6);
     expect(r.corroboratedBy.sort()).toEqual(['bridged', 'direct']);
-    expect(r.flags).toEqual([]);
   });
 
-  it('drops to estimated (direct wins) when classes disagree beyond tolerance', () => {
-    const r = computeMarketPrice([direct(100), oracle(110)]); // 1000 bps apart
-    expect(r.tier).toBe('estimated');
-    expect(r.marketMid).toBe(100); // direct priority
-    expect(r.flags).toContain('CROSS_CLASS_DISAGREE');
-  });
-
-  it('takes the agreeing subset when a third class is an outlier', () => {
-    const r = computeMarketPrice([direct(100), bridged(100.3), oracle(140)]);
+  it('oracle agrees => full, but the mid STAYS the pool (oracle never blended in)', () => {
+    const r = computeMarketPrice([direct(100), oracle(100.2)]); // 20 bps apart, within tol
     expect(r.tier).toBe('full');
-    expect(r.marketMid).toBeCloseTo(100.15, 6); // median of the two agreeing
+    expect(r.marketMid).toBe(100);               // NOT 100.1 — oracle does not move the mid
+    expect(r.corroboratedBy).toContain('oracle');
+    expect(r.corroboratedBy).toContain('direct');
+  });
+
+  it('oracle disagrees beyond tol => estimated, mid = pool, ORACLE_DISAGREE', () => {
+    const r = computeMarketPrice([direct(100), oracle(110)]);
+    expect(r.tier).toBe('estimated');
+    expect(r.marketMid).toBe(100);
+    expect(r.flags).toContain('ORACLE_DISAGREE');
+  });
+
+  it('liquidity corroborates even when an oracle outlier disagrees', () => {
+    const r = computeMarketPrice([direct(100), bridged(100.3), oracle(140)]);
+    expect(r.tier).toBe('full');                 // direct+bridged agree
+    expect(r.marketMid).toBeCloseTo(100.15, 6);  // liquidity median only
     expect(r.corroboratedBy).not.toContain('oracle');
+    expect(r.flags).toContain('ORACLE_DISAGREE');
   });
 });
 
