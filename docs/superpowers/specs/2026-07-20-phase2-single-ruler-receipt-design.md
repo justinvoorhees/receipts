@@ -49,16 +49,28 @@ notional produced by `bestEffortNotional`.
 
 ### `reconciledResult` usage
 
-For an anchored pair, exactly one side's USD is `notionalUsd` (the anchored side; a
-stable is ~$1, ETH/WETH via the benchmark — `bestEffortNotional` already prefers the
-anchored side). The other side follows from the single ruler:
+`reconciledResult({ marketMid, realizedPrice, notionalUsd })` returns
+`execResultUsd = notionalUsd × (realizedPrice/marketMid − 1)` — which is the exact
+Execution Result **only when `notionalUsd` is the INPUT (paid) side's notional**
+(`notionalIn`). So the dashboard must always feed it `notionalIn`, deriving that
+from the single anchor first:
 
-```
-{ execResultUsd, qualityBps } = reconciledResult({ marketMid, realizedPrice, notionalUsd })
-```
-
-- Input anchored → `notionalIn = notionalUsd`, `notionalOut = notionalIn + execResultUsd`.
-- Output anchored → `notionalOut = notionalUsd`, `notionalIn = notionalOut − execResultUsd`.
+- `bestEffortNotional` stores the *anchored* side's USD. When the input is
+  anchorable it prices the input first → stored `notionalUsd` **is** `notionalIn`.
+  When ONLY the output anchors (`preferOutput = outAnchor && !inAnchor`) it prices
+  the output → stored `notionalUsd` is `notionalOut`.
+- Therefore:
+  ```
+  notionalIn  = preferOutput ? notionalUsd * marketMid / realizedPrice : notionalUsd
+  { execResultUsd } = reconciledResult({ marketMid, realizedPrice, notionalUsd: notionalIn })
+  notionalOut = notionalIn + execResultUsd
+  ```
+  Both notionals are derived from the ONE anchor + the ONE mid, so
+  `execResultUsd = notionalOut − notionalIn` exactly and the single-ruler invariant
+  holds against `notionalIn`. (Feeding `reconciledResult` the *output* notional for
+  an output-anchored pair would use `(realized−mid)/mid` where the exact term is
+  `(realized−mid)/realized` — wrong by a second-order factor; hence always
+  `notionalIn`.)
 
 `execResultUsd > 0` = surplus (received more than mid) = **Gained**; `< 0` = **Lost**.
 
