@@ -73,3 +73,18 @@ export function computeMarketPrice(
   const pick = CLASS_PRIORITY.find((c) => byClass.has(c))!;
   return { tier: 'estimated', marketMid: byClass.get(pick)!, corroboratedBy: [pick], flags: ['CROSS_CLASS_DISAGREE'] };
 }
+
+/**
+ * The single-ruler identity: from ONE market mid, the dollar execution result and
+ * the bps execution quality are two views of the same number. A test asserts
+ * execResultUsd === qualityBps/1e4 * notionalUsd; if that ever breaks, a second
+ * ruler has re-entered. All prices are output-per-input.
+ */
+export function reconciledResult(args: {
+  marketMid: number;
+  realizedPrice: number;
+  notionalUsd: number;
+}): { execResultUsd: number; qualityBps: number } {
+  const ratio = args.realizedPrice / args.marketMid - 1;
+  return { execResultUsd: args.notionalUsd * ratio, qualityBps: ratio * 10_000 };
+}

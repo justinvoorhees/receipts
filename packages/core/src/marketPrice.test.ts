@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeMarketPrice, type Estimator } from './marketPrice.js';
+import { reconciledResult } from './marketPrice.js';
 
 const direct = (price: number): Estimator => ({ price, class: 'direct', label: 'direct pool' });
 const bridged = (price: number): Estimator => ({ price, class: 'bridged', label: 'WETH bridge' });
@@ -46,5 +47,25 @@ describe('computeMarketPrice', () => {
     expect(r.tier).toBe('full');
     expect(r.marketMid).toBeCloseTo(100.15, 6); // median of the two agreeing
     expect(r.corroboratedBy).not.toContain('oracle');
+  });
+});
+
+describe('reconciledResult (single-ruler invariant)', () => {
+  // Reference ETH->WBTC row: 1 ETH -> 0.028625 WBTC; Market Price 35.0232 ETH = 1 WBTC.
+  const marketMid = 1 / 35.0232;        // WBTC per ETH (output per input)
+  const realizedPrice = 0.028625 / 1;   // WBTC per ETH realized
+  const notionalUsd = 1791.14;          // ETH side, anchor-grade
+
+  it('Execution Result equals qualityBps/1e4 x notional (identity holds)', () => {
+    const { execResultUsd, qualityBps } = reconciledResult({ marketMid, realizedPrice, notionalUsd });
+    expect(execResultUsd).toBeCloseTo((qualityBps / 10_000) * notionalUsd, 9);
+  });
+
+  it('reference row reads a small positive result (~+$4.5, ~+25 bps)', () => {
+    const { execResultUsd, qualityBps } = reconciledResult({ marketMid, realizedPrice, notionalUsd });
+    expect(qualityBps).toBeGreaterThan(20);
+    expect(qualityBps).toBeLessThan(30);
+    expect(execResultUsd).toBeGreaterThan(4);
+    expect(execResultUsd).toBeLessThan(5);
   });
 });
