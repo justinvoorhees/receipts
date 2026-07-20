@@ -6,7 +6,14 @@
  * the RPC-backed defaults are swapped for pure fakes.
  */
 import { describe, expect, it } from 'vitest';
-import { priceReceipt, defaultGetPairMid, type PricingDeps, type PoolMidReaders } from './pricing.js';
+import {
+  priceReceipt,
+  defaultGetPairMid,
+  bridgedIsIndependent,
+  impliedOracleRatio,
+  type PricingDeps,
+  type PoolMidReaders,
+} from './pricing.js';
 import type { BenchmarkResult } from './benchmarkPrice.js';
 import type { MarketPriceResult } from './marketPrice.js';
 
@@ -434,5 +441,33 @@ describe('priceReceipt tier wiring', () => {
     expect(r.status).toBe('partial');
     expect(r.marketMid).toBeNull();
     expect(r.tier).toBe('none');
+  });
+});
+
+const NATIVE = 'native';
+const WBTC = '0x0555e30da8f98308edb960aa94c0db47230d2b9c';
+
+describe('bridgedIsIndependent', () => {
+  it('false when either side is literal WETH (bridge duplicates the direct pool)', () => {
+    expect(bridgedIsIndependent(WETH, WBTC)).toBe(false);
+    expect(bridgedIsIndependent(WBTC, WETH)).toBe(false);
+  });
+  it('true for native ETH (no direct native pool → the bridge is the only liquidity source)', () => {
+    expect(bridgedIsIndependent(NATIVE, WBTC)).toBe(true);
+    expect(bridgedIsIndependent(NATIVE, USDC)).toBe(true);
+  });
+  it('true for a non-WETH pair (bridge is a genuinely independent path)', () => {
+    expect(bridgedIsIndependent(USDC, WBTC)).toBe(true);
+  });
+});
+
+describe('impliedOracleRatio', () => {
+  it('returns usdIn/usdOut when both resolve', () => {
+    expect(impliedOracleRatio(2000, 50000)).toBeCloseTo(0.04, 9);
+  });
+  it('returns null when a side is missing or usdOut is non-positive', () => {
+    expect(impliedOracleRatio(null, 50000)).toBeNull();
+    expect(impliedOracleRatio(2000, null)).toBeNull();
+    expect(impliedOracleRatio(2000, 0)).toBeNull();
   });
 });

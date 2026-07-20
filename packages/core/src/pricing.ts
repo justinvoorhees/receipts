@@ -1,27 +1,13 @@
 /**
- * pricing.ts — Generic USD anchor + reference mid with graceful degradation.
+ * pricing.ts — receipt pricing via the single Market Price apparatus.
  *
- * The receipts tool analyzes ANY token pair. Price Impact and Slippage need a
- * reference mid for the traded pair at block N-1, plus a USD valuation for the
- * receipt. Today's benchmark machinery is WETH/USDC-specific; this module
- * generalizes it under a strict best-effort policy:
- *
- *   1. USDC/WETH (either direction) → delegate to `getBenchmarkMid` (the fully
- *      oracle-validated fast-path) → `status:'full'`.
- *   2. Else → find the deepest on-chain pool for (input, output) at N-1. If a
- *      mid exists AND at least one side anchors to USD (stablecoin allowlist, or
- *      WETH priced via WETH/USD) → `status:'full'` with a best-effort mid +
- *      notionalUsd. Per-pair oracle-validation fields are null (we have no
- *      per-pair oracle) — that's expected.
- *   3. Otherwise → `status:'partial'` (`marketMid=null`, `notionalUsd` best-
- *      effort-or-null). Downstream this means LP + Agg benchmarks only.
- *   4. NEVER THROWS. Any error (e.g. a transient RPC failure) degrades to a
- *      `status:'partial'` result — an honest partial beats bad pricing.
- *
- * Testability: `priceReceipt` takes an optional `PricingDeps` bag of injectable
- * readers that DEFAULT to the real RPC-backed implementations (mirroring
- * `createDefaultMidReader` in decomposeRoute.ts). Unit tests inject pure fakes,
- * so no live RPC is required.
+ * `priceReceipt` produces one pool-relative Market Price (output-per-input) at
+ * block N-1 from `getMarketPriceForPair` (marketPrice.ts): liquidity pools set the
+ * mid, an independent oracle-implied ratio corroborates the confidence tier
+ * (full/estimated/none) but never moves the mid. A USD anchor (stable / WETH-ETH
+ * benchmark) dollarizes the one ratio into a best-effort notional. NEVER THROWS —
+ * any failure degrades to a complete `partial`/none result. The Branch-1 USDC/WETH
+ * fast-path is retained pending the Phase-3 module collapse.
  */
 
 import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
@@ -85,6 +71,24 @@ const isUsdcWethPair = (input: string, output: string): boolean => {
   const o = output.toLowerCase();
   return (i === USDC && o === WETH) || (i === WETH && o === USDC);
 };
+
+/** The WETH bridge is an independent estimator UNLESS a side is literal WETH — in
+ *  which case the direct estimator already reads that same WETH pool and the bridge
+ *  collapses to it. Native ETH is NOT suppressed: `defaultGetPairMid` returns null
+ *  for the synthetic `'native'` endpoint (no direct pool), so the bridge is the only
+ *  liquidity estimator for native pairs and must be kept. */
+export function bridgedIsIndependent(inputToken: string, outputToken: string): boolean {
+  return !isWeth(inputToken) && !isWeth(outputToken);
+}
+
+/** Oracle-implied output-per-input ratio from independent per-side USD refs, or
+ *  null. A single ratio (one number) — never a per-side display price. */
+export function impliedOracleRatio(usdIn: number | null, usdOut: number | null): number | null {
+  if (usdIn == null || usdOut == null || !Number.isFinite(usdIn) || !Number.isFinite(usdOut) || usdOut <= 0) {
+    return null;
+  }
+  return usdIn / usdOut;
+}
 
 // ── Result interface ─────────────────────────────────────────────────────────
 
@@ -262,21 +266,36 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
       getMarketPriceForPair(
         {
           getDirectMid: async (i, o, blk) => (await defaultGetPairMid(poolReaders, i, o, blk))?.price ?? null,
-          getBridgedMid: async (i, o, blk) => (await getEstimatedMidAtBlock(
-            {
-              getDeepestPoolWithDepth: async (a, b, b2) => {
-                const best = await getDeepestPoolWithDepth(client, a, b, b2);
-                return best ? { address: best.pool.address, depth: best.depth } : null;
-              },
-              readSlot0: (pool, b2) => readSlot0(client, pool as `0x${string}`, b2),
-              readDecimals: decCache,
-            }, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null,
+          getBridgedMid: async (i, o, blk) => {
+            if (!bridgedIsIndependent(i, o)) return null; // duplicates direct for WETH pairs
+            return (await getEstimatedMidAtBlock(
+              {
+                getDeepestPoolWithDepth: async (a, b, b2) => {
+                  const best = await getDeepestPoolWithDepth(client, a, b, b2);
+                  return best ? { address: best.pool.address, depth: best.depth } : null;
+                },
+                readSlot0: (pool, b2) => readSlot0(client, pool as `0x${string}`, b2),
+                readDecimals: decCache,
+              }, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null;
+          },
           getOracleImpliedMid: async (i, o, blk) => {
-            const [ui, uo] = await Promise.all([
-              readTokenUsd(i, blk + 1n, rpcUrl),
-              readTokenUsd(o, blk + 1n, rpcUrl),
-            ]);
-            return ui != null && uo != null && uo > 0 ? ui / uo : null; // output-per-input = usd(in)/usd(out)
+            // Independent per-side USD: stable=$1, WETH/native via the WETH/USD
+            // backbone, mapped feeds (e.g. WBTC->BTC/USD) via readTokenUsd. Fires
+            // only when BOTH sides resolve. readTokenUsd/benchmark sample at
+            // blockNumber-1 internally, so pass blk+1n (blk is already N-1).
+            const usdIndep = async (token: string): Promise<number | null> => {
+              const t = token.toLowerCase();
+              if (isStable(t)) return 1;
+              if (isWeth(t) || isNative(t)) {
+                try {
+                  const b = await getBenchmarkMid({ rpcUrl, blockNumber: blk + 1n });
+                  return b.marketMid > 0 ? b.marketMid : null;
+                } catch { return null; }
+              }
+              return readTokenUsd(t, blk + 1n, rpcUrl);
+            };
+            const [ui, uo] = await Promise.all([usdIndep(i), usdIndep(o)]);
+            return impliedOracleRatio(ui, uo);
           },
         },
         inputToken,
@@ -300,9 +319,9 @@ function fallbackSymbolFor(token: string): string {
 function methodologyFor(mp: MarketPriceResult): string {
   if (mp.tier === 'none') return 'No reliable market price available.';
   if (mp.tier === 'estimated') {
-    return mp.flags.includes('CROSS_CLASS_DISAGREE')
-      ? 'Estimated: price sources disagreed; showing the deepest pool mid.'
-      : 'Estimated: single uncorroborated pool mid at block N-1.';
+    if (mp.flags.includes('ORACLE_DISAGREE')) return 'Estimated: oracle disagreed with the pool mid; showing the pool mid.';
+    if (mp.flags.includes('LIQUIDITY_DISAGREE')) return 'Estimated: pools disagreed; showing the median pool mid.';
+    return 'Estimated: single uncorroborated pool mid at block N-1.';
   }
   return `Corroborated market price (${mp.corroboratedBy.join(' + ')}) at block N-1.`;
 }
