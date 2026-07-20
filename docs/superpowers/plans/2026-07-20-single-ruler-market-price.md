@@ -632,6 +632,311 @@ git commit -m "test(core): reconcile existing suites with the Market Price appar
 
 ---
 
+---
+
+## Phase 1b — Corroboration fixes (from the final whole-branch review)
+
+The final review found the corroboration was hollow for WETH-anchored pairs (direct and bridged collapse to the same pool) and the oracle-implied corroborator never fired (only WBTC mapped). User decision: the oracle **confirms confidence only — it never moves the Market Price** (the mid stays pool-relative, preserving `Execution Result ≡ Execution Quality`). These two tasks make corroboration real.
+
+### Task 6: `computeMarketPrice` — oracle corroborates, never sets the mid
+
+Rewrite the reducer so the mid comes only from **liquidity** classes (`direct`, `bridged`); the **oracle** class corroborates the tier but is never medianed into the mid.
+
+**Files:**
+- Modify: `packages/core/src/marketPrice.ts` (`computeMarketPrice` body + a `LIQUIDITY_CLASSES` const)
+- Modify: `packages/core/src/marketPrice.test.ts` (replace the Task 1 `computeMarketPrice` describe block; keep Task 2/3 blocks untouched)
+
+**Interfaces:**
+- Consumes: `median` from `./benchmarkPrice.js`; existing `Estimator`/`MarketPriceResult`/`EstimatorClass`/`CORROBORATE_TOL_BPS` (unchanged shapes).
+- Produces: same `computeMarketPrice(estimators, tolBps?)` signature; new behavior. Flags vocabulary: `NO_LIQUIDITY`, `SINGLE_SOURCE`, `ORACLE_DISAGREE`, `LIQUIDITY_DISAGREE`.
+
+- [ ] **Step 1: Replace the Task 1 `computeMarketPrice` describe block with these tests**
+
+```ts
+// REPLACE the existing describe('computeMarketPrice', ...) block in marketPrice.test.ts
+// (leave the reconciledResult and getMarketPriceForPair blocks unchanged)
+describe('computeMarketPrice', () => {
+  it('returns none when no LIQUIDITY estimator survives (oracle alone is not a mid)', () => {
+    expect(computeMarketPrice([]).tier).toBe('none');
+    expect(computeMarketPrice([direct(0)]).tier).toBe('none');
+    const oracleOnly = computeMarketPrice([oracle(100)]);
+    expect(oracleOnly.tier).toBe('none');       // pool-relative: no pool => no market price
+    expect(oracleOnly.marketMid).toBeNull();
+  });
+
+  it('single liquidity pool, no corroborator => estimated, mid = pool', () => {
+    const r = computeMarketPrice([direct(100)]);
+    expect(r.tier).toBe('estimated');
+    expect(r.marketMid).toBe(100);
+    expect(r.corroboratedBy).toEqual(['direct']);
+    expect(r.flags).toContain('SINGLE_SOURCE');
+  });
+
+  it('medians multiple pools within the direct class before tiering', () => {
+    const r = computeMarketPrice([direct(100), direct(102), direct(101)]);
+    expect(r.marketMid).toBe(101);
+    expect(r.tier).toBe('estimated'); // still one class
+  });
+
+  it('two independent liquidity classes agree => full, mid = liquidity median', () => {
+    const r = computeMarketPrice([direct(100), bridged(100.2)]);
+    expect(r.tier).toBe('full');
+    expect(r.marketMid).toBeCloseTo(100.1, 6);
+    expect(r.corroboratedBy.sort()).toEqual(['bridged', 'direct']);
+  });
+
+  it('oracle agrees => full, but the mid STAYS the pool (oracle never blended in)', () => {
+    const r = computeMarketPrice([direct(100), oracle(100.2)]); // 20 bps apart, within tol
+    expect(r.tier).toBe('full');
+    expect(r.marketMid).toBe(100);               // NOT 100.1 — oracle does not move the mid
+    expect(r.corroboratedBy).toContain('oracle');
+    expect(r.corroboratedBy).toContain('direct');
+  });
+
+  it('oracle disagrees beyond tol => estimated, mid = pool, ORACLE_DISAGREE', () => {
+    const r = computeMarketPrice([direct(100), oracle(110)]);
+    expect(r.tier).toBe('estimated');
+    expect(r.marketMid).toBe(100);
+    expect(r.flags).toContain('ORACLE_DISAGREE');
+  });
+
+  it('liquidity corroborates even when an oracle outlier disagrees', () => {
+    const r = computeMarketPrice([direct(100), bridged(100.3), oracle(140)]);
+    expect(r.tier).toBe('full');                 // direct+bridged agree
+    expect(r.marketMid).toBeCloseTo(100.15, 6);  // liquidity median only
+    expect(r.corroboratedBy).not.toContain('oracle');
+    expect(r.flags).toContain('ORACLE_DISAGREE');
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify the new expectations fail against the old reducer**
+
+Run: `npx vitest run packages/core/src/marketPrice.test.ts -t computeMarketPrice`
+Expected: FAIL (old reducer blends oracle into the mid / treats oracle as a mid source).
+
+- [ ] **Step 3: Rewrite `computeMarketPrice`**
+
+```ts
+// In packages/core/src/marketPrice.ts, add near CLASS_PRIORITY:
+const LIQUIDITY_CLASSES: EstimatorClass[] = ['direct', 'bridged'];
+
+// REPLACE the entire body of computeMarketPrice with:
+export function computeMarketPrice(
+  estimators: Estimator[],
+  tolBps: number = CORROBORATE_TOL_BPS,
+): MarketPriceResult {
+  const valid = estimators.filter((e) => Number.isFinite(e.price) && e.price > 0);
+
+  // The mid is pool-relative: it comes ONLY from liquidity classes. Median within
+  // each class first, then the mid is the median across the liquidity classes.
+  const liq = new Map<EstimatorClass, number>();
+  for (const cls of LIQUIDITY_CLASSES) {
+    const prices = valid.filter((e) => e.class === cls).map((e) => e.price);
+    if (prices.length > 0) liq.set(cls, median(prices));
+  }
+  if (liq.size === 0) {
+    return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'] };
+  }
+
+  const liqClasses = [...liq.keys()];
+  const marketMid = median([...liq.values()]);
+  const within = (p: number) => (Math.abs(p - marketMid) / marketMid) * 10_000 <= tolBps;
+
+  const flags: string[] = [];
+  const corroboratedBy: EstimatorClass[] = [];
+  for (const c of liqClasses) if (within(liq.get(c)!)) corroboratedBy.push(c);
+
+  // Independent liquidity corroboration: >=2 liquidity classes that all agree.
+  const liquidityCorroborated = liqClasses.length >= 2 && liqClasses.every((c) => within(liq.get(c)!));
+  if (liqClasses.length >= 2 && !liquidityCorroborated) flags.push('LIQUIDITY_DISAGREE');
+
+  // Oracle: corroborate-only. It confirms the tier but never enters the mid.
+  const oraclePrices = valid.filter((e) => e.class === 'oracle').map((e) => e.price);
+  let oracleCorroborated = false;
+  if (oraclePrices.length > 0) {
+    if (within(median(oraclePrices))) {
+      oracleCorroborated = true;
+      corroboratedBy.push('oracle');
+    } else {
+      flags.push('ORACLE_DISAGREE');
+    }
+  }
+
+  const corroborated = liquidityCorroborated || oracleCorroborated;
+  if (!corroborated && flags.length === 0) flags.push('SINGLE_SOURCE');
+  return { tier: corroborated ? 'full' : 'estimated', marketMid, corroboratedBy, flags };
+}
+```
+
+Remove the now-unused `CLASS_PRIORITY` const if nothing else references it (grep first; the old disagreement fallback used it).
+
+- [ ] **Step 4: Run tests — the whole file — to confirm green and no regression in Task 2/3 blocks**
+
+Run: `npx vitest run packages/core/src/marketPrice.test.ts`
+Expected: PASS (all blocks). Then `npx tsc --build packages/core` → exit 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/marketPrice.ts packages/core/src/marketPrice.test.ts
+git commit -m "fix(core): oracle corroborates tier only; Market Price mid stays pool-relative"
+```
+
+---
+
+### Task 7: Make the oracle fire + suppress the redundant WETH bridge
+
+Wire real corroboration into `createDefaultPricingDeps`: (1) the oracle-implied estimator resolves each side's *independent* USD (stable=$1, WETH/native via the WETH/USD backbone, mapped feeds via `readTokenUsd`) so it actually fires; (2) the bridged estimator returns null when either endpoint is WETH/native (it would duplicate direct). Two small pure helpers make the decisions testable.
+
+**Files:**
+- Modify: `packages/core/src/pricing.ts` (add exported pure helpers `bridgedIsIndependent`, `impliedOracleRatio`; rewrite the `getMarketPrice` closure's `getBridgedMid`/`getOracleImpliedMid`; update `methodologyFor`; refresh the stale top-of-module docstring)
+- Modify: `packages/core/src/pricing.test.ts` (add unit tests for the two pure helpers)
+
+**Interfaces:**
+- Consumes: existing `isStable`, `isWeth`, `isNative` (already in `pricing.ts`); `getBenchmarkMid` (already imported); `readTokenUsd` (already imported from Task 4); `defaultGetPairMid`, `getEstimatedMidAtBlock`, pool readers (already in the closure).
+- Produces:
+  - `export function bridgedIsIndependent(inputToken: string, outputToken: string): boolean` — false iff either endpoint is WETH or native.
+  - `export function impliedOracleRatio(usdIn: number | null, usdOut: number | null): number | null` — `usdIn/usdOut` when both are finite and `usdOut > 0`, else null.
+
+- [ ] **Step 1: Write the failing helper tests**
+
+```ts
+// append to packages/core/src/pricing.test.ts
+import { bridgedIsIndependent, impliedOracleRatio } from './pricing.js';
+
+const NATIVE = 'native';
+const WBTC = '0x0555e30da8f98308edb960aa94c0db47230d2b9c';
+
+describe('bridgedIsIndependent', () => {
+  it('false when either side is WETH or native (bridge duplicates direct)', () => {
+    expect(bridgedIsIndependent(WETH, WBTC)).toBe(false);
+    expect(bridgedIsIndependent(WBTC, WETH)).toBe(false);
+    expect(bridgedIsIndependent(NATIVE, WBTC)).toBe(false);
+  });
+  it('true for a non-WETH/native pair (bridge is a genuinely independent path)', () => {
+    expect(bridgedIsIndependent(USDC, WBTC)).toBe(true);
+  });
+});
+
+describe('impliedOracleRatio', () => {
+  it('returns usdIn/usdOut when both resolve', () => {
+    expect(impliedOracleRatio(2000, 50000)).toBeCloseTo(0.04, 9);
+  });
+  it('returns null when a side is missing or usdOut is non-positive', () => {
+    expect(impliedOracleRatio(null, 50000)).toBeNull();
+    expect(impliedOracleRatio(2000, null)).toBeNull();
+    expect(impliedOracleRatio(2000, 0)).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify fail**
+
+Run: `npx vitest run packages/core/src/pricing.test.ts -t "bridgedIsIndependent|impliedOracleRatio"`
+Expected: FAIL — helpers not exported.
+
+- [ ] **Step 3: Implement**
+
+3a. Add the two pure helpers near the other small helpers in `pricing.ts` (e.g. after `anchorsToUsd`):
+
+```ts
+/** The WETH bridge is an independent estimator ONLY when neither endpoint is
+ *  WETH/native — otherwise it algebraically collapses to the direct pool. */
+export function bridgedIsIndependent(inputToken: string, outputToken: string): boolean {
+  return !isWeth(inputToken) && !isNative(inputToken) && !isWeth(outputToken) && !isNative(outputToken);
+}
+
+/** Oracle-implied output-per-input ratio from independent per-side USD refs, or
+ *  null. A single ratio (one number) — never a per-side display price. */
+export function impliedOracleRatio(usdIn: number | null, usdOut: number | null): number | null {
+  if (usdIn == null || usdOut == null || !Number.isFinite(usdIn) || !Number.isFinite(usdOut) || usdOut <= 0) {
+    return null;
+  }
+  return usdIn / usdOut;
+}
+```
+
+3b. In `createDefaultPricingDeps`, replace the `getBridgedMid` and `getOracleImpliedMid` fields of the `getMarketPrice` closure with:
+
+```ts
+          getBridgedMid: async (i, o, blk) => {
+            if (!bridgedIsIndependent(i, o)) return null; // duplicates direct for WETH pairs
+            return (await getEstimatedMidAtBlock(
+              {
+                getDeepestPoolWithDepth: async (a, b, b2) => {
+                  const best = await getDeepestPoolWithDepth(client, a, b, b2);
+                  return best ? { address: best.pool.address, depth: best.depth } : null;
+                },
+                readSlot0: (pool, b2) => readSlot0(client, pool as `0x${string}`, b2),
+                readDecimals: decCache,
+              }, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null;
+          },
+          getOracleImpliedMid: async (i, o, blk) => {
+            // Independent per-side USD: stable=$1, WETH/native via the WETH/USD
+            // backbone, mapped feeds (e.g. WBTC->BTC/USD) via readTokenUsd. Fires
+            // only when BOTH sides resolve. readTokenUsd/benchmark sample at
+            // blockNumber-1 internally, so pass blk+1n (blk is already N-1).
+            const usdIndep = async (token: string): Promise<number | null> => {
+              const t = token.toLowerCase();
+              if (isStable(t)) return 1;
+              if (isWeth(t) || isNative(t)) {
+                try {
+                  const b = await getBenchmarkMid({ rpcUrl, blockNumber: blk + 1n });
+                  return b.marketMid > 0 ? b.marketMid : null;
+                } catch { return null; }
+              }
+              return readTokenUsd(t, blk + 1n, rpcUrl);
+            };
+            const [ui, uo] = await Promise.all([usdIndep(i), usdIndep(o)]);
+            return impliedOracleRatio(ui, uo);
+          },
+```
+
+3c. Replace `methodologyFor` with tier-and-flag-aware copy:
+
+```ts
+function methodologyFor(mp: MarketPriceResult): string {
+  if (mp.tier === 'none') return 'No reliable market price available.';
+  if (mp.tier === 'estimated') {
+    if (mp.flags.includes('ORACLE_DISAGREE')) return 'Estimated: oracle disagreed with the pool mid; showing the pool mid.';
+    if (mp.flags.includes('LIQUIDITY_DISAGREE')) return 'Estimated: pools disagreed; showing the median pool mid.';
+    return 'Estimated: single uncorroborated pool mid at block N-1.';
+  }
+  return `Corroborated market price (${mp.corroboratedBy.join(' + ')}) at block N-1.`;
+}
+```
+
+3d. Replace the stale top-of-module docstring (the block describing the old "find the deepest pool… → full/partial" algorithm) with an accurate summary:
+
+```ts
+/**
+ * pricing.ts — receipt pricing via the single Market Price apparatus.
+ *
+ * `priceReceipt` produces one pool-relative Market Price (output-per-input) at
+ * block N-1 from `getMarketPriceForPair` (marketPrice.ts): liquidity pools set the
+ * mid, an independent oracle-implied ratio corroborates the confidence tier
+ * (full/estimated/none) but never moves the mid. A USD anchor (stable / WETH-ETH
+ * benchmark) dollarizes the one ratio into a best-effort notional. NEVER THROWS —
+ * any failure degrades to a complete `partial`/none result. The Branch-1 USDC/WETH
+ * fast-path is retained pending the Phase-3 module collapse.
+ */
+```
+
+- [ ] **Step 4: Run helper tests, then the pricing + apparatus suites, then typecheck**
+
+Run: `npx vitest run packages/core/src/pricing.test.ts packages/core/src/marketPrice.test.ts`
+Expected: PASS. Then `npx tsc --build packages/core` → exit 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/core/src/pricing.ts packages/core/src/pricing.test.ts
+git commit -m "fix(core): oracle-implied corroborator fires (backbone+stables+feeds); suppress redundant WETH bridge"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage (Phase 1 scope only):**

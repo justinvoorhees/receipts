@@ -62,31 +62,52 @@ onto the apparatus's outputs.
 
 ### Gate 1 — ratio confidence (what earns a "Market Price")
 
-Independent estimators of the one output-per-input scalar:
+Estimators of the one output-per-input scalar fall into **two roles**, and the
+distinction is load-bearing: **liquidity** estimators *set* the Market Price;
+**reference** estimators only *corroborate* it. The mid is always pool-relative —
+an oracle never moves it. (This mirrors `benchmarkPrice`'s own proven pattern: the
+oracle sets the manipulation flag, never the median-of-pools mid.)
 
+Liquidity (mid-setting):
 - **Direct** — median across the top-N deepest `in/out` pools at N-1 (generalizes
   the WETH/USDC benchmark's median-of-3 to any pair; today the non-WETH path reads
   a single deepest pool).
-- **Bridged** — `(in/WETH) × (WETH/out)` via each side's deepest WETH pool; an
-  independent path to the same ratio.
-- **Oracle-implied** *(corroborator only)* — `usd(in)/usd(out)` when both sides
-  have USD feeds.
+- **Bridged** — `(in/WETH) × (WETH/out)` via each side's deepest WETH pool. This is
+  an *independent* path to the same ratio **only when neither endpoint is WETH/native
+  ETH**. When one side is WETH/native the bridge algebraically collapses to the
+  direct pool (the WETH/USD anchor cancels), so it is **not** counted as an
+  independent estimator — it is suppressed (returns null) to avoid a hollow
+  corroboration.
+
+Reference (corroborate-only, never in the mid):
+- **Oracle-implied** — `usd(in)/usd(out)` built from *independent* USD references:
+  stablecoins = $1, WETH/native = the robust WETH/USD backbone, mapped-feed tokens
+  (e.g. WBTC via BTC/USD) = their feed. Fires only when *both* sides resolve
+  independently. For ETH↔WBTC this is `ETH/USD ÷ BTC/USD` — a genuine cross-venue
+  check against the pool mid. It is a single ratio (one number), never a per-side
+  display price.
 
 Tiers:
 
-- **`full`** — the primary estimate (direct median when ≥`MIN_VALID_POOLS` direct
-  pools exist, else the bridge) is corroborated by **≥1 estimator of a different
-  class** within tolerance. Market Price = median of the agreeing estimators.
-- **`estimated`** — a single guarded pool only, no corroborator. Guards are the
-  existing ones in `pricing.ts` / `analyzeTransaction.ts`: in-range liquidity floor,
-  tick-boundary rejection (`MIN/MAX_SQRT_RATIO`), and the downstream plausibility
-  cap. Dollar figures are shown but flagged `estimated`.
-- **`none`** — no estimate survives the guards → Market Price and Price Delta null.
+- **`full`** — a liquidity mid exists **and** is corroborated within tolerance by an
+  independent source: either a second independent liquidity class (direct **and**
+  independent bridged agree) **or** the oracle-implied ratio. Market Price = the
+  **liquidity mid** (median of the liquidity classes). The oracle's agreement earns
+  the tier but does not enter the mid.
+- **`estimated`** — a liquidity mid exists but has no agreeing independent
+  corroborator (single guarded pool, or the corroborator disagrees beyond
+  tolerance). Guards are the existing ones in `pricing.ts` / `analyzeTransaction.ts`:
+  in-range liquidity floor, tick-boundary rejection (`MIN/MAX_SQRT_RATIO`), and the
+  downstream plausibility cap. Market Price = the liquidity mid; dollar figures are
+  shown but flagged `estimated`. A disagreeing oracle raises an `ORACLE_DISAGREE`
+  flag (possible manipulation / thin pool / large venue basis).
+- **`none`** — no liquidity mid survives the guards → Market Price and Price Delta
+  null. An oracle ratio alone never produces a Market Price (the mid is
+  pool-relative by definition).
 
-Reuse the benchmark's tolerances as defaults (tunable): `DIVERGENCE_TOL_BPS = 15`
-(single-pool vs. median), `MANIPULATION_TOL_BPS = 50` (cross-class disagreement).
-Cross-class disagreement beyond `MANIPULATION_TOL_BPS` drops the tier (never
-silently averages two rulers that disagree).
+Reuse the benchmark's tolerance as the default (tunable): `CORROBORATE_TOL_BPS = 50`
+(matches `MANIPULATION_TOL_BPS`). A corroborator beyond tolerance drops the tier and
+raises a flag; the mid is **never** the average of a pool and a disagreeing oracle.
 
 ### Gate 2 — USD anchor present (what earns dollars)
 
