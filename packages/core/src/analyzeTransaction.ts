@@ -171,6 +171,9 @@ export interface Receipt {
 	marketMid: number | null;
 	allInCostBps: number | null;
 	pricingStatus: 'full' | 'estimated' | 'partial';
+	tier: string | null;
+	methodology: string | null;
+	marketPriceFlags: string[] | null;
 	executionBps: number | null;
 	lpFeeBps: number | null;
 	aggFeeBps: number | null;
@@ -448,6 +451,9 @@ export async function analyzeTransaction(
 			marketMid: midReliable ? toDisplayPrice(marketMid, baseIsOutput) : null,
 			allInCostBps,
 			pricingStatus: midReliable ? pricing.status : 'partial',
+			tier: midReliable ? pricing.tier : 'none',
+			methodology: pricing.methodology,
+			marketPriceFlags: pricing.marketPriceFlags,
 			executionBps: midReliable ? route.executionBps : null,
 			lpFeeBps: route.lpFeeBps,
 			aggFeeBps: route.aggFeeBps,
