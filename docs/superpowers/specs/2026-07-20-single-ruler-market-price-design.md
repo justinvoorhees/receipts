@@ -73,11 +73,15 @@ Liquidity (mid-setting):
   the WETH/USDC benchmark's median-of-3 to any pair; today the non-WETH path reads
   a single deepest pool).
 - **Bridged** — `(in/WETH) × (WETH/out)` via each side's deepest WETH pool. This is
-  an *independent* path to the same ratio **only when neither endpoint is WETH/native
-  ETH**. When one side is WETH/native the bridge algebraically collapses to the
-  direct pool (the WETH/USD anchor cancels), so it is **not** counted as an
-  independent estimator — it is suppressed (returns null) to avoid a hollow
-  corroboration.
+  an *independent* path to the same ratio **only when neither endpoint is literal
+  WETH**. When a side is literal WETH the direct estimator already reads that same
+  WETH pool, so the bridge algebraically collapses to it (the WETH/USD anchor
+  cancels) — it is suppressed (returns null) to avoid a hollow corroboration.
+  **Native ETH (`'native'`) is the exception and is NOT suppressed**: `defaultGetPairMid`
+  returns null for the synthetic `'native'` pseudo-address (there is no `native/x`
+  pool), so for native-ETH pairs the bridge is the *only* liquidity estimator — it
+  is essential, not redundant. (Real corroboration for native pairs then comes from
+  the oracle-implied ratio, e.g. `ETH/USD ÷ BTC/USD` for native→WBTC.)
 
 Reference (corroborate-only, never in the mid):
 - **Oracle-implied** — `usd(in)/usd(out)` built from *independent* USD references:

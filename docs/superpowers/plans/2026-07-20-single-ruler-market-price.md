@@ -809,12 +809,15 @@ const NATIVE = 'native';
 const WBTC = '0x0555e30da8f98308edb960aa94c0db47230d2b9c';
 
 describe('bridgedIsIndependent', () => {
-  it('false when either side is WETH or native (bridge duplicates direct)', () => {
+  it('false when either side is literal WETH (bridge duplicates the direct pool)', () => {
     expect(bridgedIsIndependent(WETH, WBTC)).toBe(false);
     expect(bridgedIsIndependent(WBTC, WETH)).toBe(false);
-    expect(bridgedIsIndependent(NATIVE, WBTC)).toBe(false);
   });
-  it('true for a non-WETH/native pair (bridge is a genuinely independent path)', () => {
+  it('true for native ETH (no direct native pool → the bridge is the only liquidity source)', () => {
+    expect(bridgedIsIndependent(NATIVE, WBTC)).toBe(true);
+    expect(bridgedIsIndependent(NATIVE, USDC)).toBe(true);
+  });
+  it('true for a non-WETH pair (bridge is a genuinely independent path)', () => {
     expect(bridgedIsIndependent(USDC, WBTC)).toBe(true);
   });
 });
@@ -841,10 +844,13 @@ Expected: FAIL — helpers not exported.
 3a. Add the two pure helpers near the other small helpers in `pricing.ts` (e.g. after `anchorsToUsd`):
 
 ```ts
-/** The WETH bridge is an independent estimator ONLY when neither endpoint is
- *  WETH/native — otherwise it algebraically collapses to the direct pool. */
+/** The WETH bridge is an independent estimator UNLESS a side is literal WETH — in
+ *  which case the direct estimator already reads that same WETH pool and the bridge
+ *  collapses to it. Native ETH is NOT suppressed: `defaultGetPairMid` returns null
+ *  for the synthetic `'native'` endpoint (no direct pool), so the bridge is the only
+ *  liquidity estimator for native pairs and must be kept. */
 export function bridgedIsIndependent(inputToken: string, outputToken: string): boolean {
-  return !isWeth(inputToken) && !isNative(inputToken) && !isWeth(outputToken) && !isNative(outputToken);
+  return !isWeth(inputToken) && !isWeth(outputToken);
 }
 
 /** Oracle-implied output-per-input ratio from independent per-side USD refs, or
@@ -923,10 +929,15 @@ function methodologyFor(mp: MarketPriceResult): string {
  */
 ```
 
-- [ ] **Step 4: Run helper tests, then the pricing + apparatus suites, then typecheck**
+- [ ] **Step 4: Run helper tests, then the pricing + apparatus suites, THEN the full core suite, then typecheck**
 
 Run: `npx vitest run packages/core/src/pricing.test.ts packages/core/src/marketPrice.test.ts`
-Expected: PASS. Then `npx tsc --build packages/core` → exit 0.
+Expected: PASS.
+
+This task changes LIVE pricing behavior that `analyzeTransaction` depends on, so the full core suite is a REQUIRED gate (a narrower run misses regressions in native-ETH trades):
+
+Run: `npx vitest run packages/core`
+Expected: PASS with the SAME test count as the pre-task baseline (283 passing). If any `analyzeTransaction` test regresses, STOP — do not commit; report which tests and the failure output. A common cause: suppressing the bridge for a `native` endpoint (the predicate must suppress only literal WETH). Then `npx tsc --build packages/core` → exit 0.
 
 - [ ] **Step 5: Commit**
 
