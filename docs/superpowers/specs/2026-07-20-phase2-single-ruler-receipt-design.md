@@ -49,20 +49,33 @@ notional produced by `bestEffortNotional`.
 
 ### `reconciledResult` usage
 
-`reconciledResult({ marketMid, realizedPrice, notionalUsd })` returns
-`execResultUsd = notionalUsd × (realizedPrice/marketMid − 1)` — which is the exact
-Execution Result **only when `notionalUsd` is the INPUT (paid) side's notional**
-(`notionalIn`). So the dashboard must always feed it `notionalIn`, deriving that
-from the single anchor first:
+**Orientation (critical):** `reconciledResult` requires **output-per-input** prices,
+but core stores `marketMid`/`realizedPrice` through `toDisplayPrice(·, baseIsOutput)`,
+which **inverts** them (`1/price`) whenever `baseIsOutputLeg(inputToken, outputToken)`
+is true (the anchor→volatile "buy the volatile leg" direction — ETH→WBTC, USDC→TOKEN,
+…). Feeding those display values straight in flips the sign of `realized/mid − 1`. So
+`receiptDollars` must reconstruct output-per-input first:
+- `realizedOPi = outputAmount / inputAmount` — from the raw amounts, orientation-free.
+- `midOPi = baseIsOutputLeg(inputToken, outputToken) ? 1/marketMid : marketMid` —
+  un-invert the stored mid with the **same** predicate core used to store it (export
+  `baseIsOutputLeg` from core; do not re-derive via a symbol mirror that can drift).
+- Anchor detection uses core's **address-based** `anchorsToUsd(inputToken)` /
+  `anchorsToUsd(outputToken)` (exported from core), so the side `receiptDollars` pins
+  `notionalUsd` to is exactly the side `bestEffortNotional` valued.
+
+`reconciledResult({ marketMid: midOPi, realizedPrice: realizedOPi, notionalUsd })`
+returns `execResultUsd = notionalUsd × (realizedOPi/midOPi − 1)` — exact **only when
+`notionalUsd` is the INPUT (paid) side's notional** (`notionalIn`). So feed it
+`notionalIn`, derived from the single anchor first (all values now output-per-input):
 
 - `bestEffortNotional` stores the *anchored* side's USD. When the input is
   anchorable it prices the input first → stored `notionalUsd` **is** `notionalIn`.
-  When ONLY the output anchors (`preferOutput = outAnchor && !inAnchor`) it prices
-  the output → stored `notionalUsd` is `notionalOut`.
-- Therefore:
+  When ONLY the output anchors (`preferOutput = anchorsToUsd(output) && !anchorsToUsd(input)`)
+  it prices the output → stored `notionalUsd` is `notionalOut`.
+- Therefore (all prices output-per-input, per the orientation note above):
   ```
-  notionalIn  = preferOutput ? notionalUsd * marketMid / realizedPrice : notionalUsd
-  { execResultUsd } = reconciledResult({ marketMid, realizedPrice, notionalUsd: notionalIn })
+  notionalIn  = preferOutput ? notionalUsd * midOPi / realizedOPi : notionalUsd
+  { execResultUsd } = reconciledResult({ marketMid: midOPi, realizedPrice: realizedOPi, notionalUsd: notionalIn })
   notionalOut = notionalIn + execResultUsd
   ```
   Both notionals are derived from the ONE anchor + the ONE mid, so
