@@ -13,7 +13,10 @@
 import type { ReceiptRow } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 import { formatUsdMagnitude } from './usdFormat';
-import { reconciledResult, baseIsOutputLeg, anchorsToUsd } from '@fabric-tca/core';
+// Import from the pure leaf subpath (NOT the barrel): the barrel re-exports
+// analyzeTransaction → tagging → node:fs, which webpack cannot bundle for the
+// 'use client' tree. See packages/core/src/receiptPure.ts.
+import { reconciledResult, baseIsOutputLeg, anchorsToUsd } from '@fabric-tca/core/pure';
 
 // A token independently anchors to USD when it's a stablecoin (≈ $1) or ETH/WETH
 // (priced via the benchmark mid). Tier-independent — it says the pair *has* a USD
