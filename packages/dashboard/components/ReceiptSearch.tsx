@@ -35,7 +35,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 			// not-found state rather than leaving the UI hung.
 		} finally {
 			setSubmitting(false);
-			router.push(`/receipts?tx=${encodeURIComponent(trimmed)}` as Route);
+			router.push(`/?tx=${encodeURIComponent(trimmed)}` as Route);
 		}
 	};
 

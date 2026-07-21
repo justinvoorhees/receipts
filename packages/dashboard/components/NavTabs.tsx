@@ -6,8 +6,8 @@ import { useTransition } from 'react';
 const TABS: { label: string; href: Route; matches: (path: string) => boolean }[] = [
 	{
 		label: 'Receipts',
-		href: '/receipts' as Route,
-		matches: (p) => p === '/receipts',
+		href: '/' as Route,
+		matches: (p) => p === '/',
 	},
 	{
 		label: 'History',
