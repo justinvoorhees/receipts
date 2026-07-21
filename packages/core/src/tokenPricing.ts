@@ -22,6 +22,7 @@ import {
   V4_POOL_MANAGER,
 } from './poolDiscovery.js';
 import type { Leg } from './routeGraph.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,72 +47,9 @@ const KNOWN_DECIMALS: ReadonlyMap<string, number> = new Map([
 ]);
 
 // ── Pure math ────────────────────────────────────────────────────────────────
-
-/**
- * Convert a Uniswap V3/V4 sqrtPriceX96 to a human-readable price
- * (token1 per token0), adjusting for token decimals.
- *
- * Formula:
- *   raw_price = (sqrtPriceX96 / 2^96)^2        // token1_raw per token0_raw
- *   price     = raw_price * 10^(dec0 - dec1)    // human units
- *
- * Uses all-bigint arithmetic with a precision multiplier to avoid
- * IEEE 754 overflow (sqrtPriceX96 can exceed 2^53).
- */
-export function sqrtPriceX96ToPrice(
-  sqrtPriceX96: bigint,
-  dec0: number,
-  dec1: number,
-): number {
-  if (sqrtPriceX96 === 0n) return 0;
-
-  const Q192 = 1n << 192n;
-  const PRECISION = 10n ** 18n;
-
-  const decDiff = dec0 - dec1;
-
-  if (decDiff >= 0) {
-    const DECIMAL_ADJUST = 10n ** BigInt(decDiff);
-    const scaled = (sqrtPriceX96 * sqrtPriceX96 * DECIMAL_ADJUST * PRECISION) / Q192;
-    return Number(scaled) / Number(PRECISION);
-  } else {
-    // Negative decimal difference: divide instead of multiply
-    const DECIMAL_ADJUST = 10n ** BigInt(-decDiff);
-    const scaled = (sqrtPriceX96 * sqrtPriceX96 * PRECISION) / (Q192 * DECIMAL_ADJUST);
-    return Number(scaled) / Number(PRECISION);
-  }
-}
-
-/**
- * Compute a mid price from Uniswap V2-style reserves.
- *
- * Formula:
- *   raw_price = reserve1 / reserve0             // token1_raw per token0_raw
- *   price     = raw_price * 10^(dec0 - dec1)    // human units
- *
- * Returns 0 if reserve0 is zero.
- */
-export function v2MidFromReserves(
-  reserve0: bigint,
-  reserve1: bigint,
-  dec0: number,
-  dec1: number,
-): number {
-  if (reserve0 === 0n) return 0;
-
-  const PRECISION = 10n ** 18n;
-  const decDiff = dec0 - dec1;
-
-  if (decDiff >= 0) {
-    const DECIMAL_ADJUST = 10n ** BigInt(decDiff);
-    const scaled = (reserve1 * DECIMAL_ADJUST * PRECISION) / reserve0;
-    return Number(scaled) / Number(PRECISION);
-  } else {
-    const DECIMAL_ADJUST = 10n ** BigInt(-decDiff);
-    const scaled = (reserve1 * PRECISION) / (reserve0 * DECIMAL_ADJUST);
-    return Number(scaled) / Number(PRECISION);
-  }
-}
+// `sqrtPriceX96ToPrice` and `v2MidFromReserves` now live in the priceMath leaf
+// (shared with referencePrice); re-exported here for existing importers.
+export { sqrtPriceX96ToPrice, v2MidFromReserves };
 
 // ── Decimals cache ───────────────────────────────────────────────────────────
 

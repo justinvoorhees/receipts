@@ -1,5 +1,6 @@
 import { createPublicClient, http, parseAbi } from 'viem';
 import { base } from 'viem/chains';
+import { sqrtPriceX96ToPrice } from './priceMath.js';
 
 /**
  * Reference price = the pool's marginal spot price at block N-1 (the block
@@ -44,15 +45,9 @@ export async function getReferencePrice(args: ReferencePriceArgs): Promise<numbe
 }
 
 export function sqrtPriceX96ToUsdcPerWeth(sqrtPriceX96: bigint): number {
-	// `Number(sqrtPriceX96)` overflows IEEE 754 precision above ~2^53; do all
-	// multiplies as bigint and only convert at the end.
-	//
-	// Target: USDC_per_WETH = sqrtPriceX96^2 / 2^192 * 10^12
-	// Carry an extra 1e8 of precision through bigint so the final Number cast
-	// preserves cents-of-a-dollar accuracy at WETH prices up to six figures.
-	const Q192 = 1n << 192n;
-	const DECIMAL_ADJUST = 10n ** 12n; // 10^(decimals_token0 - decimals_token1)
-	const PRECISION = 10n ** 8n;
-	const scaled = (sqrtPriceX96 * sqrtPriceX96 * DECIMAL_ADJUST * PRECISION) / Q192;
-	return Number(scaled) / Number(PRECISION);
+	// USDC/WETH is the `token0=WETH(18), token1=USDC(6)` case of the general
+	// conversion: price = sqrtPriceX96^2 / 2^192 * 10^(18-6). Delegates to the
+	// shared priceMath implementation (which carries 1e18 of internal precision —
+	// strictly finer than the old 1e8, an accuracy improvement of ~1e-11 relative).
+	return sqrtPriceX96ToPrice(sqrtPriceX96, 18, 6);
 }
