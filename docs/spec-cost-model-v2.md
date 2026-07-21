@@ -5,9 +5,16 @@
 > showed the 0.05% pool is mostly a routing *hop*, not a venue, so per-leg
 > attribution never described the user's real trade. We pivoted to a **trade-centric,
 > router-centric** model — see **§A: As-Built (v2.0)** immediately below. The cost
-> *decomposition* (§2–§6: venue / slippage / agg-fee split, gas-in-USD, matrix axes)
-> remains the **v2.1 target**; v2.0 ships only the top-line all-in cost that those
-> components must sum to. Keep §2–§6 as the decomposition reference.
+> *decomposition* (§2–§5: venue / slippage / agg-fee split, gas-in-USD) remains the
+> **v2.1 target**; v2.0 ships only the top-line all-in cost that those components
+> must sum to. Keep §2–§5 as the decomposition reference.
+>
+> **§6 (trust matrix) was removed 2026-07-21.** The feature was killed outright by
+> the 2026-07-07 receipts reset — the tool answers "what happened in this trade",
+> not "which aggregator is trustworthy" — and its code was deleted then. The section
+> is gone from this spec so it stops reading as planned work; the rationale is in
+> `superpowers/specs/2026-07-07-receipts-tool-reset-design.md` and the axis analysis
+> is in git history.
 
 ---
 
@@ -333,11 +340,11 @@ this gate only decides which transactions are admitted as trades.
 
 ---
 
-## Original handoff (pre-pivot — §0–§1 superseded by §A; §2–§6 = v2.1 target)
+## Original handoff (pre-pivot — §0–§1 superseded by §A; §2–§5 = v2.1 target)
 
 Scope: restructure per-trade cost line items, make aggregator fee a *measured*
-number (not a residual), move gas out of the accuracy score, and audit/redesign
-the trust matrix axes.
+number (not a residual), and move gas out of the accuracy score. (The fourth
+item, auditing the trust-matrix axes, is dead — see the status banner.)
 
 Dataset at handoff: 52 aggregator-attributed swaps, USDC/WETH 0.05% pool, $10k+,
 Jun 4–18 2026. Pool: `0xd0b53D9277642d899DF5C87A3966A349A798F224`.
@@ -505,54 +512,6 @@ could have gotten (spot)."** So:
 
 ---
 
-## 6. Trust matrix — audit + redesign
-
-### Current state (broken for the intended quadrants)
-`packages/dashboard/lib/trustMatrix.ts` uses **X = stddev(cost)**,
-**Y = P95(cost)**. These are **strongly correlated** (both driven by the same
-tail), so an aggregator with large outliers scores high on *both* axes and lands
-top-right. There is no way for a "volatile but otherwise fine" aggregator to land
-top-left. The axes are not orthogonal → the four quadrants collapse to a diagonal.
-
-### Intended quadrant semantics (from Justin)
-The two axes are the two failure modes; the corners are their combinations.
-X (center) high = **Overpriced** (consistent markup). Y (spread) high =
-**Volatile** (large outliers). Both = **Untrustworthy**; neither = **Trustworthy**.
-
-| | Low spread (not volatile) | High spread (volatile) |
-|---|---|---|
-| **Low center (fair price)** | bottom-left = **Trustworthy** | top-left = **Volatile** |
-| **High center (overpriced)** | bottom-right = **Overpriced** | top-right = **Untrustworthy** |
-
-### Required axis design — decorrelate center vs spread
-- **X axis = central tendency** ("noise"): `median(totalCostBps)` (or trimmed
-  mean). Captures a consistent small markup. High X = bottom/right shift.
-- **Y axis = dispersion independent of center** ("volatility"): **use
-  `stddev(totalCostBps)` for v2.** Rationale: at our sample sizes (per-aggregator
-  n drops below ~20 once single-hop-filtered, with Kyber/Relay/Odos in single
-  digits), `stddev` is the stable, sample-size-unbiased, glitch-robust choice.
-  **Planned migration:** switch the Y stat to `P95(totalCostBps) − median` once
-  every displayed aggregator has ≥30 single-hop trades — that's the purer
-  "tail above typical" measure but a noisy estimator until then. `max − median`
-  was rejected for the axis (one bad print dominates; biased by sample count) —
-  may surface separately as a per-aggregator "worst case" stat.
-- Both axes computed on the ex-gas total cost (§5), with batch settlements
-  excluded (§1) and only single-hop trades included (§1).
-
-Lower-left origin = best. Confirm the component's Y axis is oriented so "up =
-worse" matches "high dispersion."
-
-### Audit step (do this, don't just trust it)
-Add a unit test with **four synthetic aggregators**, one engineered per quadrant:
-1. Trustworthy: tight around 6 bps → bottom-left.
-2. Overpriced: tight around 15 bps → bottom-right.
-3. Volatile: mostly 6 bps with a few 40 bps spikes → top-left.
-4. Untrustworthy: wide spread around 15 bps → top-right.
-Assert each lands in its quadrant relative to the median split of the axes. This
-is the concrete "verify the matrix works" the spec calls for.
-
----
-
 ## 7. File-level checklist
 
 - `packages/ingest/src/decoder.ts` — add trader-EOA identification + net-delta
@@ -567,18 +526,13 @@ is the concrete "verify the matrix works" the spec calls for.
   `is_single_hop`, `trader_address`. Migration.
 - `packages/dashboard/lib/queries.ts` — exclude batch settlements; accuracy
   excludes gas; surface gas USD + venue/slippage/agg line items.
-- `packages/dashboard/lib/trustMatrix.ts` — new median / (P95−median) strategy.
 - `packages/dashboard/components/TradesTable.tsx` — line items: Aggregator fee,
   Venue fees, Slippage, Gas ($), and Accuracy sum. Gas in USD.
-- Tests: the cost-sum invariant (§4) + the four-quadrant matrix audit (§6).
+- Tests: the cost-sum invariant (§4).
 
 ## 8. Decisions (resolved 2026-06-18)
 1. **Batch settlements (CoW): EXCLUDE for v2.** Flag `is_batch_settlement`;
    revisit GPv2 `Trade`-event parsing later.
 2. **Restrict v2 to single-hop only.** Exactly one DEX Swap event in the trace.
-3. **Y-axis dispersion: `stddev` for v2**, migrate to `P95 − median` once every
-   displayed aggregator has ≥30 single-hop trades. `max − median` rejected for
-   the axis.
-4. **Bottom-right label: "Overpriced."** Quadrant labels: Trustworthy (BL),
-   Volatile (TL), Overpriced (BR), Untrustworthy (TR). X high = overpriced,
-   Y high = volatile, both = untrustworthy, neither = trustworthy.
+3. ~~Y-axis dispersion~~ and ~~quadrant labels~~ — **moot.** Both resolved the
+   trust matrix's axis design; the feature was removed (see the status banner).

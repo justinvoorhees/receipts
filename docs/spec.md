@@ -10,7 +10,7 @@ and the as-built code.
 |---|---|---|
 | SQLite (MVP), Postgres (v2) | **Postgres from day one** | Dashboard is a near-term deliverable; Postgres avoids the migration tax. |
 | Python 3.11+ | **TypeScript** | Single language end-to-end avoids schema drift between ingest and dashboard. `debug_traceTransaction` works fine via viem's raw `request()`. |
-| No dashboard in MVP. Files only. | **Dashboard scaffolded** | UI shell salvaged from v1; trades table + 2×2 trust matrix in place pending data. |
+| No dashboard in MVP. Files only. | **Dashboard shipped** | The receipt is the product: paste a tx hash, get its decomposition. A 2×2 trust matrix was scaffolded early and removed in the 2026-07-07 reset — the tool rates trades, not aggregators. |
 
 ## Open items
 

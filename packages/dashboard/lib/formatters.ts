@@ -75,7 +75,8 @@ export function formatProvider(slug: string, opts?: { full?: boolean }): string 
 	return slug;
 }
 
-// Per-provider accent hexes. Values from the Figma trust-matrix spec — kept
+// Per-provider accent hexes. Values originally from the Figma trust-matrix
+// spec (that feature is gone; the palette outlived it) — kept
 // as raw hex (not theme vars) because the dots are part of the data viz and
 // should stay visually anchored across theme switches.
 const PROVIDER_COLOR_HEX: Record<string, string> = {
