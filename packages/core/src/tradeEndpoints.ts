@@ -85,7 +85,7 @@ export interface TraceNode {
 
 // ─── Transfer extraction from trace tree ───
 
-interface RawTransfer {
+export interface RawTransfer {
 	token: string; // lowercase
 	from: string; // checksummed from log
 	to: string; // checksummed from log

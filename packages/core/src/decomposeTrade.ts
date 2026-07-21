@@ -17,9 +17,6 @@ import {
 	USDC,
 	WETH,
 	DENYLIST,
-	decodeTransferLogs,
-	collectNativeEthDeltas,
-	collectTraceLogs,
 	type Direction,
 	type TraceNode,
 } from './tradeEndpoints.js';
@@ -28,12 +25,11 @@ import {
 	V2_SYNC_TOPIC,
 	AERODROME_SWAP_TOPIC,
 	AERODROME_SYNC_TOPIC,
-	WITHDRAWAL_TOPIC,
-	DEPOSIT_TOPIC,
 	UNISWAP_V4_POOL_MANAGER,
 	decodeV3LikeSwaps,
 	decodeV4SwapFees,
 } from './tradeDecoders.js';
+import { buildValueFlowGraph } from './tradeValueGraph.js';
 
 // ─── Constants ───
 
@@ -137,67 +133,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 	const structFloorBps = input.structuralFloorBps ?? STRUCTURAL_FEE_FLOOR_BPS;
 
 	// ── Step 1: Collect all logs and build value-flow graph ──
-
-	const logs = collectTraceLogs(input.trace);
-	const transfers = decodeTransferLogs(logs);
-	const nativeEthDeltas = collectNativeEthDeltas(input.trace);
-
-	// Per-address net deltas for USDC and WETH (in human units)
-	const addrDeltas = new Map<string, { usdc: number; weth: number; nativeEth: number }>();
-
-	const getOrInit = (addr: string) => {
-		const k = addr.toLowerCase();
-		if (!addrDeltas.has(k)) addrDeltas.set(k, { usdc: 0, weth: 0, nativeEth: 0 });
-		return addrDeltas.get(k)!;
-	};
-
-	for (const t of transfers) {
-		const token = t.token.toLowerCase();
-		const fromLower = t.from.toLowerCase();
-		const toLower = t.to.toLowerCase();
-		const humanVal = token === USDC
-			? Number(t.value) / 1e6
-			: token === WETH
-				? Number(t.value) / 1e18
-				: 0;
-		if (humanVal === 0) continue;
-
-		const fromD = getOrInit(fromLower);
-		const toD = getOrInit(toLower);
-		if (token === USDC) {
-			fromD.usdc -= humanVal;
-			toD.usdc += humanVal;
-		} else if (token === WETH) {
-			fromD.weth -= humanVal;
-			toD.weth += humanVal;
-		}
-	}
-
-	// WETH wrap/unwrap events affect per-address WETH balances:
-	// Withdrawal(src) = src burns WETH (decreases WETH balance, gets native ETH)
-	// Deposit(dst) = dst mints WETH (increases WETH balance, sends native ETH)
-	// Without this, intermediaries that unwrap WETH appear to "retain" it.
-	for (const log of logs) {
-		if (log.address.toLowerCase() !== WETH || !log.topics || log.topics.length < 2) continue;
-		const topic0 = log.topics[0]!;
-		if (topic0 === WITHDRAWAL_TOPIC) {
-			const src = ('0x' + log.topics[1]!.slice(26)).toLowerCase();
-			const amount = Number(BigInt(log.data)) / 1e18;
-			const d = getOrInit(src);
-			d.weth -= amount; // WETH burned
-		} else if (topic0 === DEPOSIT_TOPIC) {
-			const dst = ('0x' + log.topics[1]!.slice(26)).toLowerCase();
-			const amount = Number(BigInt(log.data)) / 1e18;
-			const d = getOrInit(dst);
-			d.weth += amount; // WETH minted
-		}
-	}
-
-	// Native ETH deltas
-	for (const [addr, raw] of nativeEthDeltas) {
-		const d = getOrInit(addr);
-		d.nativeEth = Number(raw) / 1e18;
-	}
+	const { logs, transfers, addrDeltas } = buildValueFlowGraph(input.trace);
 
 	// ── Step 2: Classify addresses ──
 
