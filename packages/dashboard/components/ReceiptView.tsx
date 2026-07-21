@@ -28,7 +28,7 @@ import {
 	NULL_PRICE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
-} from './TradesTable';
+} from './receipt/receiptDisplay';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
 import { receiptDollars, formatExecutionResult } from './receipt/qualityNotionals';
 
