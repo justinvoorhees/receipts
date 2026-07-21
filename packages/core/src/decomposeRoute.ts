@@ -9,7 +9,7 @@
  * Invariant: all_in = LP + Agg + Slippage (when route is reconstructed).
  */
 
-import { createPublicClient, decodeEventLog, http, parseAbiItem, toEventSelector } from 'viem';
+import { createPublicClient, decodeEventLog, http, parseAbiItem, toEventSelector, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 import {
 	USDC,
@@ -20,8 +20,119 @@ import {
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput, type LpRollup } from './legFees.js';
 import { decomposeTrade, type DecomposeTradeInput, type DecomposeResult } from './decompose-trade.js';
-import { getLegMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
+import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
+import { readSlot0, readV2Reserves, readV4Slot0, V4_POOL_MANAGER } from './poolDiscovery.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 import { classifyKnownVenueAddress, classifyV3Factory } from './venueClassification.js';
+
+// ─── Per-leg mid (impact layer) ───
+// Lives here (not tokenPricing) because per-leg Price Impact is the decompose
+// layer's concern; tokenPricing keeps the receipt-level pair-mid helpers.
+
+/** Sort two token addresses into Uniswap (token0, token1) order (lower = token0). */
+function sortLegTokens(a: string, b: string): { token0: string; token1: string; inverted: boolean } {
+	const aLc = a.toLowerCase();
+	const bLc = b.toLowerCase();
+	if (aLc < bLc) return { token0: aLc, token1: bLc, inverted: false };
+	return { token0: bLc, token1: aLc, inverted: true };
+}
+
+/**
+ * Read the mid price from a leg's OWN pool at a given block.
+ *
+ * Returns the price as "tokenOut per tokenIn" in human units, so the caller
+ * can compute price-impact as `(mid - realized) / mid` where
+ * `realized = amountOut / amountIn` in the same orientation.
+ *
+ * Routing logic:
+ *   - `univ3` / `pancakev3` -> readSlot0(leg.venue) -> sqrtPriceX96ToPrice
+ *   - `univ2` / `aerodrome` -> readV2Reserves(leg.venue) -> v2MidFromReserves
+ *   - `univ4`               -> readV4Slot0(leg.v4PoolId) -> sqrtPriceX96ToPrice
+ *   - `rfq` / `unknown`    -> factory discovery for (tokenIn, tokenOut)
+ */
+export async function getLegMidAtBlock(
+	client: PublicClient,
+	leg: Leg,
+	blockNumber: bigint,
+	decimalsOf: (address: string) => Promise<number>,
+): Promise<PairMidResult | null> {
+	const tokenIn = leg.tokenIn.toLowerCase();
+	const tokenOut = leg.tokenOut.toLowerCase();
+
+	// Sort tokens into Uniswap convention (lower address = token0)
+	const { token0, token1, inverted } = sortLegTokens(tokenIn, tokenOut);
+	// inverted = true means tokenIn > tokenOut, i.e. tokenIn=token1, tokenOut=token0
+	// We want "tokenOut per tokenIn". sqrtPriceX96ToPrice returns "token1 per token0".
+
+	const [dec0, dec1] = await Promise.all([decimalsOf(token0), decimalsOf(token1)]);
+
+	const type = leg.type;
+
+	// V3-style pools: read slot0 from the pool address
+	if (type === 'univ3' || type === 'sushiv3' || type === 'baseswapv3' || type === 'pancakev3' || type === 'aerodrome_cl') {
+		const sqrtPriceX96 = await readSlot0(client, leg.venue as `0x${string}`, blockNumber);
+		if (sqrtPriceX96 === null) return null;
+		const rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1);
+		const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
+		return { price, poolAddress: leg.venue, poolKind: type };
+	}
+
+	// V2-style pools: read reserves from the pair address
+	if (type === 'univ2' || type === 'aerodrome') {
+		const reserves = await readV2Reserves(client, leg.venue as `0x${string}`, blockNumber);
+		if (reserves === null) return null;
+		const rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
+		const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
+		return { price, poolAddress: leg.venue, poolKind: type };
+	}
+
+	// V4 pools: read via StateView getSlot0(poolId). V4 may use native ETH instead
+	// of WETH, so the pool's currency0/currency1 order may differ from the address
+	// sort; compute the raw sqrtPrice both ways and pick the one consistent with the
+	// leg's realized price direction.
+	if (type === 'univ4') {
+		if (!leg.v4PoolId) return null;
+		const sqrtPriceX96 = await readV4Slot0(client, leg.v4PoolId as `0x${string}`, blockNumber);
+		if (sqrtPriceX96 === null) return null;
+
+		const priceA = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1); // token1/token0 if sorted-order matches pool
+		const priceB = priceA > 0 ? 1 / priceA : 0;                  // inverse
+
+		// Realized price = tokenOut / tokenIn (in human units)
+		const decIn = tokenIn === token0 ? dec0 : dec1;
+		const decOut = tokenOut === token0 ? dec0 : dec1;
+		const realized = leg.amountInRaw > 0n
+			? (Number(leg.amountOutRaw) / 10 ** decOut) / (Number(leg.amountInRaw) / 10 ** decIn)
+			: 0;
+
+		const candidateA = inverted ? priceB : priceA; // address-sort assumption
+		const candidateB = inverted ? priceA : priceB; // flipped assumption (V4 + native ETH)
+
+		let price: number;
+		if (realized <= 0) {
+			price = candidateA; // default to address-sort if no realized available
+		} else {
+			const ratioA = candidateA > 0 ? Math.abs(Math.log(candidateA / realized)) : Infinity;
+			const ratioB = candidateB > 0 ? Math.abs(Math.log(candidateB / realized)) : Infinity;
+			price = ratioA <= ratioB ? candidateA : candidateB;
+		}
+
+		return { price, poolAddress: V4_POOL_MANAGER, poolKind: 'univ4' };
+	}
+
+	// RFQ fills are quoted off-chain — no pool mid to read. Deliberate null.
+	if (type === 'rfq') return null;
+
+	// Unknown / venues whose own mid we cannot read directly -> factory discovery.
+	if (
+		type === 'unknown' || type === 'maverickv1' || type === 'maverickv2' ||
+		type === 'curve_stableng' || type === 'hydrex' || type === 'unipool'
+	) {
+		return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
+	}
+
+	return null;
+}
 
 // ─── Constants ───
 

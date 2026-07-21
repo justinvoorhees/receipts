@@ -6,9 +6,8 @@
  * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getLegMidAtBlock, getTokenUsdcValue, getEstimatedMidAtBlock, type EstimatedMidReaders } from './tokenPricing.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, type EstimatedMidReaders } from './tokenPricing.js';
 import { type PublicClient } from 'viem';
-import type { Leg } from './routeGraph.js';
 
 // ── sqrtPriceX96ToPrice ─────────────────────────────────────────────────────
 
@@ -168,32 +167,6 @@ describe('getTokenUsdcValue', () => {
     const val = await getTokenUsdcValue(client, 'native', halfEth, 100n, decimalsOf, 3000);
     expect(val).toBeCloseTo(1500, 6); // 0.5 × 3000
     expect((client.readContract as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
-  });
-});
-
-// ── getLegMidAtBlock ─────────────────────────────────────────────────────────
-// RPC-dependent routing is exercised by the live redecompose-smoke step.
-// Here we test edge cases that don't require an RPC client.
-
-describe('getLegMidAtBlock', () => {
-  it('returns null for univ4 leg without v4PoolId', async () => {
-    const leg: Leg = {
-      venue: '0x498581ff718922c3f8e6a244956af099b2652b2b',
-      type: 'univ4',
-      tokenIn: '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b',
-      tokenOut: '0x4200000000000000000000000000000000000006',
-      amountInRaw: 1000n,
-      amountOutRaw: 500n,
-      // no v4PoolId
-    };
-    // Null client is fine since we expect an early return before any RPC call
-    const result = await getLegMidAtBlock(
-      null as never,
-      leg,
-      100n,
-      async (addr) => addr.toLowerCase().includes('0b3e') ? 18 : 18,
-    );
-    expect(result).toBeNull();
   });
 });
 

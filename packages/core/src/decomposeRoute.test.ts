@@ -8,8 +8,9 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, getLegMidAtBlock } from './decomposeRoute.js';
 import type { DecomposeTradeInput } from './decompose-trade.js';
+import type { Leg } from './routeGraph.js';
 
 // Load trace fixtures (avoid JSON import attribute issues with NodeNext)
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1171,4 +1172,29 @@ describe('venuesToUncostedLegs (pools-touched fallback)', () => {
     expect(out[0]!.leg.tokenIn).toBe('');
     expect(out[0]!.leg.tokenOut).toBe('');
   });
+});
+
+// ── getLegMidAtBlock (per-leg impact mid; moved here from tokenPricing) ──
+// RPC-dependent routing is exercised by the live redecompose-smoke step; here we
+// test edge cases that don't require an RPC client.
+describe('getLegMidAtBlock', () => {
+	it('returns null for a univ4 leg without v4PoolId', async () => {
+		const leg: Leg = {
+			venue: '0x498581ff718922c3f8e6a244956af099b2652b2b',
+			type: 'univ4',
+			tokenIn: '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b',
+			tokenOut: '0x4200000000000000000000000000000000000006',
+			amountInRaw: 1000n,
+			amountOutRaw: 500n,
+			// no v4PoolId
+		};
+		// Null client is fine — we expect an early return before any RPC call.
+		const result = await getLegMidAtBlock(
+			null as never,
+			leg,
+			100n,
+			async () => 18,
+		);
+		expect(result).toBeNull();
+	});
 });
