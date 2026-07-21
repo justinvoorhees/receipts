@@ -19,7 +19,6 @@ import {
   readSlot0,
   readV2Reserves,
 } from './poolDiscovery.js';
-import type { Leg } from './routeGraph.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────

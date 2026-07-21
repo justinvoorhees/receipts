@@ -44,7 +44,9 @@ export function valueLegNotionalUsdc(
   leg: Leg,
   usdcPerWeth: number,
   tradeNotionalUsdc: number,
-  decimalsOf: (token: string) => number,
+  // Retained for call-site compatibility; every branch below values a leg from its
+  // USDC/WETH endpoint, so no decimals lookup is needed.
+  _decimalsOf: (token: string) => number,
 ): { notionalUsdc: number; approx: boolean } {
   // USDC endpoints — direct conversion (6 decimals)
   if (leg.tokenIn === USDC) {

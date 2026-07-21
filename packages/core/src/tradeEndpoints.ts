@@ -33,9 +33,8 @@ const WITHDRAWAL_TOPIC =
 const DEPOSIT_TOPIC =
 	'0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c';
 
-// Dust thresholds — ignore rounding noise
-const USDC_DUST = 0.0001; // 0.0001 USDC (raw: 100)
-const WETH_DUST = 1e-8; // 1e-8 WETH (raw: 10_000_000_000 = 1e10)
+// Dust thresholds — ignore rounding noise. Only the raw (bigint) forms are used;
+// comparisons happen before any human-unit conversion.
 const USDC_DUST_RAW = 100n;
 const WETH_DUST_RAW = 10_000_000_000n; // 1e10 wei = 1e-8 WETH
 

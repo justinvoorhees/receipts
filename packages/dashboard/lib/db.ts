@@ -1,7 +1,6 @@
 import { createDb } from '@fabric-tca/db';
 
 declare global {
-	// eslint-disable-next-line no-var
 	var __tcaDb: ReturnType<typeof createDb> | undefined;
 }
 

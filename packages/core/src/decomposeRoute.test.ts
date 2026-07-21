@@ -95,7 +95,6 @@ function taggingInput(trader: string, txHash: string, trace: unknown): Decompose
 }
 
 const VIRTUAL = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
-const V4_POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
 
 describe('weightedPriceImpactBps', () => {
   it('equals the raw impact when the leg carries the full notional (linear)', () => {

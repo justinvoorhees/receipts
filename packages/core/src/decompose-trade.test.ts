@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeAbiParameters, parseAbiParameters, toEventSelector, parseAbiItem, pad as viemPad, toHex } from 'viem';
+import { encodeAbiParameters, parseAbiParameters, toEventSelector, parseAbiItem } from 'viem';
 import { decodeV4SwapFees, decodeV3LikeSwaps } from './decompose-trade.js';
 
 // V4 Swap event: event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)

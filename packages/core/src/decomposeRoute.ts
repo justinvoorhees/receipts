@@ -18,8 +18,8 @@ import {
 	decodeTransferLogs,
 } from './tradeEndpoints.js';
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
-import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput, type LpRollup } from './legFees.js';
-import { decomposeTrade, type DecomposeTradeInput, type DecomposeResult } from './decompose-trade.js';
+import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput } from './legFees.js';
+import { decomposeTrade, type DecomposeTradeInput } from './decompose-trade.js';
 import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
 import { readSlot0, readV2Reserves, readV4Slot0, V4_POOL_MANAGER } from './poolDiscovery.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
@@ -666,7 +666,9 @@ function createDefaultRfqProbe(rpcUrl: string, blockNumber: bigint): (addr: stri
 
 export function createDefaultMidReader(
 	rpcUrl: string,
-	blockNumber: bigint,
+	// The returned midReader takes its own `atBlock` per leg, so this outer block
+	// is vestigial; kept for call-site compatibility.
+	_blockNumber: bigint,
 ): {
 	midReader: (leg: Leg, atBlock: bigint) => Promise<PairMidResult | null>;
 	decimalsReader: (token: string) => Promise<number>;
@@ -857,7 +859,7 @@ export async function decomposeRoute(
 
 	// Step 3: Collect logs, decode transfers, scan venues
 	const logs = collectTraceLogs(trace);
-	const rawTransfers = decodeTransferLogs(logs as any);
+	const rawTransfers = decodeTransferLogs(logs);
 	const venues = scanVenues(logs, input.recognizeV3Forks ?? false);
 	addKnownVenuesFromTransfers(venues, rawTransfers);
 	const v3FactoryReader = deps?.v3FactoryReader ?? createDefaultV3FactoryReader(input.rpcUrl, input.blockNumber);
