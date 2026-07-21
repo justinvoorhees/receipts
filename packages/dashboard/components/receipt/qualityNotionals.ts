@@ -41,6 +41,9 @@ export function receiptDollars(
 	const notional = row.notionalUsd == null ? null : Number(row.notionalUsd);
 	if (midStored == null || notional == null) return null;
 	if (![inAmt, outAmt, midStored, notional].every(Number.isFinite) || inAmt <= 0 || outAmt <= 0 || midStored <= 0) return null;
+	// Token addresses are required to detect anchoring/orientation; a row missing them
+	// (never the case in production) degrades to the non-anchored path rather than throwing.
+	if (typeof row.inputToken !== 'string' || typeof row.outputToken !== 'string') return null;
 	const inAnchor = anchorsToUsd(row.inputToken);
 	const outAnchor = anchorsToUsd(row.outputToken);
 	if (!inAnchor && !outAnchor) return null;

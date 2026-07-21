@@ -30,6 +30,7 @@ import {
 	isUniswapXFillerRow,
 } from './TradesTable';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './receipt/symbols';
+import { receiptDollars, formatExecutionResult } from './receipt/qualityNotionals';
 
 /**
  * Price Delta value: the gap between the market mid and the executed rate, in
@@ -46,6 +47,25 @@ export function formatPriceDelta(marketMid: unknown, realizedPrice: unknown, quo
 	const delta = Math.abs(mid - exec);
 	if (delta === 0) return 'None';
 	return `${formatPriceMagnitude(delta, quoteSymbol)} ${quoteSymbol}`;
+}
+
+/**
+ * Anchored Price Delta: the per-base USD gap vs Market Price, as the full sentence
+ * the Figma frame shows ("Bought at $159.76 below Market Price per 1 WBTC"). USD, not
+ * token-denominated — used only when receiptDollars anchored the pair. Direction is
+ * derived from the SAME execResultUsd that drives the Execution Result, so the two rows
+ * can never disagree (bought below / sold above are the favorable halves = a gain).
+ */
+export function formatPriceDeltaUsd(
+	deltaUsdPerBase: number,
+	base: string,
+	baseIsOutput: boolean,
+	execResultUsd: number,
+): string {
+	if (!(deltaUsdPerBase > 0) || execResultUsd === 0) return 'None';
+	const gain = execResultUsd > 0;
+	const direction = gain === baseIsOutput ? 'below' : 'above';
+	return `${baseIsOutput ? 'Bought' : 'Sold'} at ${formatSubvalueUsd(deltaUsdPerBase)} ${direction} Market Price per 1 ${base}`;
 }
 
 /**
@@ -151,47 +171,71 @@ function DetailRow({
 	underscored = false,
 	tooltip,
 	valueTooltip,
+	subLabel,
+	subValue,
+	subValueColor,
 }: {
 	label: string;
 	children: React.ReactNode;
 	underscored?: boolean;
 	tooltip?: string;
 	valueTooltip?: string;
+	/** Muted second line under the label (e.g. the Market Price methodology string). */
+	subLabel?: React.ReactNode;
+	/** Second line under the value (e.g. a USD subvalue, or Gained/Lost). */
+	subValue?: React.ReactNode;
+	/** Overrides the subvalue color (e.g. green for "Gained"); defaults to secondary. */
+	subValueColor?: string | undefined;
 }) {
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
-			{tooltip ? (
-				<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
-					{label}
-					<div
-						role="tooltip"
-						className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-					>
-						{tooltip}
-					</div>
-				</span>
-			) : (
-				<span
-					className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
-				>
-					{label}
-				</span>
-			)}
-			{valueTooltip ? (
-				<span className="min-w-0 text-right">
-					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
-						{children}
+			<div className="flex flex-col gap-[3px]">
+				{tooltip ? (
+					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+						{label}
 						<div
 							role="tooltip"
-							className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+							className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
 						>
-							{valueTooltip}
+							{tooltip}
 						</div>
 					</span>
-				</span>
-			) : (
-				<span className="min-w-0 text-right">{children}</span>
-			)}
+				) : (
+					<span
+						className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
+					>
+						{label}
+					</span>
+				)}
+				{subLabel != null && (
+					<span className="text-[10px] leading-[12px] text-[var(--color-secondary)]">{subLabel}</span>
+				)}
+			</div>
+			<div className="flex min-w-0 flex-col gap-[3px]">
+				{valueTooltip ? (
+					<span className="min-w-0 text-right">
+						<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
+							{children}
+							<div
+								role="tooltip"
+								className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
+							>
+								{valueTooltip}
+							</div>
+						</span>
+					</span>
+				) : (
+					<span className="min-w-0 text-right">{children}</span>
+				)}
+				{subValue != null && (
+					<span
+						className="text-[10px] leading-[12px] text-right"
+						style={{ color: subValueColor ?? 'var(--color-secondary)' }}
+					>
+						{subValue}
+					</span>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -480,6 +524,16 @@ export function Receipt({
 	const priceImpactRows = getPriceImpactRows(legs, row);
 	const pairTitle = receiptPairTitle(row);
 	const { base, quote, baseIsOutput } = pairBaseQuote(row);
+	// Single-ruler anchored state: receiptDollars is non-null iff a mid exists AND a
+	// side anchors to USD (core address-based). Every anchored USD figure derives from
+	// {notionalIn, notionalOut, execResultUsd} + the base (volatile) leg's amount.
+	const dollars = receiptDollars(row);
+	const anchored = dollars != null;
+	const baseAmount = Number(baseIsOutput ? row.outputAmount : row.inputAmount);
+	const execUsdPerBase = dollars != null && baseAmount > 0 ? dollars.notionalIn / baseAmount : null;
+	const marketUsdPerBase = dollars != null && baseAmount > 0 ? dollars.notionalOut / baseAmount : null;
+	const deltaUsdPerBase = dollars != null && baseAmount > 0 ? Math.abs(dollars.execResultUsd) / baseAmount : null;
+	const execResult = dollars != null ? formatExecutionResult(dollars.execResultUsd) : null;
 	// Price Delta is quote-denominated in every case — anchored, ETH-quoted, and
 	// no-anchor memecoin alike — because the stored mid/realized are already
 	// quote-per-base. No USD, no tiers, one path.
@@ -538,25 +592,46 @@ export function Receipt({
 
 				<Divider dashed />
 
-				{/* Trade size at a glance. Deliberately soft — it claims nothing, and is
-				    the only USD figure in this block. notionalUsd already prefers the
-				    USD-anchored side (pricing.ts bestEffortNotional), which is why we use
-				    it as-is rather than re-deriving the input side. */}
-				<DetailRow label="Size">
-					{row.notionalUsd == null ? UNAVAILABLE : formatSubvalueUsd(Number(row.notionalUsd))}
+				{/* Anchored (single-ruler) → per-side USD + Execution Result, no Size.
+				    Otherwise → the soft ~Size line for orientation (notionalUsd already
+				    prefers the USD-anchored side via pricing.ts bestEffortNotional). */}
+				{!anchored && (
+					<DetailRow label="Size">
+						{row.notionalUsd == null ? UNAVAILABLE : `~${formatSubvalueUsd(Number(row.notionalUsd))}`}
+					</DetailRow>
+				)}
+				<DetailRow
+					label="Token In"
+					subValue={dollars != null ? formatSubvalueUsd(dollars.notionalIn) : undefined}
+				>
+					{formatTokenIn(row)}
 				</DetailRow>
-				<DetailRow label="Token In">{formatTokenIn(row)}</DetailRow>
-				<DetailRow label="Token Out">{formatTokenOut(row)}</DetailRow>
+				<DetailRow
+					label="Token Out"
+					subValue={dollars != null ? formatSubvalueUsd(dollars.notionalOut) : undefined}
+				>
+					{formatTokenOut(row)}
+				</DetailRow>
+				{execResult != null && (
+					<DetailRow label="Execution Result" subValue={execResult.sub} subValueColor={execResult.color}>
+						{execResult.text}
+					</DetailRow>
+				)}
 
 				<Divider dashed />
 
-				<DetailRow label="Execution Price">
+				<DetailRow
+					label="Execution Price"
+					subValue={execUsdPerBase != null ? formatSubvalueUsd(execUsdPerBase) : undefined}
+				>
 					{row.realizedPrice == null
 						? UNAVAILABLE
 						: formatExecutionPrice(row.realizedPrice, base, quote)}
 				</DetailRow>
 				<DetailRow
 					label="Market Price"
+					subLabel={hasMarketPrice && row.methodology != null ? row.methodology : undefined}
+					subValue={marketUsdPerBase != null ? formatSubvalueUsd(marketUsdPerBase) : undefined}
 					{...(hasMarketPrice ? { tooltip: marketTooltip } : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
 					{hasMarketPrice
@@ -574,9 +649,14 @@ export function Receipt({
 				</DetailRow>
 				<DetailRow
 					label="Price Delta"
-					{...(hasMarketPrice ? (priceDeltaTip ? { valueTooltip: priceDeltaTip } : {}) : { valueTooltip: NULL_PRICE_TOOLTIP })}
+					{...(hasMarketPrice && !anchored ? (priceDeltaTip ? { valueTooltip: priceDeltaTip } : {}) : {})}
+					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
-					{hasMarketPrice ? priceDeltaText : 'Null'}
+					{!hasMarketPrice
+						? 'Null'
+						: dollars != null && deltaUsdPerBase != null
+							? formatPriceDeltaUsd(deltaUsdPerBase, base, baseIsOutput, dollars.execResultUsd)
+							: priceDeltaText}
 				</DetailRow>
 
 				<Divider dashed />
