@@ -19,7 +19,7 @@ import {
 } from './tradeEndpoints.js';
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput } from './legFees.js';
-import { decomposeTrade, type DecomposeTradeInput } from './decompose-trade.js';
+import { decomposeTrade, type DecomposeTradeInput } from './decomposeTrade.js';
 import { type PairMidResult } from './tokenPricing.js';
 import {
 	scanVenues,

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps } from './decomposeRoute.js';
 import { getLegMidAtBlock } from './routeReaders.js';
-import type { DecomposeTradeInput } from './decompose-trade.js';
+import type { DecomposeTradeInput } from './decomposeTrade.js';
 import type { Leg } from './routeGraph.js';
 
 // Load trace fixtures (avoid JSON import attribute issues with NodeNext)
