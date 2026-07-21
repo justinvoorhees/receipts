@@ -302,7 +302,7 @@ export async function analyzeTransaction(
 		const { midReader, decimalsReader } = createDefaultMidReader(rpcUrl, blockNumber);
 		const route = await decomposeRoute(
 			{
-				trace: trace as never,
+				trace,
 				txHash,
 				trader,
 				direction: decompDirection,

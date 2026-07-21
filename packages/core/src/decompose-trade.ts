@@ -19,7 +19,10 @@ import {
 	DENYLIST,
 	decodeTransferLogs,
 	collectNativeEthDeltas,
+	collectTraceLogs,
 	type Direction,
+	type TraceNode,
+	type LogLike,
 } from './tradeEndpoints.js';
 
 // ─── Constants ───
@@ -97,27 +100,6 @@ const STRUCTURAL_FEE_FLOOR_USD = 1.00;
 const STRUCTURAL_FEE_FLOOR_BPS = 1; // 1 bps of notional
 
 // ─── Types ───
-
-interface TraceNode {
-	from?: `0x${string}`;
-	to?: `0x${string}`;
-	value?: `0x${string}`;
-	input?: `0x${string}`;
-	output?: `0x${string}`;
-	type?: string;
-	logs?: {
-		address: `0x${string}`;
-		data: `0x${string}`;
-		topics: [`0x${string}`, ...`0x${string}`[]] | [];
-	}[];
-	calls?: TraceNode[];
-}
-
-interface LogLike {
-	address: `0x${string}`;
-	data: `0x${string}`;
-	topics: readonly `0x${string}`[];
-}
 
 export interface DecomposeTradeInput {
 	trace: TraceNode;
@@ -843,15 +825,3 @@ export function decodeV4SwapFees(logs: readonly LogLike[]): number[] {
 	return fees;
 }
 
-/** Flatten every log from a callTracer trace tree into a single ordered list. */
-function collectTraceLogs(trace: TraceNode): LogLike[] {
-	const out: LogLike[] = [];
-	const visit = (node: TraceNode) => {
-		if (node.logs) out.push(...node.logs);
-		if (node.calls) {
-			for (const child of node.calls) visit(child);
-		}
-	};
-	visit(trace);
-	return out;
-}

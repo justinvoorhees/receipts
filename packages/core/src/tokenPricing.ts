@@ -23,8 +23,7 @@ import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
-const WETH = '0x4200000000000000000000000000000000000006';
+import { USDC, WETH } from './receiptPure.js';
 /** Synthetic endpoint for native ETH (mirrors `NATIVE` in pricing.ts / endpoints.ts). */
 const NATIVE = 'native';
 

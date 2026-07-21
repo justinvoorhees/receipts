@@ -16,6 +16,9 @@ import {
 	WETH,
 	DENYLIST,
 	decodeTransferLogs,
+	collectTraceLogs,
+	type TraceNode,
+	type LogLike,
 } from './tradeEndpoints.js';
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput } from './legFees.js';
@@ -196,28 +199,6 @@ const RECON_LOW_BPS = 25;
 
 // ─── Interfaces ───
 
-interface TraceNode {
-	from?: `0x${string}`;
-	to?: `0x${string}`;
-	value?: `0x${string}`;
-	input?: `0x${string}`;
-	output?: `0x${string}`;
-	type?: string;
-	error?: string;
-	logs?: {
-		address: `0x${string}`;
-		data: `0x${string}`;
-		topics: [`0x${string}`, ...`0x${string}`[]] | [];
-	}[];
-	calls?: TraceNode[];
-}
-
-interface LogLike {
-	address: `0x${string}`;
-	data: `0x${string}`;
-	topics: readonly `0x${string}`[];
-}
-
 export interface RouteDecomposeResult {
 	lpFeeBps: number | null;
 	aggFeeBps: number;
@@ -255,18 +236,6 @@ export interface DecomposeRouteDeps {
 // ─── Helpers ───
 
 /** Flatten every log from a callTracer trace tree into a single ordered list. */
-function collectTraceLogs(trace: TraceNode): LogLike[] {
-	const out: LogLike[] = [];
-	const visit = (node: TraceNode) => {
-		if (node.logs) out.push(...node.logs);
-		if (node.calls) {
-			for (const child of node.calls) visit(child);
-		}
-	};
-	visit(trace);
-	return out;
-}
-
 /** Extract native ETH value transfers from a callTracer tree, modeled as WETH
  *  transfers so the ERC-20-only route graph can see native-settled legs. Skips
  *  delegate/static calls (no value), reverted frames, and zero-value frames. */

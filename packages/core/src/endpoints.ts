@@ -12,7 +12,16 @@
  * Reuses `decodeTransferLogs` and `collectNativeEthDeltas` from
  * tradeEndpoints.ts; does not reimplement Transfer decoding.
  */
-import { collectNativeEthDeltas, decodeTransferLogs } from './tradeEndpoints.js';
+import {
+	collectNativeEthDeltas,
+	collectTraceLogs,
+	decodeTransferLogs,
+	type TraceNode,
+} from './tradeEndpoints.js';
+
+// Re-exported so existing importers (analyzeTransaction) keep their import site;
+// the definition now lives in tradeEndpoints alongside the walkers that use it.
+export type { TraceNode };
 
 export interface Endpoints {
 	trader: string;
@@ -22,32 +31,7 @@ export interface Endpoints {
 	outputAmountRaw: bigint;
 }
 
-// Same minimal callTracer-with-logs shape used across tradeEndpoints.ts /
-// normalizeSmokeTrade.ts.
-export interface TraceNode {
-	from?: string;
-	to?: string;
-	value?: string;
-	logs?: { address: string; data: string; topics: readonly string[] }[];
-	calls?: TraceNode[];
-}
-
 const NATIVE = 'native';
-
-/** Flatten every log from a callTracer trace tree into a single ordered list.
- *  Mirrors the private `collectTraceLogs` in tradeEndpoints.ts (not exported
- *  there) / normalizeSmokeTrade.ts — trivial flattening, not decode logic. */
-function collectTraceLogs(
-	trace: TraceNode,
-): { address: string; data: string; topics: readonly string[] }[] {
-	const out: { address: string; data: string; topics: readonly string[] }[] = [];
-	const visit = (n: TraceNode) => {
-		if (n.logs) out.push(...n.logs);
-		n.calls?.forEach(visit);
-	};
-	visit(trace);
-	return out;
-}
 
 /** address (lowercased) → (token or 'native' → signed net). */
 export function perAddressTokenDeltas(trace: TraceNode): Map<string, Map<string, bigint>> {
@@ -59,12 +43,12 @@ export function perAddressTokenDeltas(trace: TraceNode): Map<string, Map<string,
 		per.set(a, m);
 	};
 	const logs = collectTraceLogs(trace);
-	for (const t of decodeTransferLogs(logs as never)) {
+	for (const t of decodeTransferLogs(logs)) {
 		const token = t.token.toLowerCase();
 		bump(t.from, token, -t.value);
 		bump(t.to, token, t.value);
 	}
-	for (const [addr, v] of collectNativeEthDeltas(trace as never)) {
+	for (const [addr, v] of collectNativeEthDeltas(trace)) {
 		if (v !== 0n) bump(addr, NATIVE, v);
 	}
 	return per;

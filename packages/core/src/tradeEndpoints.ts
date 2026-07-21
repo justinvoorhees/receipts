@@ -13,9 +13,10 @@
 import { decodeEventLog, parseAbiItem } from 'viem';
 
 // ─── Constants ───
-
-export const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
-export const WETH = '0x4200000000000000000000000000000000000006';
+// The anchor addresses have ONE definition, in the receiptPure leaf; re-exported
+// here so the route modules that already import from this file are unaffected.
+import { USDC, WETH } from './receiptPure.js';
+export { USDC, WETH };
 
 const TRANSFER_EVENT = parseAbiItem(
 	'event Transfer(address indexed from, address indexed to, uint256 value)',
@@ -56,11 +57,24 @@ export const DENYLIST: Set<string> = new Set([
 
 export type Direction = 'buy_weth' | 'sell_weth';
 
-/** A callTracer node: the shape `collectNativeEthDeltas` walks. */
-interface TraceNode {
+/**
+ * A callTracer node — the canonical definition for the whole package.
+ *
+ * This shape was previously redeclared in four modules (decomposeRoute,
+ * decompose-trade, endpoints, here), three strictly typed and one with loose
+ * `string` fields. The mismatch is what forced the `as never` casts at every
+ * boundary between them; one definition removes both the drift and the casts.
+ * Fields are the union of what those copies read, all optional — a callTracer
+ * node populates them per call type.
+ */
+export interface TraceNode {
 	from?: `0x${string}`;
 	to?: `0x${string}`;
 	value?: `0x${string}`; // native ETH moved by this call
+	input?: `0x${string}`;
+	output?: `0x${string}`;
+	type?: string;
+	error?: string;
 	logs?: {
 		address: `0x${string}`;
 		data: `0x${string}`;
@@ -78,10 +92,21 @@ interface RawTransfer {
 	value: bigint;
 }
 
-interface LogLike {
+export interface LogLike {
 	address: `0x${string}`;
 	data: `0x${string}`;
 	topics: readonly `0x${string}`[];
+}
+
+/** Flatten every log from a callTracer trace tree into a single ordered list. */
+export function collectTraceLogs(trace: TraceNode): LogLike[] {
+	const out: LogLike[] = [];
+	const visit = (node: TraceNode) => {
+		if (node.logs) out.push(...node.logs);
+		if (node.calls) for (const child of node.calls) visit(child);
+	};
+	visit(trace);
+	return out;
 }
 
 /** Decode a flat list of logs (e.g. receipt.logs) into Transfer rows. */
