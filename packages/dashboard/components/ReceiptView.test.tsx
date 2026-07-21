@@ -75,16 +75,65 @@ describe('priceDeltaDirection', () => {
 	});
 });
 
-describe('priceDeltaTooltip', () => {
-	// The four quadrants. Verb and direction are independent facts; the reader
-	// combines them. bought+below and sold+above are the good halves — asserted
-	// against Total Execution Quality in the render tests below.
-	it('names the base token and the verb implied by the trade direction', async () => {
-		const { priceDeltaTooltip } = await import('./ReceiptView');
-		expect(priceDeltaTooltip('WBTC', true, 'below')).toBe('WBTC bought below Market Price');
-		expect(priceDeltaTooltip('WBTC', true, 'above')).toBe('WBTC bought above Market Price');
-		expect(priceDeltaTooltip('WETH', false, 'above')).toBe('WETH sold above Market Price');
-		expect(priceDeltaTooltip('WETH', false, 'below')).toBe('WETH sold below Market Price');
+describe('formatPriceDeltaToken', () => {
+	// The four quadrants, now carried by the VALUE text rather than a tooltip:
+	// verb and direction are independent facts and the reader combines them.
+	// bought+below and sold+above are the good halves — asserted against Total
+	// Execution Quality in the render tests below.
+	it('names the base token, the verb, and the direction in one sentence', async () => {
+		const { formatPriceDeltaToken } = await import('./ReceiptView');
+		// ETH→WBTC (base WBTC, quote ETH), realized under the mid → bought below.
+		expect(formatPriceDeltaToken(35.02321455049866, 34.93402185961484, 'WBTC', 'ETH', true)).toEqual({
+			text: 'WBTC bought at 0.0891927 ETH below Market Price',
+			sub: 'per 1 WBTC',
+		});
+		// WETH→USDC (base WETH, quote USDC), realized over the mid → sold above.
+		expect(formatPriceDeltaToken(3000, 3005, 'WETH', 'USDC', false)).toEqual({
+			text: 'WETH sold at 5.00 USDC above Market Price',
+			sub: 'per 1 WETH',
+		});
+	});
+
+	it('renders an exact tie as None with no subvalue', async () => {
+		const { formatPriceDeltaToken } = await import('./ReceiptView');
+		expect(formatPriceDeltaToken(3000, 3000, 'WETH', 'USDC', false)).toEqual({ text: 'None', sub: null });
+	});
+
+	it('renders unusable inputs as the bare placeholder', async () => {
+		const { formatPriceDeltaToken } = await import('./ReceiptView');
+		expect(formatPriceDeltaToken(null, 3000, 'WETH', 'USDC', false)).toEqual({ text: '–', sub: null });
+	});
+});
+
+describe('formatPriceDeltaUsd', () => {
+	it('leads with the base symbol and splits "per 1 base" into the subvalue', async () => {
+		const { formatPriceDeltaUsd } = await import('./ReceiptView');
+		// Bought the base with a gain → the fill landed BELOW the mid.
+		expect(formatPriceDeltaUsd(159.76, 'WBTC', true, 4.57)).toEqual({
+			text: 'WBTC bought at $159.76 below Market Price',
+			sub: 'per 1 WBTC',
+		});
+		// Sold the base with a gain → the fill landed ABOVE the mid.
+		expect(formatPriceDeltaUsd(5, 'WETH', false, 5)).toEqual({
+			text: 'WETH sold at $5.00 above Market Price',
+			sub: 'per 1 WETH',
+		});
+	});
+
+	it('renders a zero result as None with no subvalue', async () => {
+		const { formatPriceDeltaUsd } = await import('./ReceiptView');
+		expect(formatPriceDeltaUsd(0, 'WBTC', true, 0)).toEqual({ text: 'None', sub: null });
+	});
+});
+
+describe('fallbackMethodology', () => {
+	// Every persisted receipt predates the tier/methodology columns being populated
+	// (all 39 rows carry NULL), so the descriptor must derive from pricingStatus.
+	it('maps each pricing tier to its descriptor', async () => {
+		const { fallbackMethodology } = await import('./ReceiptView');
+		expect(fallbackMethodology('full')).toContain('Corroborated');
+		expect(fallbackMethodology('estimated')).toContain('Estimated');
+		expect(fallbackMethodology('partial')).toContain('No reliable market price');
 	});
 });
 
@@ -310,8 +359,8 @@ describe('Receipt token-denominated price rows', () => {
 		expect(html).toContain('0.000000000394 ETH = 1 WARP');
 		expect(html).not.toContain('0.000000000385 = 1 WARP');
 		// WARP→ETH is ANCHORED (ETH anchors), so the price rows now carry USD sublines
-		// and an Execution Result — the MVP-thesis "no USD claim" no longer applies here.
-		expect(html).toContain('Execution Result');
+		// and a Spread — the MVP-thesis "no USD claim" no longer applies here.
+		expect(html).toContain('Spread');
 		// Header pair title reads as the swap direction (input→output), matching
 		// Token In/Out. It must NOT invert to ETH→WARP.
 		expect(html).toContain('WARP → ETH');
@@ -347,11 +396,13 @@ describe('Receipt estimated pricing tier', () => {
 		expect(html).toContain('Execution Price');
 		expect(html).toContain('Market Price');
 		expect(html).toContain('Price Delta');
-		// No visible "est." marker, but the honest best-effort tooltip is present,
-		// and NOT the oracle-validated copy.
+		// No visible "est." marker. The methodology descriptor is now rendered as a
+		// sub-label on Market Price rather than hidden in a tooltip, and it reports
+		// the estimated tier.
 		expect(html).not.toContain('est.');
-		expect(html).toContain('not oracle-validated');
+		expect(html).toContain('Estimated');
 		expect(html).not.toContain('cross-referenced against an on-chain price oracle');
+		expect(html).not.toContain('not oracle-validated');
 		expect((html.match(/Unavailable for this pair/g) ?? []).length).toBe(0);
 	});
 
@@ -600,10 +651,12 @@ describe('Price Delta row', () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
 		// ETH anchors → USD Price Delta sentence; direction ("below") is preserved from
-		// priceDeltaDirection, so the inversion-fix correctness still holds.
-		expect(html).toContain('Bought at');
-		expect(html).toContain('below Market Price per 1 WBTC');
-		// bought below = a good fill: Execution Result reads Gained AND it agrees with
+		// priceDeltaDirection, so the inversion-fix correctness still holds. The
+		// "per 1 WBTC" half is now a separate subvalue element, so assert it apart.
+		expect(html).toContain('WBTC bought at');
+		expect(html).toContain('below Market Price');
+		expect(html).toContain('per 1 WBTC');
+		// bought below = a good fill: Spread reads Gained AND it agrees with
 		// Total Execution Quality +25.53bps. This is the pairing the old inverted labels broke.
 		expect(html).toContain('Gained');
 		expect(html).toContain('+25.53bps');
@@ -622,7 +675,9 @@ describe('Price Delta row', () => {
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, outputAmount: '0.0284', realizedPrice: '35.2113', allInCostBps: '25' } as never} />,
 		);
-		expect(html).toContain('above Market Price per 1 WBTC');
+		expect(html).toContain('WBTC bought at');
+		expect(html).toContain('above Market Price');
+		expect(html).toContain('per 1 WBTC');
 		expect(html).toContain('Lost');
 	});
 
@@ -640,8 +695,9 @@ describe('Price Delta row', () => {
 				marketMid: '3000', realizedPrice: '3005',
 			} as never} />,
 		);
-		expect(html).toContain('above Market Price per 1 WETH');
-		expect(html).toContain('Sold at');
+		expect(html).toContain('WETH sold at');
+		expect(html).toContain('above Market Price');
+		expect(html).toContain('per 1 WETH');
 		expect(html).toContain('Gained');
 	});
 
@@ -657,14 +713,16 @@ describe('Price Delta row', () => {
 				marketMid: '3000', realizedPrice: '2995',
 			} as never} />,
 		);
-		expect(html).toContain('below Market Price per 1 WETH');
+		expect(html).toContain('WETH sold at');
+		expect(html).toContain('below Market Price');
+		expect(html).toContain('per 1 WETH');
 		expect(html).toContain('Lost');
 	});
 
 	it('renders None with no tooltip when execution exactly matches the mid', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		// A genuine tie: 3000 USDC → 1 WETH at a 3000 USDC/WETH mid → realized == mid,
-		// so the single-ruler Execution Result is exactly $0 and the Price Delta is None.
+		// so the single-ruler Spread is exactly $0 and the Price Delta is None.
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...fullUsdcWethRow, inputAmount: '3000', outputAmount: '1', notionalUsd: '3000' } as never} />,
 		);
@@ -693,7 +751,10 @@ describe('Price Delta row', () => {
 		expect(html).not.toContain('197178.79 GITLAWB'); // the old quantity-based delta
 		// base = LFI is the input → sold. 1.0724 < 1.1016 mid → received fewer, so
 		// "sold below" — the bad half of a sell, agreeing with allInCostBps 265 (a cost).
-		expect(html).toContain('LFI sold below Market Price');
+		// The non-anchored path now uses the SAME sentence shape as the anchored one,
+		// denominated in the quote token, with "per 1 LFI" as the subvalue.
+		expect(html).toContain('LFI sold at 0.0292 GITLAWB below Market Price');
+		expect(html).toContain('per 1 LFI');
 	});
 
 	it('reads "Bought … above" (Lost) for a USDC→WETH buy over the mid (this was once inverted)', async () => {
@@ -704,7 +765,9 @@ describe('Price Delta row', () => {
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...fullUsdcWethRow, marketMid: '3000', realizedPrice: '3005' } as never} />,
 		);
-		expect(html).toContain('above Market Price per 1 WETH');
+		expect(html).toContain('WETH bought at');
+		expect(html).toContain('above Market Price');
+		expect(html).toContain('per 1 WETH');
 		expect(html).toContain('Lost');
 	});
 });
@@ -727,11 +790,11 @@ describe('Size row', () => {
 		expect(html).toContain('~$1,791.14');
 		// Size precedes Token In in the document.
 		expect(html.indexOf('Size')).toBeLessThan(html.indexOf('Token In'));
-		// No Execution Result on a non-anchored pair.
-		expect(html).not.toContain('Execution Result');
+		// No Spread row on a non-anchored pair.
+		expect(html).not.toContain('Spread');
 	});
 
-	it('replaces Size with Execution Result on an ANCHORED pair (ETH→WBTC)', async () => {
+	it('replaces Size with Spread on an ANCHORED pair (ETH→WBTC)', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{
@@ -744,7 +807,7 @@ describe('Size row', () => {
 			} as never} />,
 		);
 		expect(html).not.toContain('Size');
-		expect(html).toContain('Execution Result');
+		expect(html).toContain('Spread');
 		expect(html).toContain('Gained');
 		// Token In/Out carry per-side USD notionals.
 		expect(html).toContain('$1,791.14'); // notionalIn (ETH side)
@@ -801,21 +864,22 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		allInCostBps: '-25.53', chainlinkPrice: null,
 	};
 
-	it('renders per-side USD notionals + Execution Result (Gained), no Size', async () => {
+	it('renders per-side USD notionals + Spread (Gained), no Size', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
-		expect(html).toContain('Execution Result');
+		expect(html).toContain('Spread');
 		expect(html).toContain('Gained');
 		expect(html).toContain('$1,791.14'); // Token In (ETH) notionalIn
 		expect(html).toContain('$1,795.71'); // Token Out (WBTC) notionalOut
-		expect(html).not.toContain('Size');  // Size replaced by Execution Result when anchored
+		expect(html).not.toContain('Size');  // Size replaced by Spread when anchored
 	});
 
-	it('reconciles: Execution Result magnitude = per-base delta × base amount', async () => {
+	it('reconciles: Spread magnitude = per-base delta × base amount', async () => {
 		const { Receipt } = await import('./ReceiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
-		// $159.76 below Market Price per WBTC × 0.02862539 WBTC ≈ $4.57 Execution Result.
-		expect(html).toContain('below Market Price per 1 WBTC');
+		// $159.76 below Market Price per WBTC × 0.02862539 WBTC ≈ $4.57 Spread.
+		expect(html).toContain('WBTC bought at $159.76 below Market Price');
+		expect(html).toContain('per 1 WBTC');
 		expect(html).toContain('Gained');
 	});
 
@@ -826,5 +890,84 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		expect(html).toContain('$62,571.56'); // Execution Price in USD (per WBTC)
 		expect(html).toContain('34.934 ETH = 1 WBTC'); // token-denominated main lines preserved
 		expect(html).toContain('35.0232 ETH = 1 WBTC');
+	});
+});
+
+describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
+	// ETH→WBTC, the reference anchored row: a gain of +$4.57.
+	const ethWbtc = {
+		...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
+		inputSymbol: 'ETH', outputSymbol: 'WBTC',
+		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+		allInCostBps: '-25.53', chainlinkPrice: null,
+	};
+
+	it('sizes detail-row subvalues at 12px, matching the rest of the list', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
+		// The 10px subvalue/sublabel treatment is gone from the detail table.
+		expect(html).not.toContain('text-[10px]');
+	});
+
+	it('colors the Spread VALUE green on a gain, leaving the subvalue secondary', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
+		expect(html).toContain('Spread');
+		expect(html).toContain('Gained');
+		// The green now sits on the element carrying the dollar magnitude, and the
+		// "Gained" subvalue renders in secondary gray.
+		expect(html).toMatch(/style="color:#117d45">\$4\.57</);
+		expect(html).toMatch(/color:var\(--color-secondary\)">Gained/);
+	});
+
+	it('leaves a loss uncolored rather than red, matching formatDialogBps', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// Received fewer WBTC than the mid implies → a loss.
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...ethWbtc, outputAmount: '0.0284', realizedPrice: '35.2113', allInCostBps: '25' } as never} />,
+		);
+		expect(html).toContain('Lost');
+		expect(html).not.toContain('--color-red');
+		expect(html).not.toContain('#fa0b54');
+	});
+
+	it('renders a Market Price methodology descriptor on every tier, with no tooltip copy', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		// The stored methodology wins when present.
+		const stored = renderToStaticMarkup(
+			<Receipt row={{ ...ethWbtc, methodology: 'Corroborated market price (direct + oracle) at block N-1.' } as never} />,
+		);
+		expect(stored).toContain('Corroborated market price (direct + oracle) at block N-1.');
+
+		// A NULL methodology (every row persisted today) falls back to the tier string.
+		const estimated = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, methodology: null } as never} />);
+		expect(estimated).toContain('Estimated');
+
+		// The null tier gets a descriptor too, where previously there was none.
+		const partial = renderToStaticMarkup(
+			<Receipt row={{ ...ethWbtc, pricingStatus: 'partial', marketMid: null, methodology: null, allInCostBps: null } as never} />,
+		);
+		expect(partial).toContain('No reliable market price');
+
+		// The hardcoded tooltip copy is gone from all three.
+		for (const html of [stored, estimated, partial]) {
+			expect(html).not.toContain('cross-referenced against an on-chain price oracle');
+			expect(html).not.toContain('Best-effort reference from the deepest on-chain pool');
+		}
+	});
+
+	it('renders the Gas Cost descriptor', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
+		expect(html).toContain('Gas Cost');
+		expect(html).toContain('Paid separately in ETH');
+	});
+
+	it('keeps the descriptor on Gas Cost even when the value is unavailable', async () => {
+		const { Receipt } = await import('./ReceiptView');
+		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, gasCostUsd: null } as never} />);
+		expect(html).toContain('Paid separately in ETH');
 	});
 });

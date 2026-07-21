@@ -61,8 +61,10 @@ export function receiptDollars(
 	return { notionalIn, notionalOut, execResultUsd };
 }
 
-// Unsigned execution result: magnitude only. Direction is the `sub` label
-// (Gained/Lost) + color — never a +/- prefix. Positive = surplus (green).
+// Unsigned execution result (the receipt's "Spread" row): magnitude only. Direction is
+// the `sub` label (Gained/Lost) + color — never a +/- prefix. `color` applies to the
+// VALUE, not the subvalue. Positive = surplus (green); a loss stays uncolored rather
+// than red, matching formatDialogBps — green marks good, nothing else is marked.
 export function formatExecutionResult(execResultUsd: number): { text: string; sub: string | null; color: string | undefined } {
 	const mag = formatUsdMagnitude(Math.abs(execResultUsd)) ?? '0.00';
 	const text = `$${mag}`;

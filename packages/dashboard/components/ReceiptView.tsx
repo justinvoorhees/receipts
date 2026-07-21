@@ -49,23 +49,82 @@ export function formatPriceDelta(marketMid: unknown, realizedPrice: unknown, quo
 	return `${formatPriceMagnitude(delta, quoteSymbol)} ${quoteSymbol}`;
 }
 
+/** A Price Delta row: the sentence, plus the "per 1 {base}" qualifier as a subvalue. */
+export interface PriceDeltaRow {
+	text: string;
+	sub: string | null;
+}
+
 /**
- * Anchored Price Delta: the per-base USD gap vs Market Price, as the full sentence
- * the Figma frame shows ("Bought at $159.76 below Market Price per 1 WBTC"). USD, not
+ * The shared Price Delta sentence. Base symbol leads, then the verb implied by the
+ * trade direction, the magnitude, and where the fill landed — e.g. "WBTC bought at
+ * $159.76 below Market Price". Verb and direction stay independent facts whose
+ * combination carries the verdict without stating one (bought below / sold above are
+ * the favorable halves). This used to live in a tooltip; it is now the value itself,
+ * with "per 1 {base}" split out as the subvalue per the Figma frame.
+ */
+function priceDeltaSentence(
+	base: string,
+	baseIsOutput: boolean,
+	magnitude: string,
+	direction: 'above' | 'below',
+): PriceDeltaRow {
+	return {
+		text: `${base} ${baseIsOutput ? 'bought' : 'sold'} at ${magnitude} ${direction} Market Price`,
+		sub: `per 1 ${base}`,
+	};
+}
+
+/**
+ * Anchored Price Delta: the per-base USD gap vs Market Price. USD, not
  * token-denominated — used only when receiptDollars anchored the pair. Direction is
- * derived from the SAME execResultUsd that drives the Execution Result, so the two rows
- * can never disagree (bought below / sold above are the favorable halves = a gain).
+ * derived from the SAME execResultUsd that drives the Spread row, so the two can
+ * never disagree (bought below / sold above are the favorable halves = a gain).
  */
 export function formatPriceDeltaUsd(
 	deltaUsdPerBase: number,
 	base: string,
 	baseIsOutput: boolean,
 	execResultUsd: number,
-): string {
-	if (!(deltaUsdPerBase > 0) || execResultUsd === 0) return 'None';
+): PriceDeltaRow {
+	if (!(deltaUsdPerBase > 0) || execResultUsd === 0) return { text: 'None', sub: null };
 	const gain = execResultUsd > 0;
 	const direction = gain === baseIsOutput ? 'below' : 'above';
-	return `${baseIsOutput ? 'Bought' : 'Sold'} at ${formatSubvalueUsd(deltaUsdPerBase)} ${direction} Market Price per 1 ${base}`;
+	return priceDeltaSentence(base, baseIsOutput, formatSubvalueUsd(deltaUsdPerBase), direction);
+}
+
+/**
+ * Non-anchored Price Delta: the same sentence shape, denominated in the quote token
+ * instead of USD. Direction comes from priceDeltaDirection (a fact about the raw
+ * stored prices) rather than from a dollar result, since an unanchored pair has none.
+ * A tie or an unusable input degrades to the bare placeholder with no subvalue —
+ * there is no delta to qualify.
+ */
+export function formatPriceDeltaToken(
+	marketMid: unknown,
+	realizedPrice: unknown,
+	base: string,
+	quote: string,
+	baseIsOutput: boolean,
+): PriceDeltaRow {
+	const magnitude = formatPriceDelta(marketMid, realizedPrice, quote);
+	const direction = priceDeltaDirection(marketMid, realizedPrice);
+	if (direction == null) return { text: magnitude, sub: null };
+	return priceDeltaSentence(base, baseIsOutput, magnitude, direction);
+}
+
+/**
+ * Market Price methodology descriptor for rows whose `methodology` column is NULL.
+ *
+ * Every receipt persisted to date predates that column being populated, so without a
+ * fallback the descriptor line renders empty. Mirrors core's `methodologyFor`
+ * (packages/core/src/pricing.ts) at tier granularity — the stored string is richer
+ * (it names the corroborating estimators) and always wins when present.
+ */
+export function fallbackMethodology(pricingStatus: string): string {
+	if (pricingStatus === 'full') return 'Corroborated market price at block N-1.';
+	if (pricingStatus === 'estimated') return 'Estimated: uncorroborated pool mid at block N-1.';
+	return 'No reliable market price available.';
 }
 
 /**
@@ -88,19 +147,6 @@ export function priceDeltaDirection(marketMid: unknown, realizedPrice: unknown):
 	if (mid == null || exec == null || !Number.isFinite(mid) || !Number.isFinite(exec)) return null;
 	if (exec === mid) return null;
 	return exec > mid ? 'above' : 'below';
-}
-
-/**
- * The base is always the bought token on a buy and the sold token on a sell —
- * that is what baseIsOutput means — so one flag picks both the token and the
- * verb. Naming the base is also what makes the tooltip describe the number on
- * screen, since Execution and Market Price are both quoted per base token.
- *
- * Verb and direction are independent facts; their combination carries the
- * verdict without stating one (bought below / sold above are the good halves).
- */
-export function priceDeltaTooltip(base: string, baseIsOutput: boolean, direction: 'above' | 'below'): string {
-	return `${base} ${baseIsOutput ? 'bought' : 'sold'} ${direction} Market Price`;
 }
 
 // The title reads as the swap direction — inputSymbol → outputSymbol — so it
@@ -174,6 +220,7 @@ function DetailRow({
 	subLabel,
 	subValue,
 	subValueColor,
+	valueColor,
 }: {
 	label: string;
 	children: React.ReactNode;
@@ -184,12 +231,19 @@ function DetailRow({
 	subLabel?: React.ReactNode;
 	/** Second line under the value (e.g. a USD subvalue, or Gained/Lost). */
 	subValue?: React.ReactNode;
-	/** Overrides the subvalue color (e.g. green for "Gained"); defaults to secondary. */
+	/** Overrides the subvalue color; defaults to secondary. */
 	subValueColor?: string | undefined;
+	/**
+	 * Colors the VALUE itself (e.g. green on a Spread gain). Direction belongs on the
+	 * number, not on the muted descriptor beneath it — so the subvalue stays secondary
+	 * gray and this carries the signal. Losses pass undefined: the app colors gains
+	 * green and leaves everything else primary (see formatDialogBps).
+	 */
+	valueColor?: string | undefined;
 }) {
 	return (
 		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
-			<div className="flex flex-col gap-[3px]">
+			<div className="flex flex-col gap-[10px]">
 				{tooltip ? (
 					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 						{label}
@@ -208,12 +262,12 @@ function DetailRow({
 					</span>
 				)}
 				{subLabel != null && (
-					<span className="text-[10px] leading-[12px] text-[var(--color-secondary)]">{subLabel}</span>
+					<span className="text-[12px] leading-[12px] text-[var(--color-secondary)]">{subLabel}</span>
 				)}
 			</div>
-			<div className="flex min-w-0 flex-col gap-[3px]">
+			<div className="flex min-w-0 flex-col gap-[10px]">
 				{valueTooltip ? (
-					<span className="min-w-0 text-right">
+					<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
 						<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
 							{children}
 							<div
@@ -225,11 +279,13 @@ function DetailRow({
 						</span>
 					</span>
 				) : (
-					<span className="min-w-0 text-right">{children}</span>
+					<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
+						{children}
+					</span>
 				)}
 				{subValue != null && (
 					<span
-						className="text-[10px] leading-[12px] text-right"
+						className="text-[12px] leading-[12px] text-right"
 						style={{ color: subValueColor ?? 'var(--color-secondary)' }}
 					>
 						{subValue}
@@ -509,12 +565,12 @@ export function Receipt({
 	// Partial receipts have no reference mid, so price/impact/slippage are null.
 	// Guard every numeric read against null instead of `Number(null) === 0`.
 	const isPartial = row.pricingStatus === 'partial';
-	const isEstimated = row.pricingStatus === 'estimated';
 	// Market Price / Price Delta render whenever a mid exists (full OR estimated).
 	const hasMarketPrice = row.marketMid != null;
-	const marketTooltip = isEstimated
-		? 'Best-effort reference from the deepest on-chain pool at block N-1; not oracle-validated.'
-		: 'Median of the traded pair’s reference pools at the trade’s block, cross-referenced against an on-chain price oracle';
+	// The methodology descriptor replaces what used to be a hardcoded tooltip: it is
+	// on-screen for every tier, including the null one. Rows persisted before the
+	// column was populated (all of them, today) fall back to a tier-derived string.
+	const methodologyText = row.methodology ?? fallbackMethodology(row.pricingStatus);
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
@@ -534,14 +590,16 @@ export function Receipt({
 	const marketUsdPerBase = dollars != null && baseAmount > 0 ? dollars.notionalOut / baseAmount : null;
 	const deltaUsdPerBase = dollars != null && baseAmount > 0 ? Math.abs(dollars.execResultUsd) / baseAmount : null;
 	const execResult = dollars != null ? formatExecutionResult(dollars.execResultUsd) : null;
-	// Price Delta is quote-denominated in every case — anchored, ETH-quoted, and
-	// no-anchor memecoin alike — because the stored mid/realized are already
-	// quote-per-base. No USD, no tiers, one path.
-	const priceDeltaText = hasMarketPrice
-		? formatPriceDelta(row.marketMid, row.realizedPrice, quote)
-		: undefined;
-	const direction = hasMarketPrice ? priceDeltaDirection(row.marketMid, row.realizedPrice) : null;
-	const priceDeltaTip = direction ? priceDeltaTooltip(base, baseIsOutput, direction) : undefined;
+	// Price Delta takes ONE sentence shape everywhere; only the denomination differs.
+	// An anchored pair states the gap in USD (from the same execResultUsd the Spread
+	// row uses); everything else states it in the quote token, since the stored
+	// mid/realized are already quote-per-base. Direction lives in the text now, so
+	// neither path carries a tooltip.
+	const priceDelta: PriceDeltaRow | null = !hasMarketPrice
+		? null
+		: dollars != null && deltaUsdPerBase != null
+			? formatPriceDeltaUsd(deltaUsdPerBase, base, baseIsOutput, dollars.execResultUsd)
+			: formatPriceDeltaToken(row.marketMid, row.realizedPrice, base, quote, baseIsOutput);
 
 	return (
 		<>
@@ -613,7 +671,7 @@ export function Receipt({
 					{formatTokenOut(row)}
 				</DetailRow>
 				{execResult != null && (
-					<DetailRow label="Execution Result" subValue={execResult.sub} subValueColor={execResult.color}>
+					<DetailRow label="Spread" subValue={execResult.sub} valueColor={execResult.color}>
 						{execResult.text}
 					</DetailRow>
 				)}
@@ -630,9 +688,9 @@ export function Receipt({
 				</DetailRow>
 				<DetailRow
 					label="Market Price"
-					subLabel={hasMarketPrice && row.methodology != null ? row.methodology : undefined}
+					subLabel={methodologyText}
 					subValue={marketUsdPerBase != null ? formatSubvalueUsd(marketUsdPerBase) : undefined}
-					{...(hasMarketPrice ? { tooltip: marketTooltip } : { valueTooltip: NULL_PRICE_TOOLTIP })}
+					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
 					{hasMarketPrice
 						? formatExecutionPrice(row.marketMid, base, quote)
@@ -649,19 +707,17 @@ export function Receipt({
 				</DetailRow>
 				<DetailRow
 					label="Price Delta"
-					{...(hasMarketPrice && !anchored ? (priceDeltaTip ? { valueTooltip: priceDeltaTip } : {}) : {})}
+					subValue={priceDelta?.sub ?? undefined}
 					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
-					{!hasMarketPrice
-						? 'Null'
-						: dollars != null && deltaUsdPerBase != null
-							? formatPriceDeltaUsd(deltaUsdPerBase, base, baseIsOutput, dollars.execResultUsd)
-							: priceDeltaText}
+					{priceDelta?.text ?? 'Null'}
 				</DetailRow>
 
 				<Divider dashed />
 
-				<DetailRow label="Gas Cost">
+				{/* The descriptor is a property of the row, not of the number: gas is paid
+				    in ETH outside the swap regardless of whether we could price it. */}
+				<DetailRow label="Gas Cost" subValue="Paid separately in ETH">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</DetailRow>
 			</div>

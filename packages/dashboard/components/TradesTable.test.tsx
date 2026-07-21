@@ -524,13 +524,14 @@ describe('TradesTable', () => {
 	});
 
 	// base = WETH (output, anchor rank 1 < USDC's 2) → the user BOUGHT the base.
-	// Quote = USDC. The tooltip states where the fill landed; for a buy, below is
-	// the good half.
+	// Quote = USDC. The sentence states where the fill landed; for a buy, below is
+	// the good half. Direction used to live in a tooltip and is now in the value
+	// text itself, with "per 1 WETH" split into the subvalue.
 	it.each([
-		['3005', '3000', '5.00 USDC', 'WETH bought above Market Price'],
-		['2995', '3000', '5.00 USDC', 'WETH bought below Market Price'],
+		['3005', '3000', 'WETH bought at 5.00 USDC above Market Price', 'per 1 WETH'],
+		['2995', '3000', 'WETH bought at 5.00 USDC below Market Price', 'per 1 WETH'],
 		['3000', '3000', 'None', null],
-	])('realized=%s market=%s renders Price Delta "%s" with tooltip %s', async (realizedPrice, marketMid, expectedValue, expectedTooltip) => {
+	])('realized=%s market=%s renders Price Delta "%s" with subvalue %s', async (realizedPrice, marketMid, expectedValue, expectedSub) => {
 		const { TransactionDetailsDialog } = await import('./TradesTable');
 		const row = {
 			id: 3, chainId: 8453, pricingStatus: 'full',
@@ -547,10 +548,14 @@ describe('TradesTable', () => {
 			<TransactionDetailsDialog row={row as never} onClose={() => {}} onDelete={async () => true} />,
 		);
 		expect(html).toContain(expectedValue);
-		if (expectedTooltip) {
-			expect(html).toContain(expectedTooltip);
+		if (expectedSub) {
+			expect(html).toContain(expectedSub);
 		} else {
-			expect(html).not.toContain('than Market Price');
+			// An exact tie has no delta to qualify: no subvalue, and no direction
+			// sentence (the bare "Market Price" row label still renders, of course).
+			expect(html).not.toContain('per 1 WETH');
+			expect(html).not.toContain('above Market Price');
+			expect(html).not.toContain('below Market Price');
 		}
 	});
 });
