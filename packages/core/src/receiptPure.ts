@@ -13,14 +13,16 @@
  */
 
 // ── Anchor token addresses (Base) ────────────────────────────────────────────
-const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
-const USDBC = '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca';
-const DAI = '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
-const WETH = '0x4200000000000000000000000000000000000006';
+// Exported so the server-side modules (pricing/analyzeTransaction) share the ONE
+// definition rather than re-declaring their own copies.
+export const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+export const USDBC = '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca';
+export const DAI = '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
+export const WETH = '0x4200000000000000000000000000000000000006';
 /** Synthetic endpoint for native ETH. */
-const NATIVE = 'native';
+export const NATIVE = 'native';
 
-const STABLECOINS: ReadonlySet<string> = new Set([USDC, USDBC, DAI]);
+export const STABLECOINS: ReadonlySet<string> = new Set([USDC, USDBC, DAI]);
 
 export const isStable = (t: string): boolean => STABLECOINS.has(t.toLowerCase());
 export const isWeth = (t: string): boolean => t.toLowerCase() === WETH;

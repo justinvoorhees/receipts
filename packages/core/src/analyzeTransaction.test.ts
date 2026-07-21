@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
-import { analyzeTransaction, baseIsOutputLeg, toDisplayPrice, splitFabricFee, attachLegSymbols, deriveFillerAddress } from './analyzeTransaction.js';
+import { analyzeTransaction, toDisplayPrice, splitFabricFee, attachLegSymbols, deriveFillerAddress } from './analyzeTransaction.js';
+import { baseIsOutputLeg } from './receiptPure.js';
 
 const RPC = process.env.TCA_RPC_URL;
 

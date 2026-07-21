@@ -79,20 +79,10 @@ export function computeMarketPrice(
   return { tier: corroborated ? 'full' : 'estimated', marketMid, corroboratedBy, flags };
 }
 
-/**
- * The single-ruler identity: from ONE market mid, the dollar execution result and
- * the bps execution quality are two views of the same number. A test asserts
- * execResultUsd === qualityBps/1e4 * notionalUsd; if that ever breaks, a second
- * ruler has re-entered. All prices are output-per-input.
- */
-export function reconciledResult(args: {
-  marketMid: number;
-  realizedPrice: number;
-  notionalUsd: number;
-}): { execResultUsd: number; qualityBps: number } {
-  const ratio = args.realizedPrice / args.marketMid - 1;
-  return { execResultUsd: args.notionalUsd * ratio, qualityBps: ratio * 10_000 };
-}
+// The single-ruler identity `reconciledResult` lives in the pure leaf (receiptPure)
+// so the dashboard's client bundle can share it; re-exported here for the modules
+// and tests that import it from marketPrice.
+export { reconciledResult } from './receiptPure.js';
 
 export interface MarketPriceDeps {
   /** Guarded deepest direct pool mid (output-per-input), or null. */

@@ -29,17 +29,11 @@ import {
 } from './marketPrice.js';
 import { readTokenUsd } from './tokenOracle.js';
 
-// ── Anchor token allowlist (Base) ────────────────────────────────────────────
-
-const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
-const USDBC = '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca';
-const DAI = '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
-const WETH = '0x4200000000000000000000000000000000000006';
-/** Synthetic endpoint for native ETH (mirrors `NATIVE` in endpoints.ts). */
-const NATIVE = 'native';
-
-/** Stablecoins that anchor a receipt directly to USD (~$1). */
-const STABLECOINS: ReadonlySet<string> = new Set([USDC, USDBC, DAI]);
+// ── Anchor token allowlist (Base) — the ONE definition lives in receiptPure. ──
+import {
+  USDC, USDBC, DAI, WETH, NATIVE,
+  isStable, isWeth, isNative, anchorsToUsd,
+} from './receiptPure.js';
 
 /**
  * Known symbols — avoid an RPC round-trip for common tokens. This is only a
@@ -54,17 +48,6 @@ const KNOWN_SYMBOLS: ReadonlyMap<string, string> = new Map([
   [WETH, 'WETH'],
   [NATIVE, 'ETH'],
 ]);
-
-const isStable = (t: string): boolean => STABLECOINS.has(t.toLowerCase());
-const isWeth = (t: string): boolean => t.toLowerCase() === WETH;
-const isNative = (t: string): boolean => t.toLowerCase() === NATIVE;
-/**
- * A token anchors to USD if it's a stablecoin, WETH, or native ETH — i.e. it has
- * a reliable, liquid USD reference (stable ≈ $1; WETH/ETH via WETH/USDC). Such a
- * leg is the trustworthy side to derive `notionalUsd` from; the volatile,
- * possibly-illiquid other side may not be.
- */
-export const anchorsToUsd = (t: string): boolean => isStable(t) || isWeth(t) || isNative(t);
 
 const isUsdcWethPair = (input: string, output: string): boolean => {
   const i = input.toLowerCase();
