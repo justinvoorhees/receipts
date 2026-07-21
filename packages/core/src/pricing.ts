@@ -292,7 +292,7 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
                   return b.marketMid > 0 ? b.marketMid : null;
                 } catch { return null; }
               }
-              return readTokenUsd(t, blk + 1n, rpcUrl);
+              return readTokenUsd(t, blk + 1n, rpcUrl, client); // reuse the closure's client
             };
             const [ui, uo] = await Promise.all([usdIndep(i), usdIndep(o)]);
             return impliedOracleRatio(ui, uo);
