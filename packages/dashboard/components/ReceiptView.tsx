@@ -196,6 +196,25 @@ function pairBaseQuote(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): {
 
 const UNAVAILABLE = 'Unavailable for this pair';
 
+/**
+ * The dark hover bubble every tooltip on the receipt shares. `align` picks the edge
+ * it anchors to: labels sit in the left column and open leftward, values sit in the
+ * right column and open rightward, so neither runs off the card.
+ *
+ * Rendered as a <span>: two of the call sites live inside a <span>, where the <div>
+ * this markup used to duplicate was invalid HTML.
+ */
+function TooltipBubble({ align, children }: { align: 'left' | 'right'; children: React.ReactNode }) {
+	return (
+		<span
+			role="tooltip"
+			className={`pointer-events-none absolute bottom-full ${align === 'left' ? 'left-0' : 'right-0'} z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible`}
+		>
+			{children}
+		</span>
+	);
+}
+
 function Divider({ dashed = false, color }: { dashed?: boolean; color?: string }) {
 	if (dashed) {
 		return (
@@ -247,12 +266,7 @@ function DetailRow({
 				{tooltip ? (
 					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 						{label}
-						<div
-							role="tooltip"
-							className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-						>
-							{tooltip}
-						</div>
+						<TooltipBubble align="left">{tooltip}</TooltipBubble>
 					</span>
 				) : (
 					<span
@@ -270,12 +284,7 @@ function DetailRow({
 					<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
 						<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
 							{children}
-							<div
-								role="tooltip"
-								className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-							>
-								{valueTooltip}
-							</div>
+							<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
 						</span>
 					</span>
 				) : (
@@ -374,12 +383,7 @@ function BkdHeading({
 			{tooltip ? (
 				<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 					{label}
-					<div
-						role="tooltip"
-						className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-					>
-						{tooltip}
-					</div>
+					<TooltipBubble align="left">{tooltip}</TooltipBubble>
 				</span>
 			) : (
 				<span className={plain ? '' : 'underline decoration-dotted underline-offset-[3px]'}>{label}</span>
@@ -388,12 +392,7 @@ function BkdHeading({
 				valueTooltip ? (
 					<span className="group relative text-right cursor-default" style={color ? { color } : undefined}>
 						<span className="underline decoration-dotted underline-offset-[3px] group-hover:decoration-solid">{value}</span>
-						<span
-							role="tooltip"
-							className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-						>
-							{valueTooltip}
-						</span>
+						<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
 					</span>
 				) : (
 					<span className="text-right" style={color ? { color } : undefined}>
@@ -456,12 +455,7 @@ function BkdRow({
 				{tooltip ? (
 					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 						{label}
-						<div
-							role="tooltip"
-							className="pointer-events-none absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-						>
-							{tooltip}
-						</div>
+						<TooltipBubble align="left">{tooltip}</TooltipBubble>
 					</span>
 				) : (
 					labelNode
@@ -473,12 +467,7 @@ function BkdRow({
 			{valueTooltip ? (
 				<span className="group relative text-right cursor-default" style={color ? { color } : undefined}>
 					<span className="underline decoration-dotted underline-offset-[3px] group-hover:decoration-solid">{value}</span>
-					<span
-						role="tooltip"
-						className="pointer-events-none absolute bottom-full right-0 z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible"
-					>
-						{valueTooltip}
-					</span>
+					<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
 				</span>
 			) : (
 				<span className="text-right" style={color ? { color } : undefined}>
