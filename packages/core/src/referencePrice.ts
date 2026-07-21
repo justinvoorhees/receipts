@@ -1,48 +1,13 @@
-import { createPublicClient, http, parseAbi } from 'viem';
-import { base } from 'viem/chains';
 import { sqrtPriceX96ToPrice } from './priceMath.js';
 
 /**
- * Reference price = the pool's marginal spot price at block N-1 (the block
- * before the trade settled). Spec §4.
+ * The USDC/WETH specialization of the shared sqrtPrice conversion.
  *
- * Computation:
- *   sqrtPriceX96 = (await pool.slot0()).sqrtPriceX96
- *   raw_price    = (sqrtPriceX96 / 2^96)^2          // token1_raw per token0_raw
- *   USDC/WETH    = raw_price * 10^(dec0 - dec1)     // = raw * 10^12 here
- *
- * NB: the spec writes the decimal correction as `10^6 / 10^18` — that's the
- * wrong direction for token0=WETH(18), token1=USDC(6). The standard Uniswap
- * V3 conversion is `raw_price * 10^(decimals_token0 - decimals_token1)`,
- * which for this pair is `* 10^12`. Reversing would give a price near zero
- * (and divide-by-zero downstream in the TCA ledger).
- *
- * Requires archive RPC — Alchemy free tier returns "Requested resource not
- * found" on historical `eth_call`.
+ * This module also held `getReferencePrice`, which read a pool's slot0 at block
+ * N-1 directly. Reference mids now come from the Market Price apparatus
+ * (marketPrice.ts / pricing.ts), which reads slot0 through the pooled clients in
+ * poolDiscovery, so that entry point was removed once nothing called it.
  */
-
-const POOL_ABI = parseAbi([
-	'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
-]);
-
-export interface ReferencePriceArgs {
-	rpcUrl: string;
-	poolAddress: `0x${string}`;
-	/** Trade block. Reference price is sampled at `blockNumber - 1`. */
-	blockNumber: bigint;
-}
-
-export async function getReferencePrice(args: ReferencePriceArgs): Promise<number> {
-	const client = createPublicClient({ chain: base, transport: http(args.rpcUrl) });
-	const result = await client.readContract({
-		address: args.poolAddress,
-		abi: POOL_ABI,
-		functionName: 'slot0',
-		blockNumber: args.blockNumber - 1n,
-	});
-	const sqrtPriceX96 = result[0];
-	return sqrtPriceX96ToUsdcPerWeth(sqrtPriceX96);
-}
 
 export function sqrtPriceX96ToUsdcPerWeth(sqrtPriceX96: bigint): number {
 	// USDC/WETH is the `token0=WETH(18), token1=USDC(6)` case of the general

@@ -581,13 +581,6 @@ export function normalizeRouteLegs(routeLegs: unknown): RouteLeg[] {
 	}
 }
 
-export function routePath(legs: RouteLeg[]): string {
-	const swaps = legs.filter((l) => l.type !== 'wrap' && l.type !== 'unwrap');
-	if (swaps.length === 0) return '–';
-	const tokens = [tokenSymbol(swaps[0]!.tokenIn), ...swaps.map((leg) => tokenSymbol(leg.tokenOut))];
-	return tokens.join('->');
-}
-
 const ANCHOR_TOKEN_PREFIXES = ['BENEFICIARY_ANCHORED', 'ANCHOR_VIA_'];
 const isAnchorToken = (flag: string): boolean => ANCHOR_TOKEN_PREFIXES.some((p) => flag.startsWith(p));
 

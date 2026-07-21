@@ -1,4 +1,4 @@
-import type { Direction } from './decoder.js';
+import type { Direction } from './tradeEndpoints.js';
 
 /**
  * Signed deviation in basis points from `baselinePrice` to `comparePrice`,

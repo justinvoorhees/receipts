@@ -22,7 +22,7 @@
 
 import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
-import type { Direction } from './decoder.js';
+import type { Direction } from './tradeEndpoints.js';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
 import { decomposeRoute, createDefaultMidReader } from './decomposeRoute.js';

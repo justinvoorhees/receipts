@@ -1,8 +1,3 @@
-export function formatBps(value: number | null): string {
-	if (value === null) return '–';
-	return `${value.toFixed(1)}bps`;
-}
-
 /**
  * Sign-flipped component contribution — displays a cost-model component
  * (lp_fee_bps, agg_fee_bps, slippage_bps) as a signed contribution to
@@ -23,32 +18,6 @@ export function formatContribution(
 	const text = rounded === 0 ? '0.0bps' : `${rounded.toFixed(1)}bps`;
 	const color = flipped > 0.05 ? '#117d45' : undefined;
 	return { text, color };
-}
-
-/**
- * Sign-flipped framing of cost-bps. Our schema stores `positive = cost paid
- * by user`, but the dashboard prefers "accuracy" framing where positive =
- * surplus over reference. So `mean(total_cost_bps) = +12.3` (user paid)
- * renders as accuracy `-12.3bps` (user is down).
- */
-export function formatAccuracy(costBps: number | null): string {
-	if (costBps === null) return '–';
-	return formatBps(-costBps);
-}
-
-/**
- * Variability (stddev) is always presented prefixed with ± to signal it's a
- * spread, not a magnitude. Pairs naturally with a mean rendered via formatBps:
- * `29.8bps  ± 9.0bps`.
- */
-export function formatVariability(value: number | null): string {
-	if (value === null) return '–';
-	return `±${value.toFixed(1)}bps`;
-}
-
-export function formatUsd(value: number | null): string {
-	if (value === null) return '–';
-	return `$${value.toFixed(2)}`;
 }
 
 /**
@@ -75,41 +44,8 @@ export function formatGasUsd(value: number | null): string {
 	return `$${value.toFixed(4)}`;
 }
 
-export function formatTime(date: Date): string {
-	return date.toISOString().slice(11, 19);
-}
-
-/**
- * "Jun 16, 14:32" — compact UTC stamp for trade rows. Same day's trades
- * cluster visually; the month/day disambiguates older rows once you scroll.
- */
-export function formatTradeTimestamp(epochSeconds: number): string {
-	const d = new Date(epochSeconds * 1000);
-	const monthDay = d.toLocaleDateString('en-US', {
-		month: 'short',
-		day: 'numeric',
-		timeZone: 'UTC',
-	});
-	const hhmm = d.toISOString().slice(11, 16);
-	return `${monthDay}, ${hhmm}`;
-}
-
 export function shortTxHash(txHash: string): string {
 	return `${txHash.slice(0, 6)}…${txHash.slice(-4)}`;
-}
-
-export function formatDirection(direction: string | null): string {
-	if (direction === 'buy_weth') return 'Buy WETH';
-	if (direction === 'sell_weth') return 'Sell WETH';
-	return direction ?? '–';
-}
-
-const CHAIN_DISPLAY_NAMES: Record<string, string> = {
-	base: 'Base',
-};
-
-export function formatChain(slug: string): string {
-	return CHAIN_DISPLAY_NAMES[slug] ?? slug;
 }
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
