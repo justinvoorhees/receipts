@@ -1,0 +1,13 @@
+{
+	"_comment": "Curated RFQ market-maker addresses on Base. HAND-MAINTAINED — makers are not scan-discoverable; each entry is a human attestation with provenance. Consulted ONLY as a last-resort tier for `unknown` legs that neither RFQ tier proves (see decomposeRoute Step 4b, RFQ_LEG_CURATED). Identity is a SET (lookup uses `address` only).",
+	"chainId": 8453,
+	"makers": [
+		{
+			"address": "0x3dbe077e7986657e95e1cc50089f17a5a4af0aae",
+			"label": "Market Maker",
+			"provenance": "Cross-aggregator RFQ counterparty (Nordstern/KyberSwap/Velora); silent value-mover (emits no logs), no pool interface / fill event / EIP-1967 slot; 4084-byte plain contract; diversified multi-chain inventory; Basescan unlabeled. Unprovable by the two on-chain tiers — human-attested.",
+			"addedBy": "justin@withfabric.xyz",
+			"date": "2026-07-21"
+		}
+	]
+}
