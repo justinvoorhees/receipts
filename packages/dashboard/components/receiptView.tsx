@@ -308,8 +308,18 @@ export function Receipt({
 
 				{isPartial || (legs.length > 0 && !hasCostedLeg) ? (
 					<>
-						<BkdHeading label="Price Impact" value="Null" valueTooltip={NULL_PRICE_TOOLTIP} plain />
-						<BkdHeading label="Slippage" value="Null" valueTooltip={NULL_PRICE_TOOLTIP} plain />
+						<BkdHeading
+							label="Price Impact"
+							value="Null"
+							valueTooltip={NULL_PRICE_TOOLTIP}
+							tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
+						/>
+						<BkdHeading
+							label="Slippage"
+							value="Null"
+							valueTooltip={NULL_PRICE_TOOLTIP}
+							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+						/>
 					</>
 				) : (
 					<>
