@@ -325,10 +325,45 @@ describe('chainLegs — general DAG reconstruction', () => {
     expect(r.reconstructed).toBe(false);
   });
 
-  it('rejects a cyclic flow', () => {
+  it('reconstructs a net-source input recurrence (was mislabeled cyclic)', () => {
+    // USDC (input) nets +10 (20 out − 10 in) — a genuine net source, not a cycle;
+    // WETH conserves (10 in = 10 out); DAI is the net sink (10 in). Same topology as id 134.
     const legs = [ leg('usdc', 'weth', 10n, 10n), leg('weth', 'usdc', 10n, 10n), leg('usdc', 'dai', 10n, 10n) ];
     const r = chainLegs(legs, 'usdc', 'dai');
-    expect(r.reconstructed).toBe(false);
+    expect(r.reconstructed).toBe(true);
+  });
+});
+
+describe('chainLegs input-token mid-chain recurrence', () => {
+  const A = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // input (e.g. WETH)
+  const B = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; // intermediate (e.g. USDC)
+  const C = '0xcccccccccccccccccccccccccccccccccccccccc'; // output (e.g. TOSHI)
+  const leg = (venue: string, tokenIn: string, tokenOut: string, amtIn: bigint, amtOut: bigint) =>
+    ({ venue, type: 'univ3' as const, tokenIn, tokenOut, amountInRaw: amtIn, amountOutRaw: amtOut });
+
+  it('reconstructs a route where the INPUT token recurs mid-chain (id 134 shape)', () => {
+    // A→B, B→A, A→C — the input A is produced by leg 1 (B→A), then re-spent by leg 2.
+    // Conservation: A net outflow = (100 + 90) − 90 = 100 > 0 (net source); B conserves
+    // (200 out = 200 in); C is the net sink (500 in). Old pure-source check rejects this.
+    const legs = [
+      leg('0x01', A, B, 100n, 200n),
+      leg('0x02', B, A, 200n, 90n),
+      leg('0x03', A, C, 90n, 500n),
+    ];
+    const result = chainLegs(legs, A, C);
+    expect(result.reconstructed).toBe(true);
+  });
+
+  it('still REJECTS a genuine cycle: input recurs but nets to zero, output never received', () => {
+    // A→B, B→A returns all of A (net zero), and C never appears. Must NOT reconstruct —
+    // proves the net-source relaxation did not open a hole (net-source fails: outflow 100
+    // == inflow 100; and the output net-receive check fails: C inflow 0).
+    const legs = [
+      leg('0x01', A, B, 100n, 200n),
+      leg('0x02', B, A, 200n, 100n),
+    ];
+    const result = chainLegs(legs, A, C);
+    expect(result.reconstructed).toBe(false);
   });
 });
 

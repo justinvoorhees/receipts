@@ -325,7 +325,9 @@ function linearFlowValid(legs: Leg[], inputToken: string, outputToken: string): 
     outflow.set(l.tokenIn, (outflow.get(l.tokenIn) ?? 0n) + l.amountInRaw);
     inflow.set(l.tokenOut, (inflow.get(l.tokenOut) ?? 0n) + l.amountOutRaw);
   }
-  if ((inflow.get(inputToken) ?? 0n) !== 0n) return false;
+  // Input is a NET source (may recur mid-chain): net outflow must be positive.
+  // Symmetric with the output token, which already may recur (see below).
+  if ((outflow.get(inputToken) ?? 0n) <= (inflow.get(inputToken) ?? 0n)) return false;
   const tokens = new Set<string>([...inflow.keys(), ...outflow.keys()]);
   for (const t of tokens) {
     if (t === inputToken || t === outputToken) continue;
@@ -351,11 +353,11 @@ function reconstructDag(legs: Leg[], inputToken: string, outputToken: string): L
   for (const t of tokens) {
     const inn = inflow.get(t) ?? 0n;
     const out = outflow.get(t) ?? 0n;
-    if (t === inputToken) { if (inn !== 0n) return null; continue; } // pure source
+    if (t === inputToken) { continue; } // net source — validated after the loop
     if (t === outputToken) { if (out !== 0n) return null; continue; } // pure sink
     if (!conserved(inn, out)) return null; // intermediate must balance
   }
-  if ((outflow.get(inputToken) ?? 0n) <= 0n) return null; // input must send
+  if ((outflow.get(inputToken) ?? 0n) <= (inflow.get(inputToken) ?? 0n)) return null; // net source
   if ((inflow.get(outputToken) ?? 0n) <= 0n) return null; // output must receive
 
   // Greedy topological placement: place a leg once its tokenIn is available
