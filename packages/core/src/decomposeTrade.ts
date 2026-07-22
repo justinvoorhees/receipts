@@ -1,8 +1,12 @@
 /**
- * decompose-trade.ts — Full 3-way cost decomposition (v2.1 spike).
+ * decomposeTrade.ts — Full 3-way cost decomposition (v2.1 spike).
  *
- * Pure function `decomposeTrade(...)` takes a debug trace + DB anchors and
- * returns { lpFeeBps, aggFeeBps, slippageBps, gasBps, hops[], feeSinks[], flags[] }.
+ * Orchestrator: `decomposeTrade(...)` takes a debug trace + DB anchors and returns
+ * { lpFeeBps, aggFeeBps, slippageBps, gasBps, hops[], feeSinks[], flags[] }. The pure
+ * steps live in sibling modules (2026-07-21 split): the value-flow graph in
+ * `tradeValueGraph`, the fee steps in `tradeFees`, the log decoders/constants in
+ * `tradeDecoders`. This file keeps the RPC-bound Steps 2 (classify) and 4 (LP fee)
+ * plus slippage/gas/assembly.
  *
  * Invariant: all_in_cost_bps = lp_fee_bps + agg_fee_bps + slippage_bps
  * (gas tracked separately).
