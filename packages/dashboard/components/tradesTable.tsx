@@ -8,7 +8,7 @@ import {
 	formatProvider,
 	providerColor,
 } from '../lib/formatters';
-import { Receipt } from './ReceiptView';
+import { Receipt } from './receiptView';
 // The shared display/format helpers now live in a leaf so ReceiptView can import
 // them without the TradesTable ↔ ReceiptView cycle. The component below uses two
 // of them directly; the rest are re-exported so existing import sites (the tests,

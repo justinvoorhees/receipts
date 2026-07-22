@@ -6,7 +6,7 @@ globalThis.React = React;
 
 describe('FailureNotice', () => {
 	it('renders a dotted-underline label + tooltip for a tooltip-bearing reason', async () => {
-		const { FailureNotice } = await import('./FailureNotice');
+		const { FailureNotice } = await import('./failureNotice');
 		const html = renderToStaticMarkup(<FailureNotice failure={{ reason: 'NOT_DECODABLE' }} />);
 		expect(html).toContain('Not a swap');
 		expect(html).toContain('Token-in / token-out swap not found (signature, approval, LP action, etc)');
@@ -15,14 +15,14 @@ describe('FailureNotice', () => {
 	});
 
 	it('renders a plain label (no underline, no tooltip) for NOT_FOUND_ONCHAIN', async () => {
-		const { FailureNotice } = await import('./FailureNotice');
+		const { FailureNotice } = await import('./failureNotice');
 		const html = renderToStaticMarkup(<FailureNotice failure={{ reason: 'NOT_FOUND_ONCHAIN' }} />);
 		expect(html).toContain('Transaction not found on Base');
 		expect(html).not.toContain('decoration-dotted');
 	});
 
 	it('shows the relayer generic tooltip and NO beneficiary detail', async () => {
-		const { FailureNotice } = await import('./FailureNotice');
+		const { FailureNotice } = await import('./failureNotice');
 		const html = renderToStaticMarkup(
 			<FailureNotice
 				failure={{

@@ -1,5 +1,5 @@
 import { getReceiptByHash } from '../lib/queries';
-import { ReceiptView } from '../components/ReceiptView';
+import { ReceiptView } from '../components/receiptView';
 import { classifyTransaction, type AnalyzeFailure } from '@fabric-tca/core';
 
 export const dynamic = 'force-dynamic';

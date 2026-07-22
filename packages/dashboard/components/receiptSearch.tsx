@@ -3,7 +3,7 @@ import type { Route } from 'next';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
-import { FailureNotice } from './FailureNotice';
+import { FailureNotice } from './failureNotice';
 
 export function ReceiptSearch({ hash, failure }: { hash: string; failure?: AnalyzeFailure }) {
 	const router = useRouter();

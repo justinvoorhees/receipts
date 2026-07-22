@@ -5,7 +5,7 @@ import {
 	type TradesSort,
 	type TradesSortColumn,
 } from '../../lib/queries';
-import { TradesTable } from '../../components/TradesTable';
+import { TradesTable } from '../../components/tradesTable';
 
 export const revalidate = 30;
 

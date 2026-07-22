@@ -153,7 +153,7 @@ const fullUsdcWethRow = {
 
 describe('Receipt header', () => {
 	it('renders the hash header as a Basescan link, with no grade badge', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
@@ -163,7 +163,7 @@ describe('Receipt header', () => {
 	});
 
 	it('links an attributed aggregator to its router contract page via routerAddress', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const router = '0x6131b5fae19ea4f9d964eac0408e4408b66337b5';
 		const row = { ...fullUsdcWethRow, routerAddress: router };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
@@ -172,7 +172,7 @@ describe('Receipt header', () => {
 	});
 
 	it('links an unattributed aggregator via its slug when routerAddress is absent (pre-column row)', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const unknownRouter = '0x77471234567890abcdef1234567890abcdef2359';
 		const row = { ...fullUsdcWethRow, aggregator: unknownRouter };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
@@ -182,7 +182,7 @@ describe('Receipt header', () => {
 	});
 
 	it('renders an attributed aggregator unlinked when no routerAddress exists (pre-column row)', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
@@ -191,7 +191,7 @@ describe('Receipt header', () => {
 	});
 
 	it('renders a full USDC/WETH receipt with generalized token fields', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
 		);
@@ -209,7 +209,7 @@ describe('Receipt header', () => {
 	});
 
 	it('keeps the top divider and renders no close/delete controls outside the dialog', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
 		expect(html).toContain('h-px w-full shrink-0 bg-[var(--color-primary)]'); // top Divider present
 		expect(html).not.toContain('Close transaction details');
@@ -217,7 +217,7 @@ describe('Receipt header', () => {
 	});
 
 	it('in dialog mode (onClose/onDelete passed), omits the top divider and renders the close button beside the header and a Delete button above Share', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={fullUsdcWethRow as never} onClose={() => {}} onDelete={() => {}} />,
 		);
@@ -237,7 +237,7 @@ describe('UniswapX Filler row', () => {
 	};
 
 	it('replaces the Aggregator row with Filler / via UniswapX + a Basescan link to the filler', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={fillerRow as never} hash={fillerRow.txHash} />);
 		expect(html).toContain('Filler');
 		expect(html).toContain('via UniswapX');
@@ -248,7 +248,7 @@ describe('UniswapX Filler row', () => {
 	});
 
 	it('falls back to the ordinary Aggregator row + note when fillerAddress is null (legacy row)', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const legacyRow = { ...fillerRow, fillerAddress: null };
 		const html = renderToStaticMarkup(<ReceiptView trade={legacyRow as never} hash={legacyRow.txHash} />);
 		expect(html).toContain('>Aggregator<');
@@ -257,7 +257,7 @@ describe('UniswapX Filler row', () => {
 	});
 
 	it('leaves a non-UniswapX beneficiary-anchored (net-flow) row unaffected', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const netFlowRow = {
 			...fullUsdcWethRow,
 			fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
@@ -283,7 +283,7 @@ describe('Receipt Fabric partner-fee attribution', () => {
 	};
 
 	it('links a large Fabric-routed integrator fee to its recipient contract, with no tooltip', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={fabricPartnerRow as never} hash={fabricPartnerRow.txHash} />,
 		);
@@ -294,7 +294,7 @@ describe('Receipt Fabric partner-fee attribution', () => {
 	});
 
 	it('labels a Fabric-routed integrator fee neutrally and links out even without a known name', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const unknownIntegratorRow = {
 			...fullUsdcWethRow,
 			aggregator: 'Fabric',
@@ -325,7 +325,7 @@ describe('Receipt partial state', () => {
 	};
 
 	it('renders a partial exotic-pair receipt with impact/slippage unavailable and does not crash on nulls', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
 		);
@@ -343,7 +343,7 @@ describe('Receipt partial state', () => {
 
 describe('Receipt token-denominated price rows', () => {
 	it('renders ETH-quoted prices token-denominated with the quote symbol', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const row = {
 			...fullUsdcWethRow,
 			aggregator: 'fabric', pricingStatus: 'estimated',
@@ -368,7 +368,7 @@ describe('Receipt token-denominated price rows', () => {
 	});
 
 	it('renders stablecoin-quoted (USDC/WETH) price rows with the USDC quote symbol', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />);
 		expect(html).toContain('3000.00 USDC = 1 WETH');
 	});
@@ -388,7 +388,7 @@ describe('Receipt estimated pricing tier', () => {
 	};
 
 	it('renders Execution, Market, and Delta on an estimated receipt with a best-effort marker', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={estimatedRow as never} hash={estimatedRow.txHash} />,
 		);
@@ -407,7 +407,7 @@ describe('Receipt estimated pricing tier', () => {
 	});
 
 	it('shows Execution Price on a fully partial receipt but leaves Market/Delta null', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const partialRow = {
 			...fullUsdcWethRow,
 			pricingStatus: 'partial',
@@ -431,7 +431,7 @@ describe('Receipt estimated pricing tier', () => {
 describe('Receipt route rendering (native/fallback)', () => {
 	const base = { ...fullUsdcWethRow };
 	it('renders costed pool legs plus an informational unwrap row', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, routeLegs: [
 			{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3', tokenIn: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', tokenOut: '0x4200000000000000000000000000000000000006', feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2 },
 			{ venue: '0x4200000000000000000000000000000000000006', type: 'unwrap', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
@@ -444,7 +444,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 	});
 
 	it('renders a Pools Touched section when no leg is costed', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, pricingStatus: 'partial', routeLegs: [
 			{ venue: '0x498581ff718922c3f8e6a244956af099b2652b2b', type: 'univ4', tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
 		] };
@@ -458,7 +458,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 	});
 
 	it('renders "No Route Found" when there are no legs', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, pricingStatus: 'partial', routeLegs: [] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('No Route Found');
@@ -466,7 +466,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 	});
 
 	it('labels an rfq leg "Market Maker", linked to its contract, with a null LP Fee and off-chain-quote tooltip', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const venue = '0x69a9f156d5902191dce331ab348f3e9e96e48b22';
 		// A costed leg alongside the rfq leg puts this route in the "Liquidity
 		// Provider Fee" branch (hasCostedLeg), not the uncosted "Pools Touched"
@@ -492,7 +492,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 	// BY DESIGN — off-chain quote, no on-chain mid — not because a mid was
 	// "discovered ... implausible or stale" (the legacy, now-false, copy).
 	it('gives an rfq leg\'s null Price Impact the market-maker tooltip, not the legacy "implausible or stale" copy', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, pricingStatus: 'full', routeLegs: [
 			{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
 				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
@@ -551,7 +551,7 @@ describe('Receipt leg context — endpoint token resolution', () => {
 	}
 
 	it('resolves the leading leg\'s WARP token via the receipt\'s own inputSymbol, not a short address', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={warpEthRow as never} hash={warpEthRow.txHash} />);
 		const lpSection = lpFeeSection(html);
 		// WARP is absent from TradesTable's static TOKEN_SYMBOLS map, so without
@@ -561,7 +561,7 @@ describe('Receipt leg context — endpoint token resolution', () => {
 	});
 
 	it('labels the terminal leg\'s native-ETH settlement as ETH, not the internal WETH stand-in', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={warpEthRow as never} hash={warpEthRow.txHash} />);
 		const lpSection = lpFeeSection(html);
 		// The last leg (Uniswap v4 PoolManager) pays native ETH directly — there is no
@@ -575,7 +575,7 @@ describe('Receipt leg context — endpoint token resolution', () => {
 	});
 
 	it('surfaces the cost decomposition on the estimated tier instead of the "unavailable" placeholder', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		// Post-fix, an estimated-tier receipt carries the per-leg price impact (and
 		// slippage) that decomposeRoute computed — core only nulls them on the
 		// mid-less `partial` tier. The Cost Breakdown must therefore render the
@@ -593,7 +593,7 @@ describe('Receipt leg context — endpoint token resolution', () => {
 	});
 
 	it('keeps a WETH-producing leg labeled WETH when a real unwrap step follows it', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		// Same shape as the "informational unwrap row" case above, but this time
 		// asserting the swap leg's own context string, not just the unwrap label.
 		// Here core did NOT model native ETH as a WETH stand-in — WETH really is
@@ -621,7 +621,7 @@ describe('Receipt leg context — endpoint token resolution', () => {
 
 describe('ReceiptView diagnosis', () => {
 	it('renders the failure notice when trade is null and a diagnosis is present', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={null} hash="0xabc" diagnosis={{ reason: 'NOT_DECODABLE' }} />,
 		);
@@ -630,7 +630,7 @@ describe('ReceiptView diagnosis', () => {
 	});
 
 	it('renders no failure notice when no diagnosis is supplied', async () => {
-		const { ReceiptView } = await import('./ReceiptView');
+		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={null} hash="0xabc" />);
 		expect(html).not.toContain('Not a swap');
 	});
@@ -648,7 +648,7 @@ describe('Price Delta row', () => {
 	};
 
 	it('renders the anchored USD delta as a "Bought … below" sentence, agreeing with Execution Quality', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
 		// ETH anchors → USD Price Delta sentence; direction ("below") is preserved from
 		// priceDeltaDirection, so the inversion-fix correctness still holds. The
@@ -669,7 +669,7 @@ describe('Price Delta row', () => {
 	});
 
 	it('flips to "Bought … above" (Lost) when the fill received fewer than the mid', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// Consistent loss: received 0.0284 WBTC (< the ~0.028552 the mid implies for 1 ETH),
 		// so realizedPrice = 1/0.0284 ≈ 35.2113 ETH/WBTC (paid more ETH per WBTC than the mid).
 		const html = renderToStaticMarkup(
@@ -682,7 +682,7 @@ describe('Price Delta row', () => {
 	});
 
 	it('reads "Sold … above" for a sell (WETH→USDC), where the base is the input', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// base = WETH (input, rank 1 < USDC's 2) → the user SOLD the base.
 		// Received 3005 USDC/WETH vs a 3000 mid → better.
 		const html = renderToStaticMarkup(
@@ -702,7 +702,7 @@ describe('Price Delta row', () => {
 	});
 
 	it('reads "Sold … below" for a sell that received less than the mid', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{
 				...fullUsdcWethRow,
@@ -720,7 +720,7 @@ describe('Price Delta row', () => {
 	});
 
 	it('renders None with no tooltip when execution exactly matches the mid', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// A genuine tie: 3000 USDC → 1 WETH at a 3000 USDC/WETH mid → realized == mid,
 		// so the single-ruler Spread is exactly $0 and the Price Delta is None.
 		const html = renderToStaticMarkup(
@@ -731,7 +731,7 @@ describe('Price Delta row', () => {
 	});
 
 	it('renders a no-anchor memecoin pair through the same path, denominated in the quote token', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// LFI→GITLAWB (real row): neither leg anchors → tie in anchor rank →
 		// base = input (LFI), quote = output (GITLAWB), marketMid is output-per-input.
 		// Previously this rendered a total token quantity ("197178.79 GITLAWB") via
@@ -758,7 +758,7 @@ describe('Price Delta row', () => {
 	});
 
 	it('reads "Bought … above" (Lost) for a USDC→WETH buy over the mid (this was once inverted)', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// base = WETH (output, rank 1 < USDC's 2) → the user BOUGHT the base.
 		// Paid 3005 USDC/WETH against a 3000 mid → a $5/ETH overpay → bought above → Lost.
 		// ReceiptView.test.tsx:470 once asserted this was "better".
@@ -774,7 +774,7 @@ describe('Price Delta row', () => {
 
 describe('Size row', () => {
 	it('renders ~Size above Token In for a NON-anchored pair (no USD to reconcile)', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// LFI→GITLAWB: neither leg anchors → not anchored → the soft ~Size line renders.
 		const html = renderToStaticMarkup(
 			<Receipt row={{
@@ -795,7 +795,7 @@ describe('Size row', () => {
 	});
 
 	it('replaces Size with Spread on an ANCHORED pair (ETH→WBTC)', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{
 				...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
@@ -814,7 +814,7 @@ describe('Size row', () => {
 	});
 
 	it('renders Size on a partial receipt, where no mid exists', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{
 				...fullUsdcWethRow, pricingStatus: 'partial',
@@ -826,7 +826,7 @@ describe('Size row', () => {
 	});
 
 	it('renders Size for a no-anchor memecoin pair', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{
 				...fullUsdcWethRow, pricingStatus: 'estimated',
@@ -841,7 +841,7 @@ describe('Size row', () => {
 	});
 
 	it('falls back to the unavailable placeholder when there is no notional', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...fullUsdcWethRow, notionalUsd: null } as never} />,
 		);
@@ -865,7 +865,7 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 	};
 
 	it('renders per-side USD notionals + Spread (Gained), no Size', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
 		expect(html).toContain('Spread');
 		expect(html).toContain('Gained');
@@ -875,7 +875,7 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 	});
 
 	it('reconciles: Spread magnitude = per-base delta × base amount', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
 		// $159.76 below Market Price per WBTC × 0.02862539 WBTC ≈ $4.57 Spread.
 		expect(html).toContain('WBTC bought at $159.76 below Market Price');
@@ -884,7 +884,7 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 	});
 
 	it('renders USD sublines on the price rows, keeping the token-denominated main lines', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
 		expect(html).toContain('$62,731.32'); // Market Price in USD (per WBTC)
 		expect(html).toContain('$62,571.56'); // Execution Price in USD (per WBTC)
@@ -905,14 +905,14 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 	};
 
 	it('sizes detail-row subvalues at 12px, matching the rest of the list', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
 		// The 10px subvalue/sublabel treatment is gone from the detail table.
 		expect(html).not.toContain('text-[10px]');
 	});
 
 	it('colors the Spread VALUE green on a gain, leaving the subvalue secondary', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
 		expect(html).toContain('Spread');
 		expect(html).toContain('Gained');
@@ -923,7 +923,7 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 	});
 
 	it('leaves a loss uncolored rather than red, matching formatDialogBps', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// Received fewer WBTC than the mid implies → a loss.
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, outputAmount: '0.0284', realizedPrice: '35.2113', allInCostBps: '25' } as never} />,
@@ -934,7 +934,7 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 	});
 
 	it('renders a Market Price methodology descriptor on every tier, with no tooltip copy', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		// The stored methodology wins when present.
 		const stored = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, methodology: 'Corroborated market price (direct + oracle) at block N-1.' } as never} />,
@@ -959,14 +959,14 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 	});
 
 	it('renders the Gas Cost descriptor', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
 		expect(html).toContain('Gas Cost');
 		expect(html).toContain('Paid separately in ETH');
 	});
 
 	it('keeps the descriptor on Gas Cost even when the value is unavailable', async () => {
-		const { Receipt } = await import('./ReceiptView');
+		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, gasCostUsd: null } as never} />);
 		expect(html).toContain('Paid separately in ETH');
 	});

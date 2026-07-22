@@ -1,4 +1,4 @@
-import { NavTabs } from './NavTabs';
+import { NavTabs } from './navTabs';
 import { ThemePicker } from './ThemePicker';
 
 // Native aspect ratio of the wordmark SVG is 512:139 (~3.683).

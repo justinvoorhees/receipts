@@ -37,7 +37,7 @@ const sampleReceiptRow = {
 
 describe('TradesTable', () => {
 	it('renders no per-row delete control (delete lives in the receipt dialog)', async () => {
-		const { TradesTable } = await import('./TradesTable');
+		const { TradesTable } = await import('./tradesTable');
 		const onDelete = vi.fn();
 		const rows = [
 			sampleReceiptRow as never,
@@ -54,7 +54,7 @@ describe('TradesTable', () => {
 	});
 
 	it('does not render route hop badges', async () => {
-		const { TradesTable } = await import('./TradesTable');
+		const { TradesTable } = await import('./tradesTable');
 		const html = renderToStaticMarkup(
 			<TradesTable
 				initialSort={{ column: 'block', direction: 'desc' }}
@@ -104,7 +104,7 @@ describe('TradesTable', () => {
 	});
 
 	it('splits execution into price impact and market-forces slippage', async () => {
-		const { getExecutionBreakdown } = await import('./TradesTable');
+		const { getExecutionBreakdown } = await import('./tradesTable');
 		const result = getExecutionBreakdown({
 			slippageBps: '10.785184150012705',
 			routeLegs: [
@@ -127,7 +127,7 @@ describe('TradesTable', () => {
 	});
 
 	it('formats price impact as per-pool rows', async () => {
-		const { getPriceImpactRows } = await import('./TradesTable');
+		const { getPriceImpactRows } = await import('./tradesTable');
 		const rows = getPriceImpactRows([
 			{
 				venue: '0x482fe995c4a52bc79271ab29a53591363ee30a89',
@@ -165,7 +165,7 @@ describe('TradesTable', () => {
 	});
 
 	it('resolves endpoint + native-ETH leg symbols from the receipt when a row is passed', async () => {
-		const { getPriceImpactRows } = await import('./TradesTable');
+		const { getPriceImpactRows } = await import('./tradesTable');
 		// Real WARP->ETH route: WARP is absent from the static TOKEN_SYMBOLS map,
 		// and the terminal Uniswap v4 leg pays native ETH directly (tokenOut is
 		// the WETH stand-in, outputToken is 'native', no unwrap step).
@@ -182,7 +182,7 @@ describe('TradesTable', () => {
 	});
 
 	it('uses core-stored leg symbols for an intermediate hop token (USDT), not a hash', async () => {
-		const { getPriceImpactRows } = await import('./TradesTable');
+		const { getPriceImpactRows } = await import('./tradesTable');
 		// USDT is neither an endpoint nor in the static TOKEN_SYMBOLS map — without
 		// the stored per-leg symbol it would render as a shortened address.
 		const USDT = '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2';
@@ -197,7 +197,7 @@ describe('TradesTable', () => {
 	});
 
 	it('formats Coinbase Wrapped Staked ETH with its token symbol', async () => {
-		const { getPriceImpactRows } = await import('./TradesTable');
+		const { getPriceImpactRows } = await import('./tradesTable');
 
 		const rows = getPriceImpactRows([
 			{
@@ -213,7 +213,7 @@ describe('TradesTable', () => {
 	});
 
 	it('renders stringified route legs with Coinbase token symbols in the dialog', async () => {
-		const { TransactionDetailsDialog } = await import('./TradesTable');
+		const { TransactionDetailsDialog } = await import('./tradesTable');
 		const row = {
 			id: 1, chainId: 8453, pricingStatus: 'full',
 			txHash: '0x6442772f65f0575be26037beac9c7a168d2543cadc16c4ccdbf80182f7d03f8e',
@@ -271,7 +271,7 @@ describe('TradesTable', () => {
 	});
 
 	it('formats tagged pool venues for the transaction dialog', async () => {
-		const { getVenueLabel } = await import('./TradesTable');
+		const { getVenueLabel } = await import('./tradesTable');
 
 		expect(getVenueLabel({ type: 'sushiv3' } as never)).toBe('SushiSwap v3');
 		expect(getVenueLabel({ type: 'baseswapv3' } as never)).toBe('BaseSwap v3');
@@ -286,7 +286,7 @@ describe('TradesTable', () => {
 	// These venues are labelled from their type, so any pool of the same protocol
 	// resolves — not just the specific addresses pinned in KNOWN_VENUE_LABELS.
 	it('labels newly tagged venue types by protocol, for any pool address', async () => {
-		const { getVenueLabel } = await import('./TradesTable');
+		const { getVenueLabel } = await import('./tradesTable');
 
 		expect(getVenueLabel({ venue: '0xnotpinned', type: 'maverickv1' } as never)).toBe('Maverick v1');
 		expect(getVenueLabel({ venue: '0xnotpinned', type: 'hydrex' } as never)).toBe('Hydrex');
@@ -294,14 +294,14 @@ describe('TradesTable', () => {
 	});
 
 	it('labels rfq legs Market Maker and unknown legs Unknown Pool', async () => {
-		const { getVenueLabel } = await import('./TradesTable');
+		const { getVenueLabel } = await import('./tradesTable');
 
 		expect(getVenueLabel({ type: 'rfq', venue: '0x69a9f156d5902191dce331ab348f3e9e96e48b22' } as never)).toBe('Market Maker');
 		expect(getVenueLabel({ type: 'unknown', venue: '0x51c72848c68a965f66fa7a88855f9f7784502a7f' } as never)).toBe('Unknown Pool');
 	});
 
 	it('uses generic null impact copy for manually tagged Curve pools even if persisted as RFQ', async () => {
-		const { getPriceImpactRows } = await import('./TradesTable');
+		const { getPriceImpactRows } = await import('./tradesTable');
 
 		const rows = getPriceImpactRows([
 			{
@@ -320,7 +320,7 @@ describe('TradesTable', () => {
 	});
 
 	it('labels unknown-type pools as "Unknown Pool" regardless of address', async () => {
-		const { getPriceImpactRows, getVenueLabel } = await import('./TradesTable');
+		const { getPriceImpactRows, getVenueLabel } = await import('./tradesTable');
 
 		expect(getVenueLabel({
 			venue: '0xbee3211ab312a8d065c4fef0247448e17a8da000',
@@ -344,7 +344,7 @@ describe('TradesTable', () => {
 	});
 
 	it('labels known Hydrex and UniPool addresses despite an "unknown" decomposition type', async () => {
-		const { getVenueLabel } = await import('./TradesTable');
+		const { getVenueLabel } = await import('./tradesTable');
 
 		expect(getVenueLabel({
 			venue: '0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76',
@@ -357,7 +357,7 @@ describe('TradesTable', () => {
 	});
 
 	it('labels smoke-03 unknown pool and token pair symbols', async () => {
-		const { getPriceImpactRows, getVenueLabel } = await import('./TradesTable');
+		const { getPriceImpactRows, getVenueLabel } = await import('./tradesTable');
 
 		expect(getVenueLabel({
 			venue: '0xdcc8a6ba71a6c0053cbb32f935e9b4b64d465ea3',
@@ -380,7 +380,7 @@ describe('TradesTable', () => {
 	});
 
 	it('renders tooltip text on all History column headers', async () => {
-		const { TradesTable } = await import('./TradesTable');
+		const { TradesTable } = await import('./tradesTable');
 		const html = renderToStaticMarkup(
 			<TradesTable
 				initialSort={{ column: 'block', direction: 'desc' }}
@@ -397,7 +397,7 @@ describe('TradesTable', () => {
 	});
 
 	it('wires aria-describedby between tooltip headers and their tooltip elements', async () => {
-		const { TradesTable } = await import('./TradesTable');
+		const { TradesTable } = await import('./tradesTable');
 		const html = renderToStaticMarkup(
 			<TradesTable
 				initialSort={{ column: 'block', direction: 'desc' }}
@@ -418,7 +418,7 @@ describe('TradesTable', () => {
 	});
 
 	it('links known aggregator fee vaults by contract', async () => {
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
+		const { getAggregatorFeeAttribution } = await import('./tradesTable');
 
 		expect(getAggregatorFeeAttribution({ aggregator: 'velora' } as never)).toEqual({
 			label: 'Augustus Fee Vault',
@@ -439,7 +439,7 @@ describe('TradesTable', () => {
 		// reached via the Fabric router belongs to whichever integrator/partner
 		// set it up, never to Fabric. No name-resolution, no tooltip — just a
 		// neutral "Integrator Fee" label linking out to the recipient's contract.
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
+		const { getAggregatorFeeAttribution } = await import('./tradesTable');
 
 		const result = getAggregatorFeeAttribution({
 			aggregator: 'Fabric',
@@ -453,7 +453,7 @@ describe('TradesTable', () => {
 	});
 
 	it('labels a Fabric-router fee neutrally when no feeRecipient is persisted (no link)', async () => {
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
+		const { getAggregatorFeeAttribution } = await import('./tradesTable');
 
 		const result = getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 42 } as never);
 		expect(result.label).toBe('Integrator Fee');
@@ -461,7 +461,7 @@ describe('TradesTable', () => {
 	});
 
 	it('labels a small Fabric-router fee the same as a large one — no ambiguous "Router Fee" case', async () => {
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
+		const { getAggregatorFeeAttribution } = await import('./tradesTable');
 
 		const result = getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 5 } as never);
 		expect(result.label).toBe('Integrator Fee');
@@ -469,7 +469,7 @@ describe('TradesTable', () => {
 	});
 
 	it('still labels a zero Fabric fee as the plain provider name', async () => {
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
+		const { getAggregatorFeeAttribution } = await import('./tradesTable');
 
 		expect(getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 0 } as never)).toEqual({
 			label: 'Fabric',
@@ -477,7 +477,7 @@ describe('TradesTable', () => {
 	});
 
 	it('keeps the "<Provider> Fee" label for non-Fabric aggregators regardless of fee size', async () => {
-		const { getAggregatorFeeAttribution } = await import('./TradesTable');
+		const { getAggregatorFeeAttribution } = await import('./tradesTable');
 
 		expect(getAggregatorFeeAttribution({ aggregator: 'odos', aggFeeBps: 80 } as never)).toEqual({
 			label: 'Odos Fee',
@@ -485,14 +485,14 @@ describe('TradesTable', () => {
 	});
 
 	it('formats dialog bps values with two decimal places', async () => {
-		const { formatDialogBps } = await import('./TradesTable');
+		const { formatDialogBps } = await import('./tradesTable');
 
 		expect(formatDialogBps(-1).text).toBe('1.00bps');
 		expect(formatDialogBps(0).text).toBe('0.00bps');
 	});
 
 	it('uses granular normalize flags instead of repeating confidence', async () => {
-		const { getFlagLabel } = await import('./TradesTable');
+		const { getFlagLabel } = await import('./tradesTable');
 
 		expect(getFlagLabel({ normalizeFlags: ['PI_IMPLAUSIBLE: leg mid stale', 'SETTLEMENT_EVENT_MISSING: no distinctive event'] })).toBe(
 			'PI_IMPLAUSIBLE: leg mid stale; SETTLEMENT_EVENT_MISSING: no distinctive event',
@@ -502,7 +502,7 @@ describe('TradesTable', () => {
 	});
 
 	it('dialog shows the manipulation badge when flagged', async () => {
-		const { TransactionDetailsDialog } = await import('./TradesTable');
+		const { TransactionDetailsDialog } = await import('./tradesTable');
 		const row = {
 			id: 2, chainId: 8453, pricingStatus: 'full',
 			txHash: '0x1234567890abcdef1234567890abcdef12345678',
@@ -532,7 +532,7 @@ describe('TradesTable', () => {
 		['2995', '3000', 'WETH bought at 5.00 USDC below Market Price', 'per 1 WETH'],
 		['3000', '3000', 'None', null],
 	])('realized=%s market=%s renders Price Delta "%s" with subvalue %s', async (realizedPrice, marketMid, expectedValue, expectedSub) => {
-		const { TransactionDetailsDialog } = await import('./TradesTable');
+		const { TransactionDetailsDialog } = await import('./tradesTable');
 		const row = {
 			id: 3, chainId: 8453, pricingStatus: 'full',
 			txHash: '0x1234567890abcdef1234567890abcdef12345678',
@@ -562,7 +562,7 @@ describe('TradesTable', () => {
 
 describe('wrap/unwrap venue handling', () => {
 	it('labels wrap and unwrap legs, with the conversion in a separate context string', async () => {
-		const { getVenueLabel, getStepContext } = await import('./TradesTable');
+		const { getVenueLabel, getStepContext } = await import('./tradesTable');
 		expect(getVenueLabel({ type: 'unwrap' })).toBe('Unwrap');
 		expect(getVenueLabel({ type: 'wrap' })).toBe('Wrap');
 		expect(getStepContext('unwrap')).toBe('WETH → ETH');
@@ -570,7 +570,7 @@ describe('wrap/unwrap venue handling', () => {
 		expect(getStepContext('univ3')).toBeUndefined();
 	});
 	it('includes wrap/unwrap legs in price-impact rows with a dash value and no impact tooltip', async () => {
-		const { getPriceImpactRows } = await import('./TradesTable');
+		const { getPriceImpactRows } = await import('./tradesTable');
 		const rows = getPriceImpactRows([
 			{ venue: '0xpool', type: 'univ3', tokenIn: '0xusdc', tokenOut: '0xweth', priceImpactBps: 5 },
 			{ venue: '0x4200000000000000000000000000000000000006', type: 'unwrap', tokenIn: '0x4200000000000000000000000000000000000006', tokenOut: 'native', priceImpactBps: null },
@@ -588,32 +588,32 @@ describe('wrap/unwrap venue handling', () => {
 
 describe('formatSubvalueUsd sub-cent precision', () => {
 	it('renders a sub-cent value at 6 significant figures', async () => {
-		const { formatSubvalueUsd } = await import('./TradesTable');
+		const { formatSubvalueUsd } = await import('./tradesTable');
 		expect(formatSubvalueUsd(0.000000667735)).toBe('$0.000000667735');
 	});
 
 	it('keeps 2-decimal formatting at or above $0.01', async () => {
-		const { formatSubvalueUsd } = await import('./TradesTable');
+		const { formatSubvalueUsd } = await import('./tradesTable');
 		expect(formatSubvalueUsd(1829.76)).toBe('$1,829.76');
 		expect(formatSubvalueUsd(2.25)).toBe('$2.25');
 		expect(formatSubvalueUsd(0.01)).toBe('$0.01');
 	});
 
 	it('returns – for zero and non-finite', async () => {
-		const { formatSubvalueUsd } = await import('./TradesTable');
+		const { formatSubvalueUsd } = await import('./tradesTable');
 		expect(formatSubvalueUsd(0)).toBe('–');
 		expect(formatSubvalueUsd(NaN)).toBe('–');
 	});
 
 	it('formatUsdMagnitude returns unsigned string or null', async () => {
-		const { formatUsdMagnitude } = await import('./TradesTable');
+		const { formatUsdMagnitude } = await import('./tradesTable');
 		expect(formatUsdMagnitude(0.000000667735)).toBe('0.000000667735');
 		expect(formatUsdMagnitude(2.25)).toBe('2.25');
 		expect(formatUsdMagnitude(0)).toBeNull();
 	});
 
 	it('formatUsdMagnitude returns an unsigned magnitude for negative input', async () => {
-		const { formatUsdMagnitude } = await import('./TradesTable');
+		const { formatUsdMagnitude } = await import('./tradesTable');
 		expect(formatUsdMagnitude(-2.25)).toBe('2.25');
 		expect(formatUsdMagnitude(-0.000000667735)).toBe('0.000000667735');
 	});
@@ -621,7 +621,7 @@ describe('formatSubvalueUsd sub-cent precision', () => {
 
 describe('token amount significant-figure clamp', () => {
 	it('caps a sub-1 amount at 6 significant digits (leading zeros are free), no separators', async () => {
-		const { formatTokenOut } = await import('./TradesTable');
+		const { formatTokenOut } = await import('./tradesTable');
 		// leading zeros after the decimal don't count as sig figs, so this keeps 8 decimal places
 		expect(formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473' })).toBe(
 			'0.00122969 WETH',
@@ -629,7 +629,7 @@ describe('token amount significant-figure clamp', () => {
 	});
 
 	it('never rounds away the whole part, even when the fraction alone exceeds 6 sig figs', async () => {
-		const { formatTokenIn } = await import('./TradesTable');
+		const { formatTokenIn } = await import('./tradesTable');
 		expect(formatTokenIn({ inputSymbol: 'WETH', inputAmount: '1000000000.123456789' })).toBe(
 			'1000000000.123457 WETH',
 		);
@@ -640,7 +640,7 @@ describe('token amount significant-figure clamp', () => {
 	});
 
 	it('special-cases stablecoins to exactly 2 decimals (currency style, padded)', async () => {
-		const { formatTokenIn, formatTokenOut } = await import('./TradesTable');
+		const { formatTokenIn, formatTokenOut } = await import('./tradesTable');
 		expect(formatTokenOut({ outputSymbol: 'USDC', outputAmount: '2.25005' })).toBe('2.25 USDC');
 		// Every stablecoin in STABLE_SYMBOLS clamps, incl. 18-decimal DAI + USDbC.
 		expect(formatTokenOut({ outputSymbol: 'DAI', outputAmount: '2.250050000000000000' })).toBe('2.25 DAI');
@@ -651,7 +651,7 @@ describe('token amount significant-figure clamp', () => {
 	});
 
 	it('clamps a memecoin-scale amount to 6 sig figs on the fraction, whole part intact', async () => {
-		const { formatTokenOut } = await import('./TradesTable');
+		const { formatTokenOut } = await import('./tradesTable');
 		expect(formatTokenOut({ outputSymbol: 'PEPE', outputAmount: '3369822.1456789' })).toBe('3369822.145679 PEPE');
 		// id-189-shaped jesse amount.
 		expect(formatTokenOut({ outputSymbol: 'jesse', outputAmount: '1301340.4246528773' })).toBe(
@@ -660,17 +660,17 @@ describe('token amount significant-figure clamp', () => {
 	});
 
 	it('applies the same 6-sig-fig fractional cap regardless of unit price', async () => {
-		const { formatTokenIn } = await import('./TradesTable');
+		const { formatTokenIn } = await import('./tradesTable');
 		expect(formatTokenIn({ inputSymbol: 'WETH', inputAmount: '0.123456789012' })).toBe('0.123457 WETH');
 	});
 
 	it('leaves an exact whole number with no fraction untouched', async () => {
-		const { formatTokenIn } = await import('./TradesTable');
+		const { formatTokenIn } = await import('./tradesTable');
 		expect(formatTokenIn({ inputSymbol: 'WBTC', inputAmount: '48601527' })).toBe('48601527 WBTC');
 	});
 
 	it('tokenUnitPriceUsd returns null on missing/zero inputs', async () => {
-		const { tokenUnitPriceUsd } = await import('./TradesTable');
+		const { tokenUnitPriceUsd } = await import('./tradesTable');
 		expect(tokenUnitPriceUsd('2.25', '3369822')).toBeCloseTo(2.25 / 3369822, 15);
 		expect(tokenUnitPriceUsd(null, '10')).toBeNull();
 		expect(tokenUnitPriceUsd('2.25', '0')).toBeNull();
@@ -679,7 +679,7 @@ describe('token amount significant-figure clamp', () => {
 
 describe('formatExecutionPrice value clamp', () => {
 	it('clamps a stablecoin-quoted price to exactly 2 decimals (>=$0.01, padded)', async () => {
-		const { formatExecutionPrice } = await import('./TradesTable');
+		const { formatExecutionPrice } = await import('./tradesTable');
 		expect(formatExecutionPrice('1829.763683289442', 'WETH', 'USDC')).toBe('1829.76 USDC = 1 WETH');
 		expect(formatExecutionPrice('2.25005', 'X', 'USDC')).toBe('2.25 USDC = 1 X');
 		// DAI is a stablecoin too.
@@ -689,37 +689,37 @@ describe('formatExecutionPrice value clamp', () => {
 	});
 
 	it('falls back to 6 sig figs for a sub-cent stablecoin-quoted price', async () => {
-		const { formatExecutionPrice } = await import('./TradesTable');
+		const { formatExecutionPrice } = await import('./tradesTable');
 		expect(formatExecutionPrice('0.000000667735123', 'PEPE', 'USDC')).toBe('0.000000667735 USDC = 1 PEPE');
 	});
 
 	it('uses 6 sig figs for a non-stablecoin-quoted price', async () => {
-		const { formatExecutionPrice } = await import('./TradesTable');
+		const { formatExecutionPrice } = await import('./tradesTable');
 		expect(formatExecutionPrice('0.000546123456', 'X', 'WETH')).toBe('0.000546123 WETH = 1 X');
 		// A large non-stablecoin price is capped at 6 significant figures.
 		expect(formatExecutionPrice('1829.763683289442', 'X', 'WETH')).toBe('1829.76 WETH = 1 X');
 	});
 
 	it('returns – for invalid input', async () => {
-		const { formatExecutionPrice } = await import('./TradesTable');
+		const { formatExecutionPrice } = await import('./tradesTable');
 		expect(formatExecutionPrice(null, 'WETH', 'USDC')).toBe('–');
 	});
 });
 
 describe('beneficiaryAnchorNote', () => {
 	it('is null for a normal (self-anchored) receipt', async () => {
-		const { beneficiaryAnchorNote } = await import('./TradesTable');
+		const { beneficiaryAnchorNote } = await import('./tradesTable');
 		expect(beneficiaryAnchorNote({ normalizeFlags: ['SETTLEMENT_EVENT_MISSING: x'] })).toBeNull();
 	});
 
 	it('names UniswapX when anchored via the Fill event', async () => {
-		const { beneficiaryAnchorNote } = await import('./TradesTable');
+		const { beneficiaryAnchorNote } = await import('./tradesTable');
 		expect(beneficiaryAnchorNote({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'] }))
 			.toBe('Executed on your behalf via UniswapX');
 	});
 
 	it('is generic for a net-flow relayer anchor', async () => {
-		const { beneficiaryAnchorNote } = await import('./TradesTable');
+		const { beneficiaryAnchorNote } = await import('./tradesTable');
 		expect(beneficiaryAnchorNote({ normalizeFlags: ['BENEFICIARY_ANCHORED: y'] }))
 			.toBe('Executed on your behalf by a solver');
 	});
@@ -727,12 +727,12 @@ describe('beneficiaryAnchorNote', () => {
 
 describe('isUniswapXFillerRow', () => {
 	it('is false for a normal (self-anchored) receipt', async () => {
-		const { isUniswapXFillerRow } = await import('./TradesTable');
+		const { isUniswapXFillerRow } = await import('./tradesTable');
 		expect(isUniswapXFillerRow({ normalizeFlags: ['SETTLEMENT_EVENT_MISSING: x'], fillerAddress: null })).toBe(false);
 	});
 
 	it('is true when UniswapX-anchored and fillerAddress is present', async () => {
-		const { isUniswapXFillerRow } = await import('./TradesTable');
+		const { isUniswapXFillerRow } = await import('./tradesTable');
 		expect(isUniswapXFillerRow({
 			normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'],
 			fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
@@ -740,7 +740,7 @@ describe('isUniswapXFillerRow', () => {
 	});
 
 	it('is false when UniswapX-anchored but fillerAddress is null (legacy pre-column row)', async () => {
-		const { isUniswapXFillerRow } = await import('./TradesTable');
+		const { isUniswapXFillerRow } = await import('./tradesTable');
 		expect(isUniswapXFillerRow({
 			normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'],
 			fillerAddress: null,
@@ -748,7 +748,7 @@ describe('isUniswapXFillerRow', () => {
 	});
 
 	it('is false for a net-flow-anchored (non-UniswapX) relayer trade even with a fillerAddress', async () => {
-		const { isUniswapXFillerRow } = await import('./TradesTable');
+		const { isUniswapXFillerRow } = await import('./tradesTable');
 		expect(isUniswapXFillerRow({
 			normalizeFlags: ['BENEFICIARY_ANCHORED: y'],
 			fillerAddress: '0xfiller1234567890abcdef1234567890abcdef12',
@@ -758,12 +758,12 @@ describe('isUniswapXFillerRow', () => {
 
 describe('getFlagLabel excludes provenance tokens', () => {
 	it('does not surface anchor tokens as warning flags', async () => {
-		const { getFlagLabel } = await import('./TradesTable');
+		const { getFlagLabel } = await import('./tradesTable');
 		expect(getFlagLabel({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'] })).toBe('None');
 	});
 
 	it('still surfaces genuine warnings alongside an anchor token', async () => {
-		const { getFlagLabel } = await import('./TradesTable');
+		const { getFlagLabel } = await import('./tradesTable');
 		expect(getFlagLabel({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'SETTLEMENT_EVENT_MISSING: x'] }))
 			.toBe('SETTLEMENT_EVENT_MISSING: x');
 	});

@@ -1,5 +1,5 @@
 'use client';
-import { ReceiptSearch } from './ReceiptSearch';
+import { ReceiptSearch } from './receiptSearch';
 import type { ReceiptRow } from '../lib/queries';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { shortTxHash, formatGasUsd } from '../lib/formatters';
