@@ -33,6 +33,7 @@ import {
 	createDefaultV3FactoryReader,
 	createDefaultRfqProbe,
 } from './routeReaders.js';
+import { isCuratedMaker } from './makerRegistry.js';
 
 // ─── Constants ───
 
@@ -424,10 +425,15 @@ export async function decomposeRoute(
 	}
 	for (const leg of graph.legs) {
 		if (leg.type !== 'unknown') continue;
-		const isMaker = fillEmitters.has(leg.venue) || (await rfqProbe(leg.venue)) !== 'contract';
-		if (!isMaker) continue;
+		const proven = fillEmitters.has(leg.venue) || (await rfqProbe(leg.venue)) !== 'contract';
+		const curated = !proven && isCuratedMaker(leg.venue);
+		if (!proven && !curated) continue;
 		leg.type = 'rfq';
-		routeFlags.push(`RFQ_LEG_UNPRICED: leg ${leg.venue.slice(0, 10)} — off-chain quote, no on-chain mid exists`);
+		routeFlags.push(
+			proven
+				? `RFQ_LEG_UNPRICED: leg ${leg.venue.slice(0, 10)} — off-chain quote, no on-chain mid exists`
+				: `RFQ_LEG_CURATED: leg ${leg.venue.slice(0, 10)} — curated market maker (human-attested), no on-chain mid exists`,
+		);
 	}
 
 	// Step 5: Resolve fee tiers for each leg

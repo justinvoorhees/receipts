@@ -990,6 +990,34 @@ describe('decomposeRoute', () => {
       }
     }, 20_000);
 
+    it('curated tier: retypes an unknown plain-contract leg listed in makers.json, flagged RFQ_LEG_CURATED', async () => {
+      const curatedMaker = '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae' as `0x${string}`;
+      // trader USDC → curatedMaker → VIRTUAL → poolB → WETH; no fill event (tier 1
+      // silent), rfqProbe returns 'contract' (tier 2 silent) — only the curated
+      // list can classify it.
+      const trace = {
+        from: syntheticTrader,
+        to: '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`,
+        input: '0x' as `0x${string}`,
+        logs: [
+          swapLog(poolB),
+          transferLog(USDC as `0x${string}`, syntheticTrader, curatedMaker, 1_000000n),
+          transferLog(VIRTUAL as `0x${string}`, curatedMaker, poolB, 3_000000000000000000n),
+          transferLog(WETH as `0x${string}`, poolB, syntheticTrader, 500000000000000n),
+        ],
+        calls: [],
+      };
+      const result = await decomposeRoute(makeInput(trace), {
+        trace: trace as any,
+        feeReader,
+        rfqProbe: () => 'contract', // neither on-chain tier fires
+      });
+      const makerLeg = result.legs.find((l) => l.leg.venue === curatedMaker)!;
+      expect(makerLeg.leg.type).toBe('rfq');
+      expect(result.flags.some((f) => f.startsWith('RFQ_LEG_CURATED'))).toBe(true);
+      expect(result.flags.some((f) => f.startsWith('RFQ_LEG_UNPRICED'))).toBe(false);
+    });
+
     it('never retypes or probes a recognized venue', async () => {
       const trace = makeTrace(false);
       const probeCalls: string[] = [];
