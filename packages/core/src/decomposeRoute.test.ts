@@ -1203,4 +1203,36 @@ describe('getLegMidAtBlock', () => {
 		);
 		expect(result).toBeNull();
 	});
+
+	// QuickSwap v4 is Algebra Integral: like Hydrex, its own mid isn't read by a
+	// V3 slot0() call, so it must route to factory-discovery for a reference mid
+	// rather than falling through to a hardcoded null (which would null its price
+	// impact). We can't watch the RPC (discovery swallows client errors), but the
+	// discovery path calls decimalsOf more than the null fall-through, so counting
+	// those calls ties quickswapv4 to hydrex's handling without needing a client.
+	it('routes a quickswapv4 leg to pair-mid discovery, like hydrex', async () => {
+		const mk = (type: Leg['type']): Leg => ({
+			venue: '0xd30b9fa98713425c0302593d7f8f094be31e9710',
+			type,
+			tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+			tokenOut: '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2',
+			amountInRaw: 1000n,
+			amountOutRaw: 1000n,
+		});
+		const countDecimalsCalls = async (type: Leg['type']): Promise<number> => {
+			let n = 0;
+			await getLegMidAtBlock(null as never, mk(type), 100n, async () => {
+				n++;
+				return 6;
+			}).catch(() => {});
+			return n;
+		};
+
+		const quickswap = await countDecimalsCalls('quickswapv4');
+		const hydrex = await countDecimalsCalls('hydrex');
+		const rfq = await countDecimalsCalls('rfq'); // deliberately unpriced: no mid read
+
+		expect(quickswap).toBe(hydrex); // handled exactly like the other Algebra venue
+		expect(quickswap).toBeGreaterThan(rfq); // and, unlike rfq, it DOES attempt a mid
+	});
 });

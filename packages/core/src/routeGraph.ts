@@ -9,7 +9,7 @@
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type VenueType = 'univ3' | 'sushiv3' | 'baseswapv3' | 'pancakev3' | 'univ4' | 'univ2' | 'aerodrome' | 'aerodrome_cl' | 'curve_stableng' | 'maverickv1' | 'maverickv2' | 'hydrex' | 'unipool' | 'rfq' | 'unknown' | 'wrap' | 'unwrap';
+export type VenueType = 'univ3' | 'sushiv3' | 'baseswapv3' | 'pancakev3' | 'univ4' | 'univ2' | 'aerodrome' | 'aerodrome_cl' | 'curve_stableng' | 'maverickv1' | 'maverickv2' | 'hydrex' | 'quickswapv4' | 'unipool' | 'rfq' | 'unknown' | 'wrap' | 'unwrap';
 
 export interface Leg {
   venue: string;            // lowercase address (or 'rfq_fill:<idx>')

@@ -11,6 +11,10 @@ const V3_FACTORY_TYPES: Record<string, VenueType> = {
 	// Hydrex — an Algebra Integral deployment. Its pools expose factory() like a
 	// v3 pool, but emit an Algebra-flavoured Swap event we do not scan for.
 	'0x36077d39cdc65e1e3fb65810430e5b2c4d5fa29e': 'hydrex',
+	// QuickSwap v4 — also Algebra Integral. Recognised by factory rather than the
+	// Swap topic0, which is shared across every Algebra fork (Hydrex included) and
+	// so cannot distinguish them; the factory can.
+	'0xc5396866754799b9720125b104ae01d935ab9c7b': 'quickswapv4',
 };
 
 /**

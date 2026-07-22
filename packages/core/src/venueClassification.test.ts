@@ -8,6 +8,9 @@ describe('classifyV3Factory', () => {
 		expect(classifyV3Factory('0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A')).toBe('aerodrome_cl');
 		expect(classifyV3Factory('0x38015D05f4fEC8AFe15D7cc0386a126574e8077B')).toBe('baseswapv3');
 		expect(classifyV3Factory('0x36077D39cdC65E1e3FB65810430E5b2c4D5fA29E')).toBe('hydrex');
+		// QuickSwap v4 (Algebra Integral) — recognised by its factory, like Hydrex,
+		// because the Algebra Swap topic0 is shared across every Algebra fork.
+		expect(classifyV3Factory('0xC5396866754799B9720125B104AE01d935Ab9C7b')).toBe('quickswapv4');
 	});
 
 	it('leaves unknown v3-style factories generic until explicitly tagged', () => {

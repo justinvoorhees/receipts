@@ -337,6 +337,7 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	if (leg.type === 'maverickv1') return 'Maverick v1';
 	if (leg.type === 'maverickv2') return 'Maverick v2';
 	if (leg.type === 'hydrex') return 'Hydrex';
+	if (leg.type === 'quickswapv4') return 'QuickSwap v4';
 	if (leg.type === 'unipool') return 'UniPool';
 	if (leg.type === 'aerodrome') return 'Aerodrome';
 	if (leg.type === 'univ4') return 'Uniswap v4';

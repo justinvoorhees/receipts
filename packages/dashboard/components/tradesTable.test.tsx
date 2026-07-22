@@ -290,6 +290,7 @@ describe('TradesTable', () => {
 
 		expect(getVenueLabel({ venue: '0xnotpinned', type: 'maverickv1' } as never)).toBe('Maverick v1');
 		expect(getVenueLabel({ venue: '0xnotpinned', type: 'hydrex' } as never)).toBe('Hydrex');
+		expect(getVenueLabel({ venue: '0xnotpinned', type: 'quickswapv4' } as never)).toBe('QuickSwap v4');
 		expect(getVenueLabel({ venue: '0xnotpinned', type: 'unipool' } as never)).toBe('UniPool');
 	});
 

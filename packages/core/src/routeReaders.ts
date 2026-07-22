@@ -109,9 +109,12 @@ export async function getLegMidAtBlock(
 	if (type === 'rfq') return null;
 
 	// Unknown / venues whose own mid we cannot read directly -> factory discovery.
+	// Algebra Integral pools (hydrex, quickswapv4) expose their mid via
+	// globalState(), not the V3 slot0() this reader uses, so they take the
+	// discovery path for a reference mid like the rest.
 	if (
 		type === 'unknown' || type === 'maverickv1' || type === 'maverickv2' ||
-		type === 'curve_stableng' || type === 'hydrex' || type === 'unipool'
+		type === 'curve_stableng' || type === 'hydrex' || type === 'quickswapv4' || type === 'unipool'
 	) {
 		return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
 	}
@@ -133,9 +136,11 @@ export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (ad
 			case 'sushiv3':
 			case 'baseswapv3':
 			case 'pancakev3':
-			// Hydrex is Algebra Integral: fee() returns the currently effective
-			// fee (including any plugin override) on the same 1e6 scale as v3.
-			case 'hydrex': {
+			// Hydrex and QuickSwap v4 are Algebra Integral: fee() returns the
+			// currently effective fee (including any plugin override) on the same
+			// 1e6 scale as v3.
+			case 'hydrex':
+			case 'quickswapv4': {
 				try {
 					const fee = await rpc.readContract({
 						address: addr as `0x${string}`,
