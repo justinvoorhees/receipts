@@ -17,7 +17,7 @@ import {
 	collectTraceLogs,
 	type TraceNode,
 } from './tradeEndpoints.js';
-import { buildRouteGraph, type RouteShape, type VenueType, type Leg } from './routeGraph.js';
+import { buildRouteGraph, type RouteShape, type VenueType, type Leg, type RouteBreakReason } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput } from './legFees.js';
 import { decomposeTrade, type DecomposeTradeInput } from './decomposeTrade.js';
 import { type PairMidResult } from './tokenPricing.js';
@@ -630,7 +630,19 @@ export async function decomposeRoute(
 	}
 
 	// Else: !reconstructed (non-conserved, cyclic, or disconnected) — cannot
-	// reliably separate LP/Slippage
+	// reliably separate LP/Slippage. Name the specific cause when we know it.
+	const br: RouteBreakReason | undefined = graph.breakReason;
+	if (br?.kind === 'fee_on_transfer') {
+		const short = `${br.token.slice(0, 6)}...${br.token.slice(-4)}`;
+		routeFlags.push(
+			`FEE_ON_TRANSFER: token ${short} loses ~${(br.gapBps / 100).toFixed(2)}% between hops — LP/slippage not separable`,
+		);
+	} else if (br?.kind === 'orphan_token') {
+		const short = `${br.token.slice(0, 6)}...${br.token.slice(-4)}`;
+		routeFlags.push(
+			`MISSING_LEG: token ${short} is consumed but never produced (un-modeled venue, likely V4 multi-pool) — LP/slippage not separable`,
+		);
+	}
 	routeFlags.push(
 		`ROUTE_NOT_DECOMPOSED: shape=${graph.shape}, reconstructed=${graph.reconstructed}`,
 	);

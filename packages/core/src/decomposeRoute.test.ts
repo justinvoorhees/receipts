@@ -773,6 +773,61 @@ describe('decomposeRoute', () => {
     }, 15000);
   });
 
+  describe('decomposeRoute fee-on-transfer flag', () => {
+    const TAX = '0xea87169699dabd028a78d4b91544b4298086baf6' as `0x${string}`;
+    const poolA = '0x00000000000000000000000000000000000000c1' as `0x${string}`;
+    const poolB = '0x00000000000000000000000000000000000000c2' as `0x${string}`;
+    const burn = '0x000000000000000000000000000000000000dead' as `0x${string}`;
+
+    it('emits FEE_ON_TRANSFER naming the taxed intermediate token', async () => {
+      const trace = {
+        from: TRADER as `0x${string}`,
+        to: poolA,
+        input: '0x' as `0x${string}`,
+        logs: [
+          transferLog(WETH as `0x${string}`, TRADER as `0x${string}`, poolA, 5n),
+          // poolA's gross TAX outflow is 1000 (990 reaches poolB, 10 leaks to
+          // burn on the SAME hop) — the taxed-transfer skim must sit between
+          // the two legs' own gross measurements, not inside poolB's leg,
+          // otherwise poolB's leg-level gross-received accounting (which
+          // predates any of poolB's own outflows) still nets to 1000 and the
+          // route reconciles cleanly instead of tripping fee_on_transfer.
+          transferLog(TAX, poolA, poolB, 990n),
+          transferLog(TAX, poolA, burn, 10n),
+          transferLog(USDC as `0x${string}`, poolB, TRADER as `0x${string}`, 42n),
+          // Uni V3 Swap events so both pools are recognized venues
+          v3SwapLog(poolA),
+          v3SwapLog(poolB),
+        ],
+        calls: [],
+      };
+      const input: DecomposeTradeInput = {
+        trace: trace as any,
+        txHash: '0x0000000000000000000000000000000000000000000000000000000000000002',
+        trader: TRADER,
+        allInCostBps: 0,
+        notionalUsdc: 42,
+        realizedPrice: 1,
+        gasCostUsd: 0,
+        aggregator: 'Unknown',
+        blockNumber: 1n,
+        rpcUrl: 'unused',
+        dustUsdc: 1e-6,
+        structuralFloorUsd: 0,
+        structuralFloorBps: 0.5,
+      };
+      const result = await decomposeRoute(input, {
+        trace: trace as any,
+        feeReader: async () => ({ bps: 30, defaulted: false }),
+        rfqProbe: async () => 'contract' as const,
+      });
+      expect(result.slippageBps).toBeNull();
+      const fot = result.flags.find((f) => f.startsWith('FEE_ON_TRANSFER'));
+      expect(fot).toBeDefined();
+      expect(fot).toContain(`${TAX.slice(0, 6)}...${TAX.slice(-4)}`);
+    });
+  });
+
   describe('non-reconstructed fallback (Design Decision 7)', () => {
     // Synthetic trace: two orphan legs that don't chain from inputToken to
     // outputToken. This exercises the !reconstructed branch without RPC.
