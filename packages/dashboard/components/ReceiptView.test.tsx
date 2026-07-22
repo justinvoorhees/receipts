@@ -10,34 +10,34 @@ vi.mock('next/navigation', () => ({
 
 describe('formatPriceDelta', () => {
 	it('renders the delta in the quote token at 6 significant figures', async () => {
-		const { formatPriceDelta } = await import('./ReceiptView');
+		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		// Real ETH→WBTC row (receipts id 135), quote = ETH, base = WBTC.
 		expect(formatPriceDelta(35.02321455049866, 34.93402185961484, 'ETH')).toBe('0.0891927 ETH');
 	});
 
 	it('renders the same magnitude when execution is above market', async () => {
-		const { formatPriceDelta } = await import('./ReceiptView');
+		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		expect(formatPriceDelta(34.93402185961484, 35.02321455049866, 'ETH')).toBe('0.0891927 ETH');
 	});
 
 	it('renders a stablecoin-quoted delta at 2 decimals', async () => {
-		const { formatPriceDelta } = await import('./ReceiptView');
+		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		expect(formatPriceDelta(3000, 2995, 'USDC')).toBe('5.00 USDC');
 	});
 
 	it('renders an exact tie as None', async () => {
-		const { formatPriceDelta } = await import('./ReceiptView');
+		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		expect(formatPriceDelta(3000, 3000, 'USDC')).toBe('None');
 	});
 
 	it('renders a sub-cent memecoin delta at 6 sig figs rather than collapsing', async () => {
-		const { formatPriceDelta } = await import('./ReceiptView');
+		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		// WARP→ETH: ETH-per-WARP. Float noise (8.99...e-12) must round away cleanly.
 		expect(formatPriceDelta(0.000000000394, 0.000000000385, 'ETH')).toBe('0.000000000009 ETH');
 	});
 
 	it('returns – for null or non-finite inputs', async () => {
-		const { formatPriceDelta } = await import('./ReceiptView');
+		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		expect(formatPriceDelta(null, 1829.0, 'USDC')).toBe('–');
 		expect(formatPriceDelta(1830.0, null, 'USDC')).toBe('–');
 	});
@@ -48,28 +48,28 @@ describe('priceDeltaDirection', () => {
 	// takes no view on who was buying, so there is no baseIsOutput to get wrong.
 
 	it('reports a fill under the mid as below', async () => {
-		const { priceDeltaDirection } = await import('./ReceiptView');
+		const { priceDeltaDirection } = await import('./receipt/priceFormat');
 		expect(priceDeltaDirection(35.02321455049866, 34.93402185961484)).toBe('below');
 	});
 
 	it('reports a fill over the mid as above', async () => {
-		const { priceDeltaDirection } = await import('./ReceiptView');
+		const { priceDeltaDirection } = await import('./receipt/priceFormat');
 		expect(priceDeltaDirection(34.93402185961484, 35.02321455049866)).toBe('above');
 	});
 
 	it('is unaffected by trade direction — the same numbers read the same either way', async () => {
-		const { priceDeltaDirection } = await import('./ReceiptView');
+		const { priceDeltaDirection } = await import('./receipt/priceFormat');
 		expect(priceDeltaDirection(3000, 3005)).toBe('above');
 		expect(priceDeltaDirection(3000, 2995)).toBe('below');
 	});
 
 	it('returns null for an exact tie', async () => {
-		const { priceDeltaDirection } = await import('./ReceiptView');
+		const { priceDeltaDirection } = await import('./receipt/priceFormat');
 		expect(priceDeltaDirection(3000, 3000)).toBeNull();
 	});
 
 	it('returns null for null or non-finite inputs', async () => {
-		const { priceDeltaDirection } = await import('./ReceiptView');
+		const { priceDeltaDirection } = await import('./receipt/priceFormat');
 		expect(priceDeltaDirection(null, 3000)).toBeNull();
 		expect(priceDeltaDirection(3000, null)).toBeNull();
 	});
@@ -81,7 +81,7 @@ describe('formatPriceDeltaToken', () => {
 	// bought+below and sold+above are the good halves — asserted against Total
 	// Execution Quality in the render tests below.
 	it('names the base token, the verb, and the direction in one sentence', async () => {
-		const { formatPriceDeltaToken } = await import('./ReceiptView');
+		const { formatPriceDeltaToken } = await import('./receipt/priceFormat');
 		// ETH→WBTC (base WBTC, quote ETH), realized under the mid → bought below.
 		expect(formatPriceDeltaToken(35.02321455049866, 34.93402185961484, 'WBTC', 'ETH', true)).toEqual({
 			text: 'WBTC bought at 0.0891927 ETH below Market Price',
@@ -95,19 +95,19 @@ describe('formatPriceDeltaToken', () => {
 	});
 
 	it('renders an exact tie as None with no subvalue', async () => {
-		const { formatPriceDeltaToken } = await import('./ReceiptView');
+		const { formatPriceDeltaToken } = await import('./receipt/priceFormat');
 		expect(formatPriceDeltaToken(3000, 3000, 'WETH', 'USDC', false)).toEqual({ text: 'None', sub: null });
 	});
 
 	it('renders unusable inputs as the bare placeholder', async () => {
-		const { formatPriceDeltaToken } = await import('./ReceiptView');
+		const { formatPriceDeltaToken } = await import('./receipt/priceFormat');
 		expect(formatPriceDeltaToken(null, 3000, 'WETH', 'USDC', false)).toEqual({ text: '–', sub: null });
 	});
 });
 
 describe('formatPriceDeltaUsd', () => {
 	it('leads with the base symbol and splits "per 1 base" into the subvalue', async () => {
-		const { formatPriceDeltaUsd } = await import('./ReceiptView');
+		const { formatPriceDeltaUsd } = await import('./receipt/priceFormat');
 		// Bought the base with a gain → the fill landed BELOW the mid.
 		expect(formatPriceDeltaUsd(159.76, 'WBTC', true, 4.57)).toEqual({
 			text: 'WBTC bought at $159.76 below Market Price',
@@ -121,7 +121,7 @@ describe('formatPriceDeltaUsd', () => {
 	});
 
 	it('renders a zero result as None with no subvalue', async () => {
-		const { formatPriceDeltaUsd } = await import('./ReceiptView');
+		const { formatPriceDeltaUsd } = await import('./receipt/priceFormat');
 		expect(formatPriceDeltaUsd(0, 'WBTC', true, 0)).toEqual({ text: 'None', sub: null });
 	});
 });
@@ -130,7 +130,7 @@ describe('fallbackMethodology', () => {
 	// Every persisted receipt predates the tier/methodology columns being populated
 	// (all 39 rows carry NULL), so the descriptor must derive from pricingStatus.
 	it('maps each pricing tier to its descriptor', async () => {
-		const { fallbackMethodology } = await import('./ReceiptView');
+		const { fallbackMethodology } = await import('./receipt/priceFormat');
 		expect(fallbackMethodology('full')).toContain('Corroborated');
 		expect(fallbackMethodology('estimated')).toContain('Estimated');
 		expect(fallbackMethodology('partial')).toContain('No reliable market price');
