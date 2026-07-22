@@ -309,14 +309,14 @@ function conserved(inflow: bigint, outflow: bigint): boolean {
  * as a complete linear walk whenever the walk happens to consume every leg and
  * land on outputToken. This adds the missing amount/cycle validation without
  * touching tryBuildChain's walk itself:
- *  - inputToken must be a pure source (never produced by any leg) — this is
- *    what actually distinguishes a genuine cycle back to the input from a
- *    legitimate walk.
+ *  - inputToken must be a net source (outflow > inflow) — it may recur mid-chain
+ *    (produced by some leg) as long as it is still net-consumed. A genuine cycle
+ *    back to the input nets to zero (outflow ≤ inflow) and is rejected here.
  *  - every OTHER token, except outputToken, must conserve inflow≈outflow.
- *    outputToken is deliberately exempted: an existing, intentional feature
- *    lets the output token recur mid-chain (e.g. WARP→WETH→USDC→WETH) where
- *    the mid-chain leg re-spends part of an earlier WETH receipt — that is
- *    not a leak, it's the same token legitimately passing through twice.
+ *    outputToken is deliberately exempted: an intentional feature lets the output
+ *    token recur mid-chain (e.g. WARP→WETH→USDC→WETH). The input is now treated
+ *    symmetrically (net source), which is what lets ETH→…→WETH→USDC→WETH→TOSHI
+ *    (id 134) reconstruct — the same token legitimately passing through twice.
  */
 function linearFlowValid(legs: Leg[], inputToken: string, outputToken: string): boolean {
   const inflow = new Map<string, bigint>();
@@ -338,9 +338,9 @@ function linearFlowValid(legs: Leg[], inputToken: string, outputToken: string): 
 
 /**
  * Reconstruct a general DAG: returns legs topologically ordered when the flow is
- * a conserved, acyclic path from inputToken (pure source) to outputToken (pure
- * sink); null otherwise. Amounts are compared per token in that token's own raw
- * units (cross-token amounts are never mixed).
+ * a conserved path from inputToken (net source — may recur mid-chain) to
+ * outputToken (pure sink); null otherwise. Amounts are compared per token in that
+ * token's own raw units (cross-token amounts are never mixed).
  */
 function reconstructDag(legs: Leg[], inputToken: string, outputToken: string): Leg[] | null {
   const inflow = new Map<string, bigint>();  // token → total received (Σ amountOutRaw ending there)
