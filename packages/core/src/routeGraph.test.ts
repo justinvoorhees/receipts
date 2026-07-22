@@ -241,6 +241,33 @@ describe('buildRouteGraph', () => {
     expect(g.shape).toBe('complex');
     expect(g.reconstructed).toBe(false);
   });
+
+  describe('buildRouteGraph breakReason', () => {
+    it('sets a fee_on_transfer breakReason on a taxed-intermediate route', () => {
+      const trader = '0x00000000000000000000000000000000000000e1';
+      const poolA = '0x00000000000000000000000000000000000000a2';
+      const poolB = '0x00000000000000000000000000000000000000b2';
+      const SWARM = '0xea87169699dabd028a78d4b91544b4298086baf6';
+      // trader sends WETH to poolA, poolA sends 1000 SWARM (10 taxed),
+      // only 990 SWARM arrives at poolB, poolB sends USDC to trader.
+      const transfers = [
+        { token: WETH, from: trader, to: poolA, value: 5n },
+        { token: SWARM, from: poolA, to: poolB, value: 990n },
+        { token: SWARM, from: poolA, to: '0x000000000000000000000000000000000000dead', value: 10n },
+        { token: USDC, from: poolB, to: trader, value: 42n },
+      ];
+      const venues = new Map([[poolA, { type: 'univ3' as const }], [poolB, { type: 'univ3' as const }]]);
+      const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set() });
+      expect(g.reconstructed).toBe(false);
+      expect(g.breakReason?.kind).toBe('fee_on_transfer');
+    });
+
+    it('leaves breakReason undefined on a cleanly reconstructed route', () => {
+      const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set() });
+      expect(g.reconstructed).toBe(true);
+      expect(g.breakReason).toBeUndefined();
+    });
+  });
 });
 
 describe('tryBuildChain output-token recurrence', () => {

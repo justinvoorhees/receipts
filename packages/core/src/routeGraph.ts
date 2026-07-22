@@ -48,6 +48,7 @@ export interface RouteGraph {
   outputToken: string;      // trader's output
   tokens: string[];         // all distinct tokens on the path
   reconstructed: boolean;   // false → could not order the path
+  breakReason?: RouteBreakReason; // set only when reconstructed === false
 }
 
 export interface BuildRouteArgs {
@@ -258,9 +259,9 @@ export function chainLegs(
   legs: Leg[],
   inputToken: string,
   outputToken: string,
-): { ordered: Leg[]; shape: RouteShape; reconstructed: boolean } {
+): { ordered: Leg[]; shape: RouteShape; reconstructed: boolean; breakReason?: RouteBreakReason } {
   if (legs.length === 0) {
-    return { ordered: [], shape: 'complex', reconstructed: false };
+    return { ordered: [], shape: 'complex', reconstructed: false, breakReason: { kind: 'unreconstructed' } };
   }
 
   if (legs.length === 1) {
@@ -268,7 +269,7 @@ export function chainLegs(
     if (leg.tokenIn === inputToken && leg.tokenOut === outputToken) {
       return { ordered: [leg], shape: 'single', reconstructed: true };
     }
-    return { ordered: [leg], shape: 'complex', reconstructed: false };
+    return { ordered: [leg], shape: 'complex', reconstructed: false, breakReason: diagnoseBreak(legs, inputToken, outputToken) };
   }
 
   // Try to build a single chain from inputToken to outputToken
@@ -304,7 +305,7 @@ export function chainLegs(
     const stop = chain.findIndex((l) => l.tokenOut === outputToken);
     if (stop >= 0) complexOrdered = chain.slice(0, stop + 1);
   }
-  return { ordered: complexOrdered, shape: 'complex', reconstructed: false };
+  return { ordered: complexOrdered, shape: 'complex', reconstructed: false, breakReason: diagnoseBreak(legs, inputToken, outputToken) };
 }
 
 /** Conservation tolerance: intermediate-token inflow vs outflow may differ by
@@ -499,7 +500,7 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   const legs = buildLegs(argsNorm, deltas, gross, traderLc);
 
   // 4. Chain legs into order
-  const { ordered, shape, reconstructed } = chainLegs(legs, inputToken, outputToken);
+  const { ordered, shape, reconstructed, breakReason } = chainLegs(legs, inputToken, outputToken);
 
   // 5. Collect all distinct tokens on the path
   const tokenSet = new Set<string>();
@@ -517,5 +518,6 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
     outputToken,
     tokens: Array.from(tokenSet),
     reconstructed,
+    ...(breakReason ? { breakReason } : {}),
   };
 }
