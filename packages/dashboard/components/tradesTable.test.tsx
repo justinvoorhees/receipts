@@ -588,9 +588,9 @@ describe('wrap/unwrap venue handling', () => {
 });
 
 describe('formatSubvalueUsd sub-cent precision', () => {
-	it('renders a sub-cent value at 6 significant figures', async () => {
+	it('renders a sub-cent value at 3 significant figures', async () => {
 		const { formatSubvalueUsd } = await import('./tradesTable');
-		expect(formatSubvalueUsd(0.000000667735)).toBe('$0.000000667735');
+		expect(formatSubvalueUsd(0.000000667735)).toBe('$0.000000668');
 	});
 
 	it('keeps 2-decimal formatting at or above $0.01', async () => {
@@ -608,7 +608,7 @@ describe('formatSubvalueUsd sub-cent precision', () => {
 
 	it('formatUsdMagnitude returns unsigned string or null', async () => {
 		const { formatUsdMagnitude } = await import('./tradesTable');
-		expect(formatUsdMagnitude(0.000000667735)).toBe('0.000000667735');
+		expect(formatUsdMagnitude(0.000000667735)).toBe('0.000000668');
 		expect(formatUsdMagnitude(2.25)).toBe('2.25');
 		expect(formatUsdMagnitude(0)).toBeNull();
 	});
@@ -616,27 +616,27 @@ describe('formatSubvalueUsd sub-cent precision', () => {
 	it('formatUsdMagnitude returns an unsigned magnitude for negative input', async () => {
 		const { formatUsdMagnitude } = await import('./tradesTable');
 		expect(formatUsdMagnitude(-2.25)).toBe('2.25');
-		expect(formatUsdMagnitude(-0.000000667735)).toBe('0.000000667735');
+		expect(formatUsdMagnitude(-0.000000667735)).toBe('0.000000668');
 	});
 });
 
 describe('token amount significant-figure clamp', () => {
-	it('caps a sub-1 amount at 6 significant digits (leading zeros are free), no separators', async () => {
+	it('caps a sub-1 amount at 3 significant digits (leading zeros are free), no separators', async () => {
 		const { formatTokenOut } = await import('./tradesTable');
-		// leading zeros after the decimal don't count as sig figs, so this keeps 8 decimal places
+		// leading zeros after the decimal don't count as sig figs, so this keeps 5 decimal places
 		expect(formatTokenOut({ outputSymbol: 'WETH', outputAmount: '0.00122969043150473' })).toBe(
-			'0.00122969 WETH',
+			'0.00123 WETH',
 		);
 	});
 
-	it('never rounds away the whole part, even when the fraction alone exceeds 6 sig figs', async () => {
+	it('never rounds away the whole part, even when the fraction alone exceeds 3 sig figs', async () => {
 		const { formatTokenIn } = await import('./tradesTable');
 		expect(formatTokenIn({ inputSymbol: 'WETH', inputAmount: '1000000000.123456789' })).toBe(
-			'1000000000.123457 WETH',
+			'1000000000.123 WETH',
 		);
-		// id-117-shaped WARP amount: 9-digit whole part stays intact; fraction clamps to 6 sig figs.
+		// id-117-shaped WARP amount: 9-digit whole part stays intact; fraction clamps to 3 sig figs.
 		expect(formatTokenIn({ inputSymbol: 'WARP', inputAmount: '202116011.4518599' })).toBe(
-			'202116011.45186 WARP',
+			'202116011.452 WARP',
 		);
 	});
 
@@ -651,18 +651,18 @@ describe('token amount significant-figure clamp', () => {
 		expect(formatTokenOut({ outputSymbol: 'USDC', outputAmount: '0.5' })).toBe('0.50 USDC');
 	});
 
-	it('clamps a memecoin-scale amount to 6 sig figs on the fraction, whole part intact', async () => {
+	it('clamps a memecoin-scale amount to 3 sig figs on the fraction, whole part intact', async () => {
 		const { formatTokenOut } = await import('./tradesTable');
-		expect(formatTokenOut({ outputSymbol: 'PEPE', outputAmount: '3369822.1456789' })).toBe('3369822.145679 PEPE');
+		expect(formatTokenOut({ outputSymbol: 'PEPE', outputAmount: '3369822.1456789' })).toBe('3369822.146 PEPE');
 		// id-189-shaped jesse amount.
 		expect(formatTokenOut({ outputSymbol: 'jesse', outputAmount: '1301340.4246528773' })).toBe(
-			'1301340.424653 jesse',
+			'1301340.425 jesse',
 		);
 	});
 
-	it('applies the same 6-sig-fig fractional cap regardless of unit price', async () => {
+	it('applies the same 3-sig-fig fractional cap regardless of unit price', async () => {
 		const { formatTokenIn } = await import('./tradesTable');
-		expect(formatTokenIn({ inputSymbol: 'WETH', inputAmount: '0.123456789012' })).toBe('0.123457 WETH');
+		expect(formatTokenIn({ inputSymbol: 'WETH', inputAmount: '0.123456789012' })).toBe('0.123 WETH');
 	});
 
 	it('leaves an exact whole number with no fraction untouched', async () => {
@@ -679,7 +679,7 @@ describe('token amount significant-figure clamp', () => {
 });
 
 describe('formatExecutionPrice value clamp', () => {
-	it('clamps a stablecoin-quoted price to exactly 2 decimals (>=$0.01, padded)', async () => {
+	it('clamps a stablecoin-quoted price to exactly 2 decimals (>=$1, padded)', async () => {
 		const { formatExecutionPrice } = await import('./tradesTable');
 		expect(formatExecutionPrice('1829.763683289442', 'WETH', 'USDC')).toBe('1829.76 USDC = 1 WETH');
 		expect(formatExecutionPrice('2.25005', 'X', 'USDC')).toBe('2.25 USDC = 1 X');
@@ -689,16 +689,22 @@ describe('formatExecutionPrice value clamp', () => {
 		expect(formatExecutionPrice('3000', 'WETH', 'USDC')).toBe('3000.00 USDC = 1 WETH');
 	});
 
-	it('falls back to 6 sig figs for a sub-cent stablecoin-quoted price', async () => {
+	it('falls back to 3 sig figs for a sub-cent stablecoin-quoted price', async () => {
 		const { formatExecutionPrice } = await import('./tradesTable');
-		expect(formatExecutionPrice('0.000000667735123', 'PEPE', 'USDC')).toBe('0.000000667735 USDC = 1 PEPE');
+		expect(formatExecutionPrice('0.000000667735123', 'PEPE', 'USDC')).toBe('0.000000668 USDC = 1 PEPE');
 	});
 
-	it('uses 6 sig figs for a non-stablecoin-quoted price', async () => {
+	it('falls back to 3 sig figs for a below-$1 stablecoin-quoted price (2 decimals would be too coarse)', async () => {
 		const { formatExecutionPrice } = await import('./tradesTable');
-		expect(formatExecutionPrice('0.000546123456', 'X', 'WETH')).toBe('0.000546123 WETH = 1 X');
-		// A large non-stablecoin price is capped at 6 significant figures.
-		expect(formatExecutionPrice('1829.763683289442', 'X', 'WETH')).toBe('1829.76 WETH = 1 X');
+		// Real USDC→BRIAN row: 2-decimal rounding would show "0.01" (>10% error, only 1 sig fig).
+		expect(formatExecutionPrice('0.011298109377510487', 'BRIAN', 'USDC')).toBe('0.0113 USDC = 1 BRIAN');
+	});
+
+	it('uses 3 sig figs for a non-stablecoin-quoted price', async () => {
+		const { formatExecutionPrice } = await import('./tradesTable');
+		expect(formatExecutionPrice('0.000546123456', 'X', 'WETH')).toBe('0.000546 WETH = 1 X');
+		// A large non-stablecoin price keeps the whole part intact; only the fraction clamps to 3 sig figs.
+		expect(formatExecutionPrice('1829.763683289442', 'X', 'WETH')).toBe('1829.764 WETH = 1 X');
 	});
 
 	it('returns – for invalid input', async () => {

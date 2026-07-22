@@ -80,46 +80,53 @@ export function DetailRow({
 	valueColor?: string | undefined;
 }) {
 	return (
-		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
-			<div className="flex flex-col gap-[10px]">
-				{tooltip ? (
-					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
-						{label}
-						<TooltipBubble align="left">{tooltip}</TooltipBubble>
-					</span>
-				) : (
-					<span
-						className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
-					>
-						{label}
-					</span>
-				)}
-				{subLabel != null && (
-					<span className="text-[12px] leading-[12px] text-[var(--color-secondary)]">{subLabel}</span>
-				)}
-			</div>
-			<div className="flex min-w-0 flex-col gap-[10px]">
-				{valueTooltip ? (
-					<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
-						<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
-							{children}
-							<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
+		<div className="flex flex-col gap-[10px]">
+			<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
+				<div>
+					{tooltip ? (
+						<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+							{label}
+							<TooltipBubble align="left">{tooltip}</TooltipBubble>
 						</span>
-					</span>
-				) : (
-					<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
-						{children}
-					</span>
-				)}
-				{subValue != null && (
-					<span
-						className="text-[12px] leading-[12px] text-right"
-						style={{ color: subValueColor ?? 'var(--color-secondary)' }}
-					>
-						{subValue}
-					</span>
-				)}
+					) : (
+						<span
+							className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
+						>
+							{label}
+						</span>
+					)}
+				</div>
+				<div className="flex min-w-0 flex-col gap-[10px]">
+					{valueTooltip ? (
+						<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
+							<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
+								{children}
+								<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
+							</span>
+						</span>
+					) : (
+						<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
+							{children}
+						</span>
+					)}
+					{subValue != null && (
+						<span
+							className="text-[12px] leading-[12px] text-right"
+							style={{ color: subValueColor ?? 'var(--color-secondary)' }}
+						>
+							{subValue}
+						</span>
+					)}
+				</div>
 			</div>
+			{/* Full-width, single-line: the label column (180px) is too narrow for the
+			    Market Price methodology descriptor, so this breaks out of the grid
+			    instead of wrapping across 3+ lines. */}
+			{subLabel != null && (
+				<span className="whitespace-nowrap text-[12px] leading-[12px] text-[var(--color-secondary)]">
+					{subLabel}
+				</span>
+			)}
 		</div>
 	);
 }

@@ -48,16 +48,19 @@ export function ShareButton({ path }: { path?: string } = {}) {
 }
 
 // The numeric half of a quote-per-base price. A stablecoin quote reads like
-// dollars — 2 decimals — but falls back to 6 sig figs when sub-cent so a tiny
-// memecoin price doesn't collapse to 0.00. Any other quote uses 6 sig figs. No
-// separators, matching the token-amount display. Shared with the Price Delta row
-// so the delta is formatted by the same rule as the prices it sits under.
+// dollars — 2 decimals — but only once the price is at or above $1: below that,
+// 2 decimals gives too few significant digits (a $0.0113 memecoin price rounds
+// to "0.01", a >10% error) so it falls back to 3 sig figs after the decimal, the
+// same treatment sub-cent prices and every non-stablecoin quote already get via
+// fractionDigitsForSigFigs. No separators, matching the token-amount display.
+// Shared with the Price Delta row so the delta is formatted by the same rule as
+// the prices it sits under.
 export function formatPriceMagnitude(n: number, quoteSymbol?: string): string {
 	const stableQuote = quoteSymbol != null && STABLE_SYMBOLS.has(quoteSymbol);
 	const opts: Intl.NumberFormatOptions =
-		stableQuote && Math.abs(n) >= 0.01
+		stableQuote && Math.abs(n) >= 1
 			? { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2 }
-			: { useGrouping: false, maximumSignificantDigits: 6 };
+			: { useGrouping: false, maximumFractionDigits: fractionDigitsForSigFigs(n, 3) };
 	return n.toLocaleString('en-US', opts);
 }
 
@@ -420,14 +423,17 @@ export function tokenUnitPriceUsd(
 export { STABLE_SYMBOLS, ETH_SYMBOLS };
 
 // The whole part is always shown in full — never rounded away — only the
-// fractional part is capped, at 6 significant digits. Leading zeros right after
-// the decimal point don't count against that cap, so a sub-cent dust amount
-// still renders with real precision instead of collapsing toward zero.
-function fractionDigitsForSixSigFigs(n: number): number {
+// fractional part is capped, at `sigFigs` significant digits. Leading zeros
+// right after the decimal point don't count against that cap, so a sub-cent
+// dust amount still renders with real precision instead of collapsing toward
+// zero. Shared by formatTokenAmount and formatPriceMagnitude so token amounts,
+// Execution/Market Price, and (non-USD-anchored) Price Delta all round the
+// same way.
+function fractionDigitsForSigFigs(n: number, sigFigs: number): number {
 	const frac = Math.abs(n) % 1;
 	if (frac === 0) return 0;
 	const leadingZeros = Math.max(0, -Math.floor(Math.log10(frac)) - 1);
-	return leadingZeros + 6;
+	return leadingZeros + sigFigs;
 }
 
 // Stablecoins are dollar-denominated, so they render exactly 2 decimals
@@ -440,6 +446,6 @@ export function formatTokenAmount(amount: string | number, symbol?: string): str
 	}
 	return n.toLocaleString('en-US', {
 		useGrouping: false,
-		maximumFractionDigits: fractionDigitsForSixSigFigs(n),
+		maximumFractionDigits: fractionDigitsForSigFigs(n, 3),
 	});
 }

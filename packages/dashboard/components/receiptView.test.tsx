@@ -9,15 +9,15 @@ vi.mock('next/navigation', () => ({
 }));
 
 describe('formatPriceDelta', () => {
-	it('renders the delta in the quote token at 6 significant figures', async () => {
+	it('renders the delta in the quote token at 3 significant figures after the decimal', async () => {
 		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		// Real ETH→WBTC row (receipts id 135), quote = ETH, base = WBTC.
-		expect(formatPriceDelta(35.02321455049866, 34.93402185961484, 'ETH')).toBe('0.0891927 ETH');
+		expect(formatPriceDelta(35.02321455049866, 34.93402185961484, 'ETH')).toBe('0.0892 ETH');
 	});
 
 	it('renders the same magnitude when execution is above market', async () => {
 		const { formatPriceDelta } = await import('./receipt/priceFormat');
-		expect(formatPriceDelta(34.93402185961484, 35.02321455049866, 'ETH')).toBe('0.0891927 ETH');
+		expect(formatPriceDelta(34.93402185961484, 35.02321455049866, 'ETH')).toBe('0.0892 ETH');
 	});
 
 	it('renders a stablecoin-quoted delta at 2 decimals', async () => {
@@ -30,7 +30,7 @@ describe('formatPriceDelta', () => {
 		expect(formatPriceDelta(3000, 3000, 'USDC')).toBe('None');
 	});
 
-	it('renders a sub-cent memecoin delta at 6 sig figs rather than collapsing', async () => {
+	it('renders a sub-cent memecoin delta at 3 sig figs rather than collapsing', async () => {
 		const { formatPriceDelta } = await import('./receipt/priceFormat');
 		// WARP→ETH: ETH-per-WARP. Float noise (8.99...e-12) must round away cleanly.
 		expect(formatPriceDelta(0.000000000394, 0.000000000385, 'ETH')).toBe('0.000000000009 ETH');
@@ -84,7 +84,7 @@ describe('formatPriceDeltaToken', () => {
 		const { formatPriceDeltaToken } = await import('./receipt/priceFormat');
 		// ETH→WBTC (base WBTC, quote ETH), realized under the mid → bought below.
 		expect(formatPriceDeltaToken(35.02321455049866, 34.93402185961484, 'WBTC', 'ETH', true)).toEqual({
-			text: 'WBTC bought at 0.0891927 ETH below Market Price',
+			text: 'WBTC bought at 0.0892 ETH below Market Price',
 			sub: 'per 1 WBTC',
 		});
 		// WETH→USDC (base WETH, quote USDC), realized over the mid → sold above.
