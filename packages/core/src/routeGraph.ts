@@ -27,6 +27,20 @@ export interface Leg {
 
 export type RouteShape = 'single' | 'linear' | 'split' | 'complex';
 
+/**
+ * Why a leg set could not be reconstructed into a conserved input→output DAG.
+ * `orphan_token` (inflow=0, outflow>0) means a leg spends a token no leg
+ * produces — an un-modeled venue (e.g. a V4 multi-pool PoolManager). A
+ * `fee_on_transfer` intermediate has BOTH flows > 0 but they disagree beyond
+ * the conservation tolerance — a taxed token, where the amounts genuinely
+ * cannot be trusted for per-leg attribution. `unreconstructed` is the residual
+ * (cyclic / disconnected / degenerate) with no single culprit token.
+ */
+export type RouteBreakReason =
+  | { kind: 'fee_on_transfer'; token: string; inflowRaw: bigint; outflowRaw: bigint; gapBps: number }
+  | { kind: 'orphan_token'; token: string; outflowRaw: bigint }
+  | { kind: 'unreconstructed' };
+
 export interface RouteGraph {
   legs: Leg[];              // ordered tokenIn→…→tokenOut for linear; best-effort otherwise
   shape: RouteShape;
@@ -300,6 +314,39 @@ function conserved(inflow: bigint, outflow: bigint): boolean {
   const diff = inflow > outflow ? inflow - outflow : outflow - inflow;
   const max = inflow > outflow ? inflow : outflow;
   return max === 0n ? true : diff * 1000n <= max;
+}
+
+/**
+ * Classify an unreconstructable leg set. Call ONLY on the non-reconstructed
+ * path — a conserved input→output flow returns `unreconstructed` here but would
+ * not have reached this function. Pure: mirrors reconstructDag's per-token
+ * inflow/outflow accounting, then names the first offending intermediate.
+ * Orphan is checked before fee-on-transfer because an orphan (inflow=0) is also
+ * technically non-conserving, but the more specific cause is "missing leg".
+ */
+export function diagnoseBreak(legs: Leg[], inputToken: string, outputToken: string): RouteBreakReason {
+  const inflow = new Map<string, bigint>();
+  const outflow = new Map<string, bigint>();
+  for (const l of legs) {
+    outflow.set(l.tokenIn, (outflow.get(l.tokenIn) ?? 0n) + l.amountInRaw);
+    inflow.set(l.tokenOut, (inflow.get(l.tokenOut) ?? 0n) + l.amountOutRaw);
+  }
+  const tokens = new Set<string>([...inflow.keys(), ...outflow.keys()]);
+  for (const t of tokens) {
+    if (t === inputToken || t === outputToken) continue;
+    const inn = inflow.get(t) ?? 0n;
+    const out = outflow.get(t) ?? 0n;
+    if (inn === 0n && out > 0n) {
+      return { kind: 'orphan_token', token: t, outflowRaw: out };
+    }
+    if (!conserved(inn, out)) {
+      const max = inn > out ? inn : out;
+      const diff = inn > out ? inn - out : out - inn;
+      const gapBps = max === 0n ? 0 : Number((diff * 10_000n) / max);
+      return { kind: 'fee_on_transfer', token: t, inflowRaw: inn, outflowRaw: out, gapBps };
+    }
+  }
+  return { kind: 'unreconstructed' };
 }
 
 /**

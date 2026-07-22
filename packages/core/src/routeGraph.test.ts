@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildRouteGraph, chainLegs } from './routeGraph.js';
+import { buildRouteGraph, chainLegs, diagnoseBreak } from './routeGraph.js';
+import type { Leg } from './routeGraph.js';
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
 const WETH = '0x4200000000000000000000000000000000000006';
 const VIRTUAL = '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b';
@@ -438,5 +439,53 @@ describe('RFQ maker round-trip netting (id 189 pin — 0xb020…9e26)', () => {
     const pmLeg = g.legs.find((l) => l.venue === v4pm)!;
     expect(pmLeg.amountInRaw).toBe(100_000000000000000000n); // gross, NOT 99e18
     expect(pmLeg.amountsNetted).toBeUndefined();             // in-side round-trip ≠ netted
+  });
+});
+
+describe('diagnoseBreak', () => {
+  const SWARM = '0xea87169699dabd028a78d4b91544b4298086baf6';
+  const MENTE = '0x4cd9a847f39106e19a4e41aea8a232e915c82af5';
+  const ORPHAN = '0xcbb7c000000000000000000000000000000cbb7c0';
+
+  /** Minimal Leg builder for graph-logic tests. */
+  function mkLeg(tokenIn: string, tokenOut: string, amountInRaw: bigint, amountOutRaw: bigint): Leg {
+    return { venue: '0x' + '0'.repeat(40), type: 'univ3', tokenIn, tokenOut, amountInRaw, amountOutRaw };
+  }
+
+  it('flags a fee-on-transfer intermediate (SWARM ~1% skim) as fee_on_transfer', () => {
+    // WETH→SWARM produces 1000 SWARM, SWARM→MENTE only consumes 990 (1% tax).
+    const legs = [
+      mkLeg(WETH, SWARM, 5n, 1000n),
+      mkLeg(SWARM, MENTE, 990n, 42n),
+    ];
+    const r = diagnoseBreak(legs, WETH, MENTE);
+    expect(r.kind).toBe('fee_on_transfer');
+    if (r.kind === 'fee_on_transfer') {
+      expect(r.token).toBe(SWARM);
+      expect(r.gapBps).toBe(100); // 10/1000 = 1.00%
+    }
+  });
+
+  it('flags an orphan intermediate (consumed, never produced) as orphan_token', () => {
+    // ORPHAN is spent by a leg but produced by none (inflow=0).
+    const legs = [
+      mkLeg(WETH, MENTE, 5n, 1000n),
+      mkLeg(ORPHAN, MENTE, 490n, 500n),
+    ];
+    const r = diagnoseBreak(legs, WETH, MENTE);
+    expect(r.kind).toBe('orphan_token');
+    if (r.kind === 'orphan_token') {
+      expect(r.token).toBe(ORPHAN);
+      expect(r.outflowRaw).toBe(490n);
+    }
+  });
+
+  it('returns unreconstructed when every intermediate conserves (no specific cause)', () => {
+    const legs = [
+      mkLeg(WETH, SWARM, 5n, 1000n),
+      mkLeg(SWARM, MENTE, 1000n, 42n),
+    ];
+    const r = diagnoseBreak(legs, WETH, MENTE);
+    expect(r.kind).toBe('unreconstructed');
   });
 });
