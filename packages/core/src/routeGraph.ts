@@ -492,6 +492,7 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
       outputToken: '',
       tokens: [],
       reconstructed: false,
+      breakReason: { kind: 'unreconstructed' },
     };
   }
   const { inputToken, outputToken } = traderTokens;

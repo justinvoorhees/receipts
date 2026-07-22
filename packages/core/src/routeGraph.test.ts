@@ -267,6 +267,14 @@ describe('buildRouteGraph', () => {
       expect(g.reconstructed).toBe(true);
       expect(g.breakReason).toBeUndefined();
     });
+
+    it('sets unreconstructed breakReason when trader has no identifiable net input/output', () => {
+      // Empty transfers array: trader has no deltas, so identifyTraderTokens returns null.
+      // This tests the early return in buildRouteGraph when the trader has no net in/out.
+      const g = buildRouteGraph({ transfers: [], trader, venues: new Map(), denylist: new Set() });
+      expect(g.reconstructed).toBe(false);
+      expect(g.breakReason?.kind).toBe('unreconstructed');
+    });
   });
 });
 
