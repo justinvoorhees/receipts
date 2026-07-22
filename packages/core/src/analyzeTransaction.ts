@@ -22,7 +22,6 @@
 
 import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
-import type { Direction } from './tradeEndpoints.js';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
 import { decomposeRoute } from './decomposeRoute.js';
@@ -259,7 +258,7 @@ export async function analyzeTransaction(
 		const marketMid = pricing.marketMid; // output-per-input, or null when partial
 		const allInCostBpsRaw =
 			marketMid != null && marketMid > 0 && realizedPrice != null
-				? signedDeviationBps('sell_weth', marketMid, realizedPrice)
+				? signedDeviationBps(marketMid, realizedPrice)
 				: null;
 		// Safety net: a mid-derived deviation beyond the plausibility cap means the
 		// reference mid is garbage (e.g. an empty boundary-tick pool that slipped
@@ -295,19 +294,12 @@ export async function analyzeTransaction(
 			wethHuman != null && wethHuman > 0 && notionalUsd != null
 				? notionalUsd / wethHuman
 				: (ethUsd ?? realizedPrice ?? 0);
-		// direction/settledIn are vestigial in decompose-trade (interface-only), but
-		// we derive faithful values for the WETH case anyway.
-		const decompDirection: Direction = outLc === WETH ? 'buy_weth' : 'sell_weth';
-		const settledIn: 'WETH' | 'ETH' = outLc === NATIVE ? 'ETH' : 'WETH';
-
 		const { midReader, decimalsReader } = createDefaultMidReader(rpcUrl, blockNumber);
 		const route = await decomposeRoute(
 			{
 				trace,
 				txHash,
 				trader,
-				direction: decompDirection,
-				settledIn,
 				allInCostBps: allInCostBps ?? 0,
 				notionalUsdc: notionalUsd ?? 0,
 				realizedPrice: decompRealizedPrice,

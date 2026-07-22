@@ -21,7 +21,6 @@ import {
 	USDC,
 	WETH,
 	DENYLIST,
-	type Direction,
 	type TraceNode,
 } from './tradeEndpoints.js';
 import {
@@ -74,8 +73,6 @@ export interface DecomposeTradeInput {
 	trace: TraceNode;
 	txHash: `0x${string}`;
 	trader: string;                // lowercase
-	direction: Direction;
-	settledIn: 'WETH' | 'ETH';
 	allInCostBps: number;
 	notionalUsdc: number;          // |USDC amount| in human units
 	realizedPrice: number;         // USDC per WETH

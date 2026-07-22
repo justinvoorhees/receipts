@@ -55,8 +55,6 @@ export const DENYLIST: Set<string> = new Set([
 
 // ─── Types ───
 
-export type Direction = 'buy_weth' | 'sell_weth';
-
 /**
  * A callTracer node — the canonical definition for the whole package.
  *
