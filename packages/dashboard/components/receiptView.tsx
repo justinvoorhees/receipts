@@ -79,9 +79,9 @@ export function Receipt({
 	const isPartial = row.pricingStatus === 'partial';
 	// Market Price / Price Delta render whenever a mid exists (full OR estimated).
 	const hasMarketPrice = row.marketMid != null;
-	// The methodology descriptor replaces what used to be a hardcoded tooltip: it is
-	// on-screen for every tier, including the null one. Rows persisted before the
-	// column was populated (all of them, today) fall back to a tier-derived string.
+	// The methodology descriptor renders as a *-footnote below the price rows,
+	// but only when a mid exists (hasMarketPrice) — the null-mid tier suppresses it.
+	// Rows persisted before the column was populated fall back to a tier-derived string.
 	const methodologyText = row.methodology ?? fallbackMethodology(row.pricingStatus);
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
