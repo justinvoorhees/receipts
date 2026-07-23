@@ -51,7 +51,7 @@ state, and BOTH its `LIQUIDITY_DISAGREE` rows are `estimated`; there is no
 "full + pools disagree" state. But the existing reducer promotes to `full`
 whenever `oracleCorroborated`, even when the two liquidity pools disagree and the
 oracle merely lands near their median — yielding `corroboratedBy === ['oracle']`
-and the ungrammatical, un-spec'd `Confirmed: The oracle reference agree.`
+and the ungrammatical, un-spec'd `Verified: The oracle reference agree.`
 
 With two liquidity values, each sits equidistant from their median, so if they
 disagree (`LIQUIDITY_DISAGREE`) BOTH fall outside tolerance and neither is in
@@ -75,30 +75,30 @@ corroborators, so the empty/1-part join is unreachable by construction.
 Rewrite `methodologyFor(mp)` and the USDC/WETH fast-path methodology string
 (currently `'Corroborated WETH/USD benchmark (median pools + oracle) at block
 N-1.'`) to the spec-exact strings. `direct`/`bridged` naming: `direct` →
-"direct pool price", `bridged` → "WETH-derived price".
+"direct-pool price", `bridged` → "WETH-derived price".
 
 | State (tier / flags / corroboratedBy) | Descriptor |
 |---|---|
-| fast-path (USDC/WETH), oracle corroborates | `Confirmed: The median of three WETH/USDC pool prices agrees with the oracle reference.` |
-| fast-path (USDC/WETH), `ORACLE_DISAGREE` | `Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the pool-based prices.` |
-| full · `direct,bridged,oracle` | `Confirmed: The direct pool price, WETH-derived price, and oracle reference agree.` |
-| full · `direct,oracle` | `Confirmed: The direct pool price and oracle reference agree.` |
-| full · `bridged,oracle` | `Confirmed: The WETH-derived price and oracle reference agree.` |
-| full · `direct,bridged` | `Confirmed: The direct pool price and WETH-derived price agree.` |
-| estimated · `SINGLE_SOURCE` · direct | `Estimated: Only the direct pool price was available.` |
+| fast-path (USDC/WETH), oracle corroborates | `Verified: The median of three WETH/USDC pool prices agrees with the oracle reference.` |
+| fast-path (USDC/WETH), `ORACLE_DISAGREE` | `Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the three liquidity-based prices.` |
+| full · `direct,bridged,oracle` | `Verified: The direct-pool price, WETH-derived price, and oracle reference agree.` |
+| full · `direct,oracle` | `Verified: The direct-pool price and oracle reference agree.` |
+| full · `bridged,oracle` | `Verified: The WETH-derived price and oracle reference agree.` |
+| full · `direct,bridged` | `Verified: The direct-pool price and WETH-derived price agree.` |
+| estimated · `SINGLE_SOURCE` · direct | `Estimated: Only the direct-pool price was available.` |
 | estimated · `SINGLE_SOURCE` · bridged | `Estimated: Only the WETH-derived price was available.` |
-| estimated · `LIQUIDITY_DISAGREE` (no oracle disagree) | `Estimated: The direct pool price and WETH-derived price disagree. Showing their median.` |
-| estimated · `ORACLE_DISAGREE`+`SINGLE_SOURCE` · direct | `Estimated: The direct pool price and oracle reference disagree. Showing the direct pool price.` |
+| estimated · `LIQUIDITY_DISAGREE` (no oracle disagree) | `Estimated: The direct-pool price and WETH-derived price disagree. Showing their median.` |
+| estimated · `ORACLE_DISAGREE`+`SINGLE_SOURCE` · direct | `Estimated: The direct-pool price and oracle reference disagree. Showing the direct-pool price.` |
 | estimated · `ORACLE_DISAGREE`+`SINGLE_SOURCE` · bridged | `Estimated: The WETH-derived price and oracle reference disagree. Showing the WETH-derived price.` |
-| estimated · `LIQUIDITY_DISAGREE`+`ORACLE_DISAGREE` | `Estimated: The direct pool price and WETH-derived price disagree, and the oracle reference does not confirm their median. Showing the median of the two pool-based prices.` |
+| estimated · `LIQUIDITY_DISAGREE`+`ORACLE_DISAGREE` | `Estimated: The direct-pool price and WETH-derived price disagree, and the oracle reference does not confirm their median. Showing the median of the two liquidity-based prices.` |
 | none | `Unavailable: No reliable market price could be calculated.` |
 
 **Selection logic** (given `mp: MarketPriceResult`):
 
 - `tier === 'none'` → the Unavailable string.
 - `tier === 'full'` → pick by the `corroboratedBy` set (the four `full` combos).
-  Built as `Confirmed: The <a>[, <b>][, and <c>] agree.` from the phrases in
-  canonical order `direct` → "direct pool price", `bridged` → "WETH-derived
+  Built as `Verified: The <a>[, <b>][, and <c>] agree.` from the phrases in
+  canonical order `direct` → "direct-pool price", `bridged` → "WETH-derived
   price", `oracle` → "oracle reference"; first phrase capitalized "The …".
 - `tier === 'estimated'`:
   - both `LIQUIDITY_DISAGREE` and `ORACLE_DISAGREE` → the combined string.
@@ -125,8 +125,8 @@ Fix: when `bench.flags` includes `'ORACLE_DISAGREE'`, the fast-path returns
 otherwise `full` + the confirmed string. The shown `marketMid` is unchanged (it
 is still the pool median) in both cases — only the tier and descriptor change.
 
-- Confirmed (no `ORACLE_DISAGREE`): `Confirmed: The median of three WETH/USDC pool prices agrees with the oracle reference.`
-- Estimated (`ORACLE_DISAGREE`): `Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the pool-based prices.`
+- Confirmed (no `ORACLE_DISAGREE`): `Verified: The median of three WETH/USDC pool prices agrees with the oracle reference.`
+- Estimated (`ORACLE_DISAGREE`): `Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the three liquidity-based prices.`
 
 **Trigger scope:** `ORACLE_DISAGREE` ONLY (user decision). Oracle-unavailable and
 oracle-stale benchmark states (`ORACLE_UNAVAILABLE`, `CHAINLINK_STALE`,
@@ -139,7 +139,7 @@ deferred. The "three" wording is verbatim per the design; the benchmark's
 ### `packages/dashboard/components/receipt/priceFormat.ts`
 `fallbackMethodology(pricingStatus)` (for rows with a NULL `methodology` column)
 aligns to the new prefixes:
-- `full` → `Confirmed: market price corroborated across sources.`
+- `full` → `Verified: market price corroborated across sources.`
 - `estimated` → `Estimated: market price is uncorroborated.`
 - else → `Unavailable: No reliable market price could be calculated.`
 

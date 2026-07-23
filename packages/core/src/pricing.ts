@@ -330,7 +330,7 @@ function fallbackSymbolFor(token: string): string {
 /** Human-readable methodology string derived from a Market Price apparatus result. */
 function methodologyFor(mp: MarketPriceResult): string {
   const CLASS_PHRASE: Record<EstimatorClass, string> = {
-    direct: 'direct pool price',
+    direct: 'direct-pool price',
     bridged: 'WETH-derived price',
     oracle: 'oracle reference',
   };
@@ -348,25 +348,25 @@ function methodologyFor(mp: MarketPriceResult): string {
     const joined = parts.length === 3
       ? `${parts[0]}, ${parts[1]}, and ${parts[2]}`
       : parts.join(' and ');
-    return `Confirmed: The ${joined} agree.`;
+    return `Verified: The ${joined} agree.`;
   }
 
   // estimated
   const liq = mp.corroboratedBy.includes('bridged') ? 'bridged' : 'direct';
   if (mp.flags.includes('LIQUIDITY_DISAGREE') && mp.flags.includes('ORACLE_DISAGREE')) {
-    return 'Estimated: The direct pool price and WETH-derived price disagree, and the oracle reference does not confirm their median. Showing the median of the two pool-based prices.';
+    return 'Estimated: The direct-pool price and WETH-derived price disagree, and the oracle reference does not confirm their median. Showing the median of the two liquidity-based prices.';
   }
   if (mp.flags.includes('LIQUIDITY_DISAGREE')) {
-    return 'Estimated: The direct pool price and WETH-derived price disagree. Showing their median.';
+    return 'Estimated: The direct-pool price and WETH-derived price disagree. Showing their median.';
   }
   if (mp.flags.includes('ORACLE_DISAGREE')) {
     return liq === 'bridged'
       ? 'Estimated: The WETH-derived price and oracle reference disagree. Showing the WETH-derived price.'
-      : 'Estimated: The direct pool price and oracle reference disagree. Showing the direct pool price.';
+      : 'Estimated: The direct-pool price and oracle reference disagree. Showing the direct-pool price.';
   }
   return liq === 'bridged'
     ? 'Estimated: Only the WETH-derived price was available.'
-    : 'Estimated: Only the direct pool price was available.';
+    : 'Estimated: Only the direct-pool price was available.';
 }
 /** Best-effort decimals guess used when even the metadata reads fail (never throw). */
 function fallbackDecimalsFor(token: string): number {
@@ -462,8 +462,8 @@ export async function priceReceipt(
       const oracleDisagreed = bench.flags.includes('ORACLE_DISAGREE');
       const fastPathTier = oracleDisagreed ? 'estimated' : 'full';
       const fastPathMethodology = oracleDisagreed
-        ? 'Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the pool-based prices.'
-        : 'Confirmed: The median of three WETH/USDC pool prices agrees with the oracle reference.';
+        ? 'Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the three liquidity-based prices.'
+        : 'Verified: The median of three WETH/USDC pool prices agrees with the oracle reference.';
       return {
         status: fastPathTier,
         marketMid,

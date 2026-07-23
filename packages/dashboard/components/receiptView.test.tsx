@@ -131,7 +131,7 @@ describe('fallbackMethodology', () => {
 	// (all 39 rows carry NULL), so the descriptor must derive from pricingStatus.
 	it('maps each pricing tier to its descriptor', async () => {
 		const { fallbackMethodology } = await import('./receipt/priceFormat');
-		expect(fallbackMethodology('full')).toContain('Confirmed:');
+		expect(fallbackMethodology('full')).toContain('Verified:');
 		expect(fallbackMethodology('estimated')).toContain('Estimated:');
 		expect(fallbackMethodology('partial')).toBe('Unavailable: No reliable market price could be calculated.');
 	});
@@ -937,9 +937,9 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		const { Receipt } = await import('./receiptView');
 		// The stored methodology wins when present, rendered as a *-prefixed footnote.
 		const stored = renderToStaticMarkup(
-			<Receipt row={{ ...ethWbtc, methodology: 'Confirmed: The direct pool price and WETH-derived price agree.' } as never} />,
+			<Receipt row={{ ...ethWbtc, methodology: 'Verified: The direct-pool price and WETH-derived price agree.' } as never} />,
 		);
-		expect(stored).toContain('*Confirmed: The direct pool price and WETH-derived price agree.');
+		expect(stored).toContain('*Verified: The direct-pool price and WETH-derived price agree.');
 		expect(stored).toContain('Market Price*'); // label carries the asterisk connotation
 
 		// A NULL methodology falls back to the tier string, still as a footnote.

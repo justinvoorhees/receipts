@@ -96,7 +96,7 @@ export function formatPriceDeltaToken(
  * specific (it names the corroborating estimators) and always wins when present.
  */
 export function fallbackMethodology(pricingStatus: string): string {
-	if (pricingStatus === 'full') return 'Confirmed: market price corroborated across sources.';
+	if (pricingStatus === 'full') return 'Verified: market price corroborated across sources.';
 	if (pricingStatus === 'estimated') return 'Estimated: market price is uncorroborated.';
 	return 'Unavailable: No reliable market price could be calculated.';
 }
