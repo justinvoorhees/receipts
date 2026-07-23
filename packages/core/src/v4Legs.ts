@@ -8,7 +8,8 @@
  *
  * Pure module: no RPC. poolId→token resolution is injected by the caller.
  */
-import { parseAbiItem } from 'viem';
+import { decodeEventLog, parseAbiItem, toEventSelector } from 'viem';
+import type { LogLike } from './tradeEndpoints.js';
 
 export const V4_SWAP_EVENT_ABI = [
   parseAbiItem(
@@ -46,3 +47,46 @@ export const V4_AMOUNT_SIGN = {
   /** Set true if positive amount == token paid INTO the pool (tokenIn). */
   positiveIsTokenIn: false,
 } as const;
+
+export interface V4Swap {
+  poolId: string; // lowercase bytes32
+  fee: number; // raw V4 fee (pips)
+  amount0: bigint; // signed
+  amount1: bigint; // signed
+  sqrtPriceX96: bigint;
+}
+
+const V4_SWAP_TOPIC = toEventSelector(V4_SWAP_EVENT_ABI[0]).toLowerCase();
+
+/** Extract one V4Swap per Uniswap V4 Swap log. Malformed logs are skipped. */
+export function collectV4Swaps(logs: readonly LogLike[]): V4Swap[] {
+  const out: V4Swap[] = [];
+  for (const log of logs) {
+    if (!log.topics || log.topics.length === 0) continue;
+    if (log.topics[0]!.toLowerCase() !== V4_SWAP_TOPIC) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: V4_SWAP_EVENT_ABI,
+        data: log.data,
+        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+      });
+      const a = decoded.args as {
+        id: string;
+        amount0: bigint;
+        amount1: bigint;
+        sqrtPriceX96: bigint;
+        fee: number | bigint;
+      };
+      out.push({
+        poolId: a.id.toLowerCase(),
+        fee: Number(a.fee),
+        amount0: a.amount0,
+        amount1: a.amount1,
+        sqrtPriceX96: a.sqrtPriceX96,
+      });
+    } catch {
+      // malformed V4 log — skip
+    }
+  }
+  return out;
+}
