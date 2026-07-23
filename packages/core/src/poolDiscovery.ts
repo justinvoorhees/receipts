@@ -2,7 +2,10 @@
  * poolDiscovery.ts — Discover the best reference pool for a token pair.
  *
  * Given two token addresses, finds the deepest-liquidity pool across
- * Uniswap V3, PancakeSwap V3, Aerodrome CL, and Uniswap V2 factories.
+ * Uniswap V3, PancakeSwap V3, and Aerodrome CL factories, plus the Aerodrome
+ * basic-AMM (Solidly `getReserves`) family. `univ2` is reserved in the
+ * `PoolKind` union for a future basic-AMM family entry but is not currently
+ * scanned — only `aerodrome_basic` is wired into `POOL_FAMILIES` today.
  * Falls back to a caller-supplied pool address (Design Decision 5: the
  * leg's own pool) when factory lookups don't resolve a deeper reference
  * pool, so discovery never hard-fails for the smoke routes.
@@ -295,10 +298,10 @@ export async function readErc20Balance(
  * Unlike `discoverPool` (which returns the first initialized pool found and is
  * relied on unchanged by existing callers), this gathers candidates across
  * every family in `POOL_FAMILIES` — V3-style pools (Uniswap V3, PancakeSwap
- * V3, Aerodrome CL) plus basic-AMM pools (Aerodrome basic, Uniswap V2) — then
- * ranks the initialized candidates by a uniform `balanceOf(referenceToken)`
- * depth yardstick and returns the deepest. This is the reference pool a
- * generic pair-mid should be sampled from.
+ * V3, Aerodrome CL) plus the basic-AMM family currently discovered (Aerodrome
+ * basic) — then ranks the initialized candidates by a uniform
+ * `balanceOf(referenceToken)` depth yardstick and returns the deepest.
+ * This is the reference pool a generic pair-mid should be sampled from.
  *
  * Each family's mechanism (`v3-slot0` vs `v2-reserves`) determines how it is
  * gated for initialization: V3-style via `readSlot0`, basic AMM via

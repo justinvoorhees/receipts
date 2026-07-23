@@ -195,6 +195,10 @@ export async function defaultGetPairMid(
 
   if (mechanismForKind(pool.kind as PoolKind) === 'v2-reserves') {
     const reserves = await readers.readV2Reserves(pool.address, blockNumber);
+    // Deliberate asymmetry vs the V3 branch below: this only rejects a literal
+    // zero reserve, no depth floor beyond that. Harmless today because
+    // ESTIMATED_MID_MIN_LIQUIDITY is 1n — revisit if that floor is ever raised,
+    // to decide whether basic-AMM direct mids need an equivalent depth guard.
     if (reserves === null || reserves[0] === 0n || reserves[1] === 0n) return null;
     rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
   } else {

@@ -256,4 +256,17 @@ describe('midViaDeepest', () => {
     const res = await midViaDeepest(readers as never, token0, token1, 100n);
     expect(res!.price).toBeCloseTo(2500, 6);
   });
+
+  it('returns null when the deepest basic-AMM pool has a one-sided reserve', async () => {
+    const token0 = '0x1111111111111111111111111111111111111111';
+    const token1 = '0x2222222222222222222222222222222222222222';
+    const readers = {
+      getDeepestPoolWithDepth: async () => ({ address: '0xpool', depth: 5n, kind: 'aerodrome_basic' as const }),
+      readSlot0: async () => { throw new Error('slot0 not for basic'); },
+      readV2Reserves: async () => [0n, 5n] as [bigint, bigint],
+      readDecimals: async () => 18,
+    };
+    const res = await midViaDeepest(readers as never, token0, token1, 100n);
+    expect(res).toBeNull();
+  });
 });
