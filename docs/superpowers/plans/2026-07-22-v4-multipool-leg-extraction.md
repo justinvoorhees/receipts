@@ -414,9 +414,11 @@ const TOKEN_A = '0x000000000000000000000000000000000000aaaa';
 const TOKEN_B = '0x000000000000000000000000000000000000bbbb';
 
 describe('synthesizeV4Legs', () => {
-  it('builds a univ4 leg with tokenIn=positive-amount token per the pinned convention', () => {
-    // Convention (V4_AMOUNT_SIGN.positiveIsTokenIn): positive amount → tokenIn.
-    // amount0 = +100 (token0 paid in), amount1 = -90 (token1 paid out).
+  it('builds a univ4 leg with tokenIn=negative-amount token per the pinned convention', () => {
+    // Convention pinned in Task 1: V4_AMOUNT_SIGN.positiveIsTokenIn === FALSE →
+    // the NEGATIVE-amount token is paid INTO the pool (tokenIn); the positive
+    // one is paid out (tokenOut). Here amount0 = +100 (token0 out), amount1 =
+    // -90 (token1 in).
     const swaps: V4Swap[] = [
       { poolId: '0xpool1', fee: 3000, amount0: 100n, amount1: -90n, sqrtPriceX96: 1n },
     ];
@@ -427,11 +429,11 @@ describe('synthesizeV4Legs', () => {
     expect(leg.type).toBe('univ4');
     expect(leg.v4PoolId).toBe('0xpool1');
     expect(leg.v4FeeRaw).toBe(3000);
-    // With positiveIsTokenIn === true: token0 (positive) is tokenIn.
-    expect(leg.tokenIn).toBe(TOKEN_A);
-    expect(leg.tokenOut).toBe(TOKEN_B);
-    expect(leg.amountInRaw).toBe(100n);
-    expect(leg.amountOutRaw).toBe(90n);
+    // positiveIsTokenIn === false: token1 (negative amount) is tokenIn, token0 (positive) is tokenOut.
+    expect(leg.tokenIn).toBe(TOKEN_B);
+    expect(leg.tokenOut).toBe(TOKEN_A);
+    expect(leg.amountInRaw).toBe(90n);   // |amount1|
+    expect(leg.amountOutRaw).toBe(100n); // |amount0|
   });
 
   it('maps native currency0 (address(0)) to the WETH sentinel', () => {
@@ -440,9 +442,10 @@ describe('synthesizeV4Legs', () => {
     ];
     const keys = new Map([['0xpool2', { currency0: NATIVE, currency1: TOKEN_B }]]);
     const legs = synthesizeV4Legs(swaps, keys, WETH);
-    // amount1 positive → token1 (TOKEN_B) is tokenIn; amount0 negative → native→WETH is tokenOut.
-    expect(legs[0]!.tokenOut).toBe(WETH);
-    expect(legs[0]!.tokenIn).toBe(TOKEN_B);
+    // positiveIsTokenIn === false: amount0 negative → token0 (native→WETH) is tokenIn;
+    // amount1 positive → token1 (TOKEN_B) is tokenOut.
+    expect(legs[0]!.tokenIn).toBe(WETH);
+    expect(legs[0]!.tokenOut).toBe(TOKEN_B);
   });
 
   it('drops swaps whose poolId has no resolved key', () => {
