@@ -430,9 +430,9 @@ describe('defaultGetPairMid — basic-AMM (v2-reserves) pool', () => {
 const fullMid = (price: number): MarketPriceResult =>
   ({ tier: 'full', marketMid: price, corroboratedBy: ['direct', 'bridged'], flags: [] });
 const estMid = (price: number): MarketPriceResult =>
-  ({ tier: 'estimated', marketMid: price, corroboratedBy: ['direct'], flags: ['SINGLE_CLASS'] });
+  ({ tier: 'estimated', marketMid: price, corroboratedBy: ['direct'], flags: ['SINGLE_SOURCE'] });
 const noMid = (): MarketPriceResult =>
-  ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] });
+  ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'] });
 
 describe('priceReceipt tier wiring', () => {
   it('full tier -> status full, marketMid set, methodology mentions corroboration', async () => {
@@ -447,7 +447,7 @@ describe('priceReceipt tier wiring', () => {
     expect(r.status).toBe('full');
     expect(r.marketMid).toBe(1800);
     expect(r.tier).toBe('full');
-    expect(r.methodology.toLowerCase()).toContain('corroborat');
+    expect(r.methodology).toBe('Confirmed: The direct pool price and WETH-derived price agree.');
   });
 
   it('estimated tier -> status estimated, marketMid set, methodology flags single-pool', async () => {
@@ -461,7 +461,7 @@ describe('priceReceipt tier wiring', () => {
     expect(r.status).toBe('estimated');
     expect(r.marketMid).toBe(1800);
     expect(r.tier).toBe('estimated');
-    expect(r.methodology.toLowerCase()).toContain('single');
+    expect(r.methodology).toBe('Estimated: Only the direct pool price was available.');
   });
 
   it('none tier -> status partial, marketMid null', async () => {
@@ -473,6 +473,52 @@ describe('priceReceipt tier wiring', () => {
     expect(r.marketMid).toBeNull();
     expect(r.tier).toBe('none');
   });
+});
+
+describe('methodology descriptor strings', () => {
+  const run = async (mp: MarketPriceResult) => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({ getMarketPrice: async () => mp, getUsdValue: async () => 1800 }),
+    );
+    return r.methodology;
+  };
+  const mp = (tier: MarketPriceResult['tier'], corroboratedBy: MarketPriceResult['corroboratedBy'], flags: string[]): MarketPriceResult =>
+    ({ tier, marketMid: 1800, corroboratedBy, flags });
+
+  it('full: direct + bridged + oracle', async () =>
+    expect(await run(mp('full', ['direct', 'bridged', 'oracle'], []))).toBe(
+      'Confirmed: The direct pool price, WETH-derived price, and oracle reference agree.'));
+  it('full: direct + oracle', async () =>
+    expect(await run(mp('full', ['direct', 'oracle'], []))).toBe(
+      'Confirmed: The direct pool price and oracle reference agree.'));
+  it('full: bridged + oracle', async () =>
+    expect(await run(mp('full', ['bridged', 'oracle'], []))).toBe(
+      'Confirmed: The WETH-derived price and oracle reference agree.'));
+  it('full: direct + bridged', async () =>
+    expect(await run(mp('full', ['direct', 'bridged'], []))).toBe(
+      'Confirmed: The direct pool price and WETH-derived price agree.'));
+  it('estimated: single source direct', async () =>
+    expect(await run(mp('estimated', ['direct'], ['SINGLE_SOURCE']))).toBe(
+      'Estimated: Only the direct pool price was available.'));
+  it('estimated: single source bridged', async () =>
+    expect(await run(mp('estimated', ['bridged'], ['SINGLE_SOURCE']))).toBe(
+      'Estimated: Only the WETH-derived price was available.'));
+  it('estimated: liquidity disagree', async () =>
+    expect(await run(mp('estimated', [], ['LIQUIDITY_DISAGREE']))).toBe(
+      'Estimated: The direct pool price and WETH-derived price disagree. Showing their median.'));
+  it('estimated: oracle disagree, single direct', async () =>
+    expect(await run(mp('estimated', ['direct'], ['ORACLE_DISAGREE', 'SINGLE_SOURCE']))).toBe(
+      'Estimated: The direct pool price and oracle reference disagree. Showing the direct pool price.'));
+  it('estimated: oracle disagree, single bridged', async () =>
+    expect(await run(mp('estimated', ['bridged'], ['ORACLE_DISAGREE', 'SINGLE_SOURCE']))).toBe(
+      'Estimated: The WETH-derived price and oracle reference disagree. Showing the WETH-derived price.'));
+  it('estimated: liquidity + oracle disagree', async () =>
+    expect(await run(mp('estimated', [], ['LIQUIDITY_DISAGREE', 'ORACLE_DISAGREE']))).toBe(
+      'Estimated: The direct pool price and WETH-derived price disagree, and the oracle reference does not confirm their median. Showing the median of the two pool-based prices.'));
+  it('none', async () =>
+    expect(await run(mp('none', [], ['NO_LIQUIDITY']))).toBe(
+      'Unavailable: No reliable market price could be calculated.'));
 });
 
 const NATIVE = 'native';

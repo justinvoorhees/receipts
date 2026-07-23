@@ -35,6 +35,7 @@ import {
   getMarketPriceForPair,
   type MarketPriceResult,
   type MarketPriceTier,
+  type EstimatorClass,
 } from './marketPrice.js';
 import { readTokenUsd } from './tokenOracle.js';
 
@@ -328,13 +329,41 @@ function fallbackSymbolFor(token: string): string {
 }
 /** Human-readable methodology string derived from a Market Price apparatus result. */
 function methodologyFor(mp: MarketPriceResult): string {
-  if (mp.tier === 'none') return 'No reliable market price available.';
-  if (mp.tier === 'estimated') {
-    if (mp.flags.includes('ORACLE_DISAGREE')) return 'Estimated: oracle disagreed with the pool mid; showing the pool mid.';
-    if (mp.flags.includes('LIQUIDITY_DISAGREE')) return 'Estimated: pools disagreed; showing the median pool mid.';
-    return 'Estimated: single uncorroborated pool mid at block N-1.';
+  const CLASS_PHRASE: Record<EstimatorClass, string> = {
+    direct: 'direct pool price',
+    bridged: 'WETH-derived price',
+    oracle: 'oracle reference',
+  };
+
+  if (mp.tier === 'none') return 'Unavailable: No reliable market price could be calculated.';
+
+  if (mp.tier === 'full') {
+    // Order the corroborators canonically (direct, bridged, oracle) and join them:
+    // "The A and B agree." / "The A, B, and C agree." First phrase is capitalized.
+    const order: EstimatorClass[] = ['direct', 'bridged', 'oracle'];
+    const parts = order.filter((c) => mp.corroboratedBy.includes(c)).map((c) => CLASS_PHRASE[c]);
+    const joined = parts.length === 3
+      ? `${parts[0]}, ${parts[1]}, and ${parts[2]}`
+      : parts.join(' and ');
+    return `Confirmed: The ${joined} agree.`;
   }
-  return `Corroborated market price (${mp.corroboratedBy.join(' + ')}) at block N-1.`;
+
+  // estimated
+  const liq = mp.corroboratedBy.includes('bridged') ? 'bridged' : 'direct';
+  if (mp.flags.includes('LIQUIDITY_DISAGREE') && mp.flags.includes('ORACLE_DISAGREE')) {
+    return 'Estimated: The direct pool price and WETH-derived price disagree, and the oracle reference does not confirm their median. Showing the median of the two pool-based prices.';
+  }
+  if (mp.flags.includes('LIQUIDITY_DISAGREE')) {
+    return 'Estimated: The direct pool price and WETH-derived price disagree. Showing their median.';
+  }
+  if (mp.flags.includes('ORACLE_DISAGREE')) {
+    return liq === 'bridged'
+      ? 'Estimated: The WETH-derived price and oracle reference disagree. Showing the WETH-derived price.'
+      : 'Estimated: The direct pool price and oracle reference disagree. Showing the direct pool price.';
+  }
+  return liq === 'bridged'
+    ? 'Estimated: Only the WETH-derived price was available.'
+    : 'Estimated: Only the direct pool price was available.';
 }
 /** Best-effort decimals guess used when even the metadata reads fail (never throw). */
 function fallbackDecimalsFor(token: string): number {
@@ -439,7 +468,7 @@ export async function priceReceipt(
         poolDivergenceBps: bench.poolDivergenceBps,
         manipulationFlag: bench.manipulationSuspect,
         tier: 'full',
-        methodology: 'Corroborated WETH/USD benchmark (median pools + oracle) at block N-1.',
+        methodology: 'Confirmed: The median of the available WETH/USDC pool prices agrees with the oracle reference.',
         marketPriceFlags: bench.flags,
         chainlinkDevBps: bench.chainlinkDevBps,
         offchainPrice: bench.offchainPrice,
