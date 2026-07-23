@@ -32,8 +32,11 @@ import {
 	createDefaultFeeReader,
 	createDefaultV3FactoryReader,
 	createDefaultRfqProbe,
+	createDefaultV4PoolKeyReader,
+	type V4PoolKeyReader,
 } from './routeReaders.js';
 import { isCuratedMaker } from './makerRegistry.js';
+import { collectV4Swaps, synthesizeV4Legs } from './v4Legs.js';
 
 // ─── Constants ───
 
@@ -98,6 +101,8 @@ export interface DecomposeRouteDeps {
 	decimalsReader?: (token: string) => Promise<number> | number;
 	/** Structural maker probe for the rfq retype pass (block-pinned in production). */
 	rfqProbe?: (addr: string) => Promise<'eoa' | 'proxy1967' | 'contract'> | 'eoa' | 'proxy1967' | 'contract';
+	/** Resolve a V4 poolId → its two currencies (block-pinned in production). */
+	v4PoolKeyReader?: V4PoolKeyReader;
 }
 
 // ─── Helpers ───
@@ -394,13 +399,59 @@ export async function decomposeRoute(
 		rawTransfersWithNative, venues, input.trader, DENYLIST,
 	);
 
-	// Step 4: Build route graph
-	const graph = buildRouteGraph({
+	// Step 4: Build route graph from address-derived legs (first pass).
+	let graph = buildRouteGraph({
 		transfers,
 		trader: input.trader,
 		venues,
 		denylist: extendedDenylist,
 	});
+
+	// Step 4b: V4 multi-pool RESCUE — narrowly gated. Only when the first pass
+	// FAILED to reconstruct BECAUSE a token is consumed but never produced
+	// (`orphan_token`) do we suspect the V4 singleton PoolManager hid a pool's
+	// output. Routes that already reconstruct (incl. single-pool V4 handled by
+	// resolveV4Settlement, and RFQ/AMM hybrids) are left untouched — synthesizing
+	// legs there would double-count and BREAK a working reconstruction. We only
+	// adopt the V4-augmented graph if it actually reconstructs; otherwise the
+	// original (orphan) graph stands.
+	if (!graph.reconstructed && graph.breakReason?.kind === 'orphan_token') {
+		const v4Swaps = collectV4Swaps(logs);
+		if (v4Swaps.length > 0) {
+			const pmTokens = new Set<string>();
+			for (const t of transfers) {
+				const from = t.from.toLowerCase();
+				const to = t.to.toLowerCase();
+				if (from === UNISWAP_V4_POOL_MANAGER || to === UNISWAP_V4_POOL_MANAGER) {
+					pmTokens.add(t.token.toLowerCase());
+				}
+			}
+			if (pmTokens.size > 1) {
+				const keyReader = deps?.v4PoolKeyReader
+					?? createDefaultV4PoolKeyReader(input.rpcUrl, input.blockNumber);
+				const poolKeys = new Map<string, { currency0: string; currency1: string }>();
+				for (const s of v4Swaps) {
+					if (poolKeys.has(s.poolId)) continue;
+					const key = await keyReader(s.poolId);
+					if (key) poolKeys.set(s.poolId, key);
+				}
+				const extraV4Legs = synthesizeV4Legs(v4Swaps, poolKeys, WETH);
+				if (extraV4Legs.length > 0) {
+					const v4Graph = buildRouteGraph({
+						transfers,
+						trader: input.trader,
+						venues,
+						denylist: extendedDenylist,
+						extraLegs: extraV4Legs,
+					});
+					if (v4Graph.reconstructed) {
+						graph = v4Graph;
+						routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
+					}
+				}
+			}
+		}
+	}
 
 	// Round-trip netted legs (e.g. RFQ maker change flows): surface a per-leg
 	// flag; the reconstructed branch caps confidence at medium because netted

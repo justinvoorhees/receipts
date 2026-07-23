@@ -26,6 +26,49 @@ describe('buildRouteGraph', () => {
     expect(g.legs[0]!.amountInRaw).toBe(2_000000n);
     expect(g.legs[1]!.amountOutRaw).toBe(1_000000000000000n);
   });
+  it('extraLegs: merges a synthesized V4 leg that address-derived legs could not produce', () => {
+    // A second V4 pool (v4b) nets a token address-derived legs never resolve
+    // (the PM route is multi-pool, so buildLegs alone can't split it) — the
+    // extra leg comes in from outside (e.g. synthesizeV4Legs) and completes
+    // a second parallel USDC→…→WETH path via a new hub token.
+    const HUB = '0xdddddddddddddddddddddddddddddddddddddddd';
+    const v4b = '0x498581ff718922c3f8e6a244956af099b2652b2c';
+    const t2 = [
+      ...transfers,
+      { token: USDC, from: trader, to: v4b, value: 1_000000n },
+      // no address-derived leg for v4b→HUB or HUB→WETH: only known via extraLegs
+    ];
+    const extraLegs: Leg[] = [
+      { venue: `v4:${v4b}a`, type: 'univ4', tokenIn: USDC, tokenOut: HUB, amountInRaw: 1_000000n, amountOutRaw: 2_000000000000000000n },
+      { venue: `v4:${v4b}b`, type: 'univ4', tokenIn: HUB, tokenOut: WETH, amountInRaw: 2_000000000000000000n, amountOutRaw: 500_000000000000n },
+    ];
+    const g = buildRouteGraph({ transfers: t2, trader, venues, denylist: new Set(), extraLegs });
+    expect(g.legs.some((l) => l.tokenIn === USDC && l.tokenOut === HUB)).toBe(true);
+    expect(g.legs.some((l) => l.tokenIn === HUB && l.tokenOut === WETH)).toBe(true);
+    expect(g.reconstructed).toBe(true);
+  });
+
+  it('extraLegs de-dup guard: drops a synthesized V4 leg already captured cleanly by buildLegs', () => {
+    // The v4 pool here (`v4`) is ALREADY a clean 1-in-1-out address-derived leg
+    // (VIRTUAL→WETH, from the module-level `transfers`/`venues` fixture). A
+    // synthesized extraLeg for the SAME (tokenIn, tokenOut) pair must be
+    // dropped, not merged in as a duplicate — otherwise the route would
+    // double-count this pool's notional/fee.
+    const dupExtraLeg: Leg = {
+      venue: `v4:duplicate`,
+      type: 'univ4',
+      tokenIn: VIRTUAL,
+      tokenOut: WETH,
+      amountInRaw: 3_000000000000000000n,
+      amountOutRaw: 1_000000000000000n,
+    };
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs: [dupExtraLeg] });
+    expect(g.legs).toHaveLength(2); // unchanged from the non-extraLegs case
+    expect(g.legs.filter((l) => l.tokenIn === VIRTUAL && l.tokenOut === WETH)).toHaveLength(1);
+    expect(g.shape).toBe('linear');
+    expect(g.reconstructed).toBe(true);
+  });
+
   it('classifies an unrecognized 1-in-1-out venue (no Swap event) as unknown', () => {
     // A clean 1-in-1-out address with no Swap event is NOT assumed to be a
     // genuine RFQ filler: probing showed these are real AMM pools we failed to

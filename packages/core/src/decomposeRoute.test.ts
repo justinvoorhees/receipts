@@ -17,6 +17,7 @@ import type { Leg } from './routeGraph.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const kyberB1Trace = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__/kyber-b1-trace.json'), 'utf-8'));
 const kyberB2Trace = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__/kyber-b2-trace.json'), 'utf-8'));
+const id56Trace = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__/id56-trace.json'), 'utf-8'));
 
 const PANCAKE_POOL = '0x7cb770d0513c30e0cb45e4899e4a2cbeed6f9830';
 
@@ -1290,4 +1291,75 @@ describe('getLegMidAtBlock', () => {
 		expect(quickswap).toBe(hydrex); // handled exactly like the other Algebra venue
 		expect(quickswap).toBeGreaterThan(rfq); // and, unlike rfq, it DOES attempt a mid
 	});
+});
+
+// ─── id 56 (CLAWD→USDC): V4 multi-pool extraction ───
+//
+// Real on-chain route (decoded from the id56-trace.json fixture, captured via
+// debug_traceTransaction/callTracer against the id-56 tx): the router
+// (0x7c13…61da, denylisted) splits the trader's CLAWD three ways —
+//   1. CLAWD → [V4 pool 0xcb987d4a…, fee 10000] → 0xcbb7c000… → [pancakev3
+//      0xb94b2233…] → USDC
+//   2. CLAWD → [univ3 0xcd55381a…] → WETH → [pancakev3 0x72ab388e…] → USDC
+//   3. CLAWD → [V4 pool 0xca5e723b…, fee 10000] → native ETH →
+//      [V4 pool 0x96d4b53a…, fee 500] → USDC
+// converging on USDC. Legs 1 and 3 both route through the V4 PoolManager,
+// which nets 3 distinct ERC-20 tokens (CLAWD in, 0xcbb7c000 out, USDC out) —
+// too many for the address-derived leg builder, which requires exactly one
+// net-received and one net-sent token per venue. Only the Swap-event-derived
+// legs (this task's wiring) resolve pools 1 and 3; pool 2's hop (univ3 +
+// pancakev3) was already reconstructable from address deltas alone.
+const ID56_POOLKEYS: Record<string, { currency0: string; currency1: string }> = {
+	'0xcb987d4a5945cb45ca4c0742534c25ed2948ca5933acb1b797c3b58e4347cc9d': {
+		currency0: '0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07', // CLAWD
+		currency1: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf', // hub token
+	},
+	'0xca5e723ba63508f727692aa9bfd89345400786aae7f50859a4f4b1e9f0a5ccc7': {
+		currency0: '0x0000000000000000000000000000000000000000', // native ETH
+		currency1: '0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07', // CLAWD
+	},
+	'0x96d4b53a38337a5733179751781178a2613306063c511b78cd02684739288c0a': {
+		currency0: '0x0000000000000000000000000000000000000000', // native ETH
+		currency1: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC
+	},
+};
+
+// Real trade facts (id 56, tx 0xbc853779e6c5f846a08917a1afc710e17181fd0a31983723e15080497f63fe54,
+// block 46842721). `realizedPrice` is USDC-per-WETH (per DecomposeTradeInput's
+// contract), NOT this trade's own CLAWD/USDC price — derived here from the
+// univ3→pancakev3 leg's own WETH/USDC exchange (772417861686564053 wei WETH
+// for 1447.207766 USDC) since that leg is priced in the same block.
+const ID56_INPUT: DecomposeTradeInput = {
+	trace: id56Trace as any,
+	txHash: '0xbc853779e6c5f846a08917a1afc710e17181fd0a31983723e15080497f63fe54',
+	trader: '0x73f0859f844f042cd699f35bb5fe13a120f95c0f',
+	allInCostBps: 283.77836898779145,
+	notionalUsdc: 1841.048249,
+	realizedPrice: 1873.6073280853982,
+	gasCostUsd: 0.008142799535811063,
+	aggregator: 'Fabric',
+	blockNumber: 46842721n,
+	rpcUrl: 'unused',
+	dustUsdc: 1e-6,
+	structuralFloorUsd: 0,
+	structuralFloorBps: 0.5,
+	recognizeV3Forks: true,
+	impureOnVenueThirdToken: true,
+};
+
+describe('decomposeRoute V4 multi-pool extraction (id 56)', () => {
+	it('reconstructs CLAWD→USDC once the V4 pool legs are synthesized', async () => {
+		const v4PoolKeyReader = async (poolId: string) => ID56_POOLKEYS[poolId.toLowerCase()] ?? null;
+		const result = await decomposeRoute(ID56_INPUT, {
+			trace: id56Trace as any,
+			feeReader: () => ({ bps: 100, defaulted: false }),
+			rfqProbe: () => 'contract',
+			v3FactoryReader: () => null,
+			v4PoolKeyReader,
+		});
+
+		expect(result.routeShape).not.toBe('complex');
+		expect(result.lpFeeBps).not.toBeNull();
+		expect(result.slippageBps).not.toBeNull();
+	}, 15000);
 });

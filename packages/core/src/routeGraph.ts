@@ -57,6 +57,10 @@ export interface BuildRouteArgs {
   /** venue address → {type, v4PoolId?, v4FeeRaw?} from Swap-event scan */
   venues: Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number }>;
   denylist: ReadonlySet<string>;
+  /** Extra legs synthesized outside address-delta reconstruction (e.g. V4
+   *  multi-pool legs from Swap events) — merged with the address-derived legs
+   *  before chaining. De-duped against any univ4 leg already captured. */
+  extraLegs?: Leg[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -500,8 +504,21 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   // 3. Build legs from venues + RFQ discovery
   const legs = buildLegs(argsNorm, deltas, gross, traderLc);
 
+  // 3b. Merge in any synthesized extra legs (e.g. V4 multi-pool legs from Swap
+  // events), guarding against double-counting a V4 pool that buildLegs ALSO
+  // captured cleanly (single-pool case that slipped through): drop any
+  // extraLeg whose (tokenIn, tokenOut) pair already exists among `legs` with
+  // type === 'univ4'.
+  const existingUniv4Pairs = new Set(
+    legs.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),
+  );
+  const dedupedExtraLegs = (args.extraLegs ?? []).filter(
+    (l) => !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
+  );
+  const allLegs = dedupedExtraLegs.length > 0 ? [...legs, ...dedupedExtraLegs] : legs;
+
   // 4. Chain legs into order
-  const { ordered, shape, reconstructed, breakReason } = chainLegs(legs, inputToken, outputToken);
+  const { ordered, shape, reconstructed, breakReason } = chainLegs(allLegs, inputToken, outputToken);
 
   // 5. Collect all distinct tokens on the path
   const tokenSet = new Set<string>();
