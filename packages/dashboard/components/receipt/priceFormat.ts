@@ -92,13 +92,13 @@ export function formatPriceDeltaToken(
  *
  * Every receipt persisted to date predates that column being populated, so without a
  * fallback the descriptor line renders empty. Mirrors core's `methodologyFor`
- * (packages/core/src/pricing.ts) at tier granularity — the stored string is richer
- * (it names the corroborating estimators) and always wins when present.
+ * (packages/core/src/pricing.ts) at tier granularity — the stored string is more
+ * specific (it names the corroborating estimators) and always wins when present.
  */
 export function fallbackMethodology(pricingStatus: string): string {
-	if (pricingStatus === 'full') return 'Corroborated market price at block N-1.';
-	if (pricingStatus === 'estimated') return 'Estimated: uncorroborated pool mid at block N-1.';
-	return 'No reliable market price available.';
+	if (pricingStatus === 'full') return 'Confirmed: market price corroborated across sources.';
+	if (pricingStatus === 'estimated') return 'Estimated: market price is uncorroborated.';
+	return 'Unavailable: No reliable market price could be calculated.';
 }
 
 /**

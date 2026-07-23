@@ -131,9 +131,9 @@ describe('fallbackMethodology', () => {
 	// (all 39 rows carry NULL), so the descriptor must derive from pricingStatus.
 	it('maps each pricing tier to its descriptor', async () => {
 		const { fallbackMethodology } = await import('./receipt/priceFormat');
-		expect(fallbackMethodology('full')).toContain('Corroborated');
-		expect(fallbackMethodology('estimated')).toContain('Estimated');
-		expect(fallbackMethodology('partial')).toContain('No reliable market price');
+		expect(fallbackMethodology('full')).toContain('Confirmed:');
+		expect(fallbackMethodology('estimated')).toContain('Estimated:');
+		expect(fallbackMethodology('partial')).toBe('Unavailable: No reliable market price could be calculated.');
 	});
 });
 
@@ -933,26 +933,28 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		expect(html).not.toContain('#fa0b54');
 	});
 
-	it('renders a Market Price methodology descriptor on every tier, with no tooltip copy', async () => {
+	it('renders the Market Price descriptor as a *-footnote when a mid exists', async () => {
 		const { Receipt } = await import('./receiptView');
-		// The stored methodology wins when present.
+		// The stored methodology wins when present, rendered as a *-prefixed footnote.
 		const stored = renderToStaticMarkup(
-			<Receipt row={{ ...ethWbtc, methodology: 'Corroborated market price (direct + oracle) at block N-1.' } as never} />,
+			<Receipt row={{ ...ethWbtc, methodology: 'Confirmed: The direct pool price and WETH-derived price agree.' } as never} />,
 		);
-		expect(stored).toContain('Corroborated market price (direct + oracle) at block N-1.');
+		expect(stored).toContain('*Confirmed: The direct pool price and WETH-derived price agree.');
+		expect(stored).toContain('Market Price*'); // label carries the asterisk connotation
 
-		// A NULL methodology (every row persisted today) falls back to the tier string.
+		// A NULL methodology falls back to the tier string, still as a footnote.
 		const estimated = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, methodology: null } as never} />);
-		expect(estimated).toContain('Estimated');
+		expect(estimated).toContain('Estimated:');
 
-		// The null tier gets a descriptor too, where previously there was none.
+		// The null-mid state shows NO asterisk and NO footnote (decision: only when a mid exists).
 		const partial = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, pricingStatus: 'partial', marketMid: null, methodology: null, allInCostBps: null } as never} />,
 		);
-		expect(partial).toContain('No reliable market price');
+		expect(partial).not.toContain('Market Price*');
+		expect(partial).not.toContain('Unavailable: No reliable market price could be calculated.');
 
-		// The hardcoded tooltip copy is gone from all three.
-		for (const html of [stored, estimated, partial]) {
+		// The hardcoded tooltip copy stays gone.
+		for (const html of [stored, estimated]) {
 			expect(html).not.toContain('cross-referenced against an on-chain price oracle');
 			expect(html).not.toContain('Best-effort reference from the deepest on-chain pool');
 		}

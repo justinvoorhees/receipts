@@ -199,8 +199,7 @@ export function Receipt({
 						: formatExecutionPrice(row.realizedPrice, base, quote)}
 				</DetailRow>
 				<DetailRow
-					label="Market Price"
-					subLabel={methodologyText}
+					label={hasMarketPrice ? 'Market Price*' : 'Market Price'}
 					subValue={marketUsdPerBase != null ? formatSubvalueUsd(marketUsdPerBase) : undefined}
 					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
@@ -224,6 +223,12 @@ export function Receipt({
 				>
 					{priceDelta?.text ?? 'Null'}
 				</DetailRow>
+
+				{hasMarketPrice && (
+					<p className="text-[12px] leading-[18px] text-[var(--color-secondary)]">
+						*{methodologyText}
+					</p>
+				)}
 
 				<Divider dashed />
 
