@@ -71,6 +71,10 @@ const POOL_LIQUIDITY_ABI = parseAbi([
   'function liquidity() view returns (uint128)',
 ]);
 
+const ERC20_BALANCE_ABI = parseAbi([
+  'function balanceOf(address) view returns (uint256)',
+]);
+
 // ── Fee tiers to scan ────────────────────────────────────────────────────────
 
 /** Standard Uniswap V3 fee tiers (in hundredths of a bps, i.e. raw units). */
@@ -233,6 +237,54 @@ export async function readLiquidity(
     return result;
   } catch {
     return null;
+  }
+}
+
+export type PoolCandidate = { address: `0x${string}`; kind: PoolKind };
+
+export interface RankReaders {
+  isInitialized(c: PoolCandidate): Promise<boolean>;
+  readDepth(c: PoolCandidate): Promise<bigint>;
+}
+
+/**
+ * Rank candidate pools across families by one uniform depth yardstick, keeping
+ * only initialized pools. Pure over injected readers so it is unit-testable
+ * without a live client. Unreadable depth ⇒ 0 (caller's readDepth policy), so a
+ * pool is never dropped purely because its depth read reverted.
+ */
+export async function rankCandidatesByDepth(
+  candidates: PoolCandidate[],
+  readers: RankReaders,
+): Promise<{ pool: DiscoveredPool; depth: bigint } | null> {
+  let best: { pool: DiscoveredPool; depth: bigint } | null = null;
+  for (const cand of candidates) {
+    if (!(await readers.isInitialized(cand))) continue;
+    const depth = await readers.readDepth(cand);
+    if (best === null || depth > best.depth) {
+      best = { pool: { address: cand.address, kind: cand.kind }, depth };
+    }
+  }
+  return best;
+}
+
+/** ERC-20 balanceOf a holder; 0n on revert. Used only to rank pool depth. */
+export async function readErc20Balance(
+  client: PublicClient,
+  token: string,
+  holder: string,
+  blockNumber?: bigint,
+): Promise<bigint> {
+  try {
+    return await client.readContract({
+      address: token.toLowerCase() as `0x${string}`,
+      abi: ERC20_BALANCE_ABI,
+      functionName: 'balanceOf',
+      args: [holder.toLowerCase() as `0x${string}`],
+      ...(blockNumber !== undefined ? { blockNumber } : {}),
+    });
+  } catch {
+    return 0n;
   }
 }
 
