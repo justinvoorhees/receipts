@@ -56,22 +56,29 @@ const swaps = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__/v4-id56-s
 
 const CLAWD = '0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07';
 
-describe('v4 swap sign convention (id 56 ground truth: CLAWD is the trade input)', () => {
-  it('decodes every fixture swap and finds CLAWD entering V4 (positive from pool perspective)', () => {
-    // id 56 sells CLAWD. Whichever amount corresponds to CLAWD across the V4
-    // swaps must share a consistent sign that we can label "token paid INTO the
-    // pool". This test decodes and asserts the decode succeeds + amounts are
-    // non-zero; the human implementer then READS the printed signs and records
-    // the convention in V4_AMOUNT_SIGN (Step 4). The assertion here guards the
-    // decode; the console output drives the convention decision.
+describe('v4 swap sign convention (id 56 fixture)', () => {
+  it('every V4 swap has exactly one positive and one negative amount (one token in, one out)', () => {
+    // This is the structural invariant the entire sign convention rests on:
+    // in a single-pool V4 swap one token is paid IN (one sign) and the other is
+    // paid OUT (opposite sign). If a decode bug or a degenerate swap violated
+    // this, synthesizeV4Legs (Task 4) would produce a nonsense leg. Asserting it
+    // here is a real regression guard, independent of WHICH sign means "in".
+    expect(swaps.length).toBeGreaterThanOrEqual(2);
     for (const log of swaps) {
       const decoded = decodeEventLog({ abi: V4_SWAP_EVENT_ABI, data: log.data, topics: log.topics });
-      const { id, amount0, amount1 } = decoded.args as { id: string; amount0: bigint; amount1: bigint };
+      const { id, amount0, amount1, sqrtPriceX96 } = decoded.args as {
+        id: string; amount0: bigint; amount1: bigint; sqrtPriceX96: bigint;
+      };
+      // Exactly one positive, one negative (both non-zero, opposite signs):
+      expect(amount0).not.toBe(0n);
+      expect(amount1).not.toBe(0n);
+      expect(amount0 > 0n).not.toBe(amount1 > 0n);
+      expect(sqrtPriceX96 > 0n).toBe(true);
+      // Console line still drives the human's one-time convention pinning below;
+      // the assertions above are the actual test.
       // eslint-disable-next-line no-console
       console.log('poolId', id, 'amount0', amount0.toString(), 'amount1', amount1.toString());
-      expect(amount0 === 0n && amount1 === 0n).toBe(false);
     }
-    expect(swaps.length).toBeGreaterThanOrEqual(2);
   });
 });
 ```
@@ -116,6 +123,8 @@ export const V4_AMOUNT_SIGN = {
 ```
 
 Run Step 2's test again, READ the console output (CLAWD is `0x9f86…6b07`; you know id 56 sold CLAWD), determine whether CLAWD's amount is positive or negative, and set `positiveIsTokenIn` accordingly. Update the doc comment with the real observation and capture date.
+
+**Note on coverage:** the Step-2 test asserts the *structural* invariant (one token in, one out per swap) — a real regression guard. The *direction* correctness of the pinned `positiveIsTokenIn` boolean is verified downstream, not by console-reading: Task 4's `synthesizeV4Legs` tests assert `tokenIn` is the positive-amount token, and Task 5's id-56 end-to-end test only reconstructs (CLAWD as input) if the sign is right — a flipped convention reverses every leg and fails reconstruction. So the boolean is both pinned here and asserted-by-consequence there.
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -239,34 +248,65 @@ git commit -m "feat(core): collectV4Swaps — per-pool V4 swap records"
 - Test: `packages/core/src/routeReaders.test.ts` (create if absent; else append)
 
 **Interfaces:**
-- Produces: `export type V4PoolKeyReader = (poolId: string) => Promise<{ currency0: string; currency1: string } | null>` and `export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader`.
-- The reader queries the PoolManager's `Initialize` event filtered by the indexed `id`, from a known deploy block to `toBlock`, returns lowercased `currency0`/`currency1`, and caches per poolId. Returns `null` on miss/error (caller degrades gracefully).
+- Produces:
+  - `export type V4PoolKeyReader = (poolId: string) => Promise<{ currency0: string; currency1: string } | null>`
+  - `export type V4InitLog = { args: { currency0: string; currency1: string } }`
+  - `export function makeV4PoolKeyReader(fetchInitLogs: (poolId: string) => Promise<V4InitLog[]>): V4PoolKeyReader` — **pure** decode + per-poolId cache wrapper (no viem), unit-testable with a stub.
+  - `export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader` — builds the real `fetchInitLogs` via viem `getLogs` on the PoolManager's indexed `Initialize` event and delegates to `makeV4PoolKeyReader`.
+- The reader returns lowercased `currency0`/`currency1` from the first `Initialize` log, caches per poolId (including caching a `null` miss), and returns `null` on miss/error so the caller degrades gracefully.
 
 - [ ] **Step 1: Write the failing test**
 
-Create/append `packages/core/src/routeReaders.test.ts`:
+Create/append `packages/core/src/routeReaders.test.ts`. These test the real decode + cache behavior through the pure `makeV4PoolKeyReader` seam:
 
 ```typescript
 import { describe, expect, it, vi } from 'vitest';
-import { createDefaultV4PoolKeyReader } from './routeReaders.js';
+import { makeV4PoolKeyReader, createDefaultV4PoolKeyReader } from './routeReaders.js';
 
-// We can't hit a real node in unit tests, so assert the factory's shape and its
-// caching contract via a hand-rolled reader that wraps a counting stub. The
-// real getLogs path is covered by the live verification task (Task 6).
+describe('makeV4PoolKeyReader', () => {
+  const POOL = '0xAbC123';
+  const initLog = { args: { currency0: '0xAAAA1111', currency1: '0xBBBB2222' } };
+
+  it('resolves and lowercases currencies from the first Initialize log', async () => {
+    const reader = makeV4PoolKeyReader(async () => [initLog]);
+    expect(await reader(POOL)).toEqual({ currency0: '0xaaaa1111', currency1: '0xbbbb2222' });
+  });
+
+  it('caches per poolId: the underlying fetch runs once across repeated (case-insensitive) ids', async () => {
+    const fetch = vi.fn(async () => [initLog]);
+    const reader = makeV4PoolKeyReader(fetch);
+    await reader(POOL);
+    await reader(POOL.toLowerCase());
+    await reader(POOL);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null when no Initialize log is found', async () => {
+    const reader = makeV4PoolKeyReader(async () => []);
+    expect(await reader(POOL)).toBeNull();
+  });
+
+  it('returns null (never throws) when the fetch errors, and caches the null', async () => {
+    const fetch = vi.fn(async () => { throw new Error('rpc down'); });
+    const reader = makeV4PoolKeyReader(fetch);
+    expect(await reader(POOL)).toBeNull();
+    await reader(POOL);
+    expect(fetch).toHaveBeenCalledTimes(1); // null was cached, not re-fetched
+  });
+});
+
 describe('createDefaultV4PoolKeyReader', () => {
-  it('returns a function (reader) given an rpc url and toBlock', () => {
-    const reader = createDefaultV4PoolKeyReader('http://localhost:8545', 1000n);
-    expect(typeof reader).toBe('function');
+  it('returns a no-op reader (always null) when rpcUrl is empty', async () => {
+    const reader = createDefaultV4PoolKeyReader('', 1000n);
+    expect(await reader('0xabc')).toBeNull();
   });
 });
 ```
 
-> The behavioral caching/decoding is validated end-to-end in Task 5 (id 56 fixture with an *injected* reader) and Task 6 (live). This unit test only guards the factory contract; do not fake a viem client here.
-
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run packages/core/src/routeReaders.test.ts -t "createDefaultV4PoolKeyReader"`
-Expected: FAIL — not exported.
+Run: `npx vitest run packages/core/src/routeReaders.test.ts -t "V4PoolKeyReader"`
+Expected: FAIL — `makeV4PoolKeyReader` / `createDefaultV4PoolKeyReader` not exported.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -274,6 +314,7 @@ Add to `routeReaders.ts` (uses the existing `createPublicClient`, `http`, `parse
 
 ```typescript
 export type V4PoolKeyReader = (poolId: string) => Promise<{ currency0: string; currency1: string } | null>;
+export type V4InitLog = { args: { currency0: string; currency1: string } };
 
 const V4_POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b' as const;
 // PoolManager deployment block on Base. Confirm on-chain before shipping; a
@@ -284,32 +325,27 @@ const V4_INITIALIZE_EVENT = parseAbiItem(
 );
 
 /**
- * Resolve a V4 poolId → its two currencies via the PoolManager's indexed
- * Initialize event. Cached per poolId for the lifetime of the reader. Returns
- * null when no Initialize log is found or the query errors — callers treat a
- * null as "can't model this V4 leg" and degrade to the un-decomposed path.
+ * Pure decode + per-poolId cache over an injected Initialize-log fetcher.
+ * Returns lowercased currencies from the first Initialize log, caches the
+ * result (including a null miss), and never throws — a failing fetch yields a
+ * cached null so callers degrade to the un-decomposed path. No viem here, so
+ * the decode/cache contract is unit-testable with a stub fetcher.
  */
-export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader {
-  if (!rpcUrl) return async () => null;
-  const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+export function makeV4PoolKeyReader(
+  fetchInitLogs: (poolId: string) => Promise<V4InitLog[]>,
+): V4PoolKeyReader {
   const cache = new Map<string, { currency0: string; currency1: string } | null>();
   return async (poolId: string): Promise<{ currency0: string; currency1: string } | null> => {
     const key = poolId.toLowerCase();
     if (cache.has(key)) return cache.get(key)!;
     let result: { currency0: string; currency1: string } | null = null;
     try {
-      const logs = await rpc.getLogs({
-        address: V4_POOL_MANAGER,
-        event: V4_INITIALIZE_EVENT,
-        args: { id: key as `0x${string}` },
-        fromBlock: V4_POOL_MANAGER_DEPLOY_BLOCK,
-        toBlock,
-      });
+      const logs = await fetchInitLogs(key);
       const init = logs[0];
       if (init) {
         result = {
-          currency0: (init.args.currency0 as string).toLowerCase(),
-          currency1: (init.args.currency1 as string).toLowerCase(),
+          currency0: init.args.currency0.toLowerCase(),
+          currency1: init.args.currency1.toLowerCase(),
         };
       }
     } catch {
@@ -319,12 +355,31 @@ export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V
     return result;
   };
 }
+
+/**
+ * Production V4 poolId → currencies reader: queries the PoolManager's indexed
+ * Initialize event via viem and delegates decode/cache to makeV4PoolKeyReader.
+ */
+export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader {
+  if (!rpcUrl) return async () => null;
+  const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+  return makeV4PoolKeyReader(async (poolId: string) => {
+    const logs = await rpc.getLogs({
+      address: V4_POOL_MANAGER,
+      event: V4_INITIALIZE_EVENT,
+      args: { id: poolId as `0x${string}` },
+      fromBlock: V4_POOL_MANAGER_DEPLOY_BLOCK,
+      toBlock,
+    });
+    return logs as unknown as V4InitLog[];
+  });
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npx vitest run packages/core/src/routeReaders.test.ts -t "createDefaultV4PoolKeyReader"`
-Expected: PASS.
+Run: `npx vitest run packages/core/src/routeReaders.test.ts -t "V4PoolKeyReader"`
+Expected: PASS (5 tests — 4 for `makeV4PoolKeyReader`, 1 for the empty-rpcUrl default).
 
 - [ ] **Step 5: Commit**
 
