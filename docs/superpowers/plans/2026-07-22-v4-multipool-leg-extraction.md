@@ -534,7 +534,7 @@ git commit -m "feat(core): synthesizeV4Legs — per-pool V4 legs with pinned dir
 **Interfaces:**
 - Consumes: `collectV4Swaps`, `synthesizeV4Legs` (`./v4Legs.js`); `V4PoolKeyReader`, `createDefaultV4PoolKeyReader` (`./routeReaders.js`); existing `UNISWAP_V4_POOL_MANAGER`, `WETH`.
 - Adds `v4PoolKeyReader?: V4PoolKeyReader` to `DecomposeRouteDeps`.
-- Behavior: build the address-derived graph first. **Only if it fails to reconstruct with `breakReason.kind === 'orphan_token'`** (and the PM nets >1 token, and there are V4 swaps) collect V4 swaps, resolve pool keys, synthesize legs, and rebuild the graph with them via a new `extraLegs` input — adopting the V4-augmented graph only if it then reconstructs. Routes that already reconstruct are left completely untouched (adding legs there double-counts and regresses them). ⚠️ Do NOT gate merely on `pmTokens.size > 1`.
+- Behavior: build the address-derived graph first. **Only if it fails to reconstruct with `breakReason.kind` of `orphan_token` OR `fee_on_transfer`** (and the PM nets >1 token, and there are V4 swaps) collect V4 swaps, resolve pool keys, synthesize legs, and rebuild the graph with them via a new `extraLegs` input — adopting the V4-augmented graph only if it then reconstructs. Routes that already reconstruct are left completely untouched (adding legs there double-counts and regresses them). ⚠️ Do NOT gate merely on `pmTokens.size > 1`.
 
 - [ ] **Step 1: Write the failing test (end-to-end on the id 56 fixture)**
 
@@ -600,16 +600,22 @@ In the graph-build region (replace ~line 391–403), after `resolveV4Settlement`
 		denylist: extendedDenylist,
 	});
 
-	// Step 4b: V4 multi-pool RESCUE — narrowly gated on the orphan_token break.
-	// ⚠️ CRITICAL: do NOT synthesize V4 legs unconditionally when the PoolManager
-	// nets >1 token — many routes (single-pool V4 handled by resolveV4Settlement,
-	// RFQ/AMM hybrids, convergent splits) ALREADY reconstruct, and adding
-	// synthesized legs there double-counts and BREAKS them (regression observed
-	// on LFI->GITLAWB and id 189). Only when the first pass FAILED with
-	// breakReason.kind === 'orphan_token' (a token consumed but never produced —
-	// the V4 singleton signature) do we synthesize and retry, and we adopt the
-	// V4-augmented graph ONLY if it then reconstructs.
-	if (!graph.reconstructed && graph.breakReason?.kind === 'orphan_token') {
+	// Step 4b: V4 multi-pool RESCUE — gated on a first-pass token-conservation
+	// break. ⚠️ CRITICAL: do NOT synthesize V4 legs unconditionally when the
+	// PoolManager nets >1 token — many routes (single-pool V4 via
+	// resolveV4Settlement, RFQ/AMM hybrids, convergent splits) ALREADY
+	// reconstruct, and adding synthesized legs there double-counts and BREAKS
+	// them (regression observed on LFI->GITLAWB and id 189). The V4 singleton
+	// hides a pool's flow two ways: a token consumed but never produced
+	// (`orphan_token`, id 56) or an intermediate under-accounted because a V4
+	// pool also moved it (`fee_on_transfer` classification, id 251's WETH). Gate
+	// on either, and adopt the augmented graph ONLY if it then reconstructs — so
+	// a genuine fee-on-transfer token with no V4 orphan (id 219's SWARM) never
+	// gets a spurious rescue.
+	if (
+		!graph.reconstructed &&
+		(graph.breakReason?.kind === 'orphan_token' || graph.breakReason?.kind === 'fee_on_transfer')
+	) {
 		const v4Swaps = collectV4Swaps(logs);
 		if (v4Swaps.length > 0) {
 			const pmTokens = new Set<string>();

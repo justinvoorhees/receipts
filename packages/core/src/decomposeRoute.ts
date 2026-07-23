@@ -407,15 +407,21 @@ export async function decomposeRoute(
 		denylist: extendedDenylist,
 	});
 
-	// Step 4b: V4 multi-pool RESCUE — narrowly gated. Only when the first pass
-	// FAILED to reconstruct BECAUSE a token is consumed but never produced
-	// (`orphan_token`) do we suspect the V4 singleton PoolManager hid a pool's
-	// output. Routes that already reconstruct (incl. single-pool V4 handled by
-	// resolveV4Settlement, and RFQ/AMM hybrids) are left untouched — synthesizing
-	// legs there would double-count and BREAK a working reconstruction. We only
-	// adopt the V4-augmented graph if it actually reconstructs; otherwise the
-	// original (orphan) graph stands.
-	if (!graph.reconstructed && graph.breakReason?.kind === 'orphan_token') {
+	// Step 4b: V4 multi-pool RESCUE — gated on a first-pass token-conservation
+	// break. The V4 singleton PoolManager hides a pool's flow two ways: a token
+	// consumed but never produced (`orphan_token`, e.g. id 56), or an
+	// intermediate whose captured legs under-account for it because a V4 pool
+	// also moved it (`fee_on_transfer` classification, e.g. id 251's WETH). Both
+	// are candidates for V4-leg synthesis. Routes that already reconstruct (incl.
+	// single-pool V4 via resolveV4Settlement, RFQ/AMM hybrids, convergent splits)
+	// are excluded by `!graph.reconstructed` — synthesizing legs there would
+	// double-count and BREAK them. And we adopt the V4-augmented graph ONLY if it
+	// then reconstructs, so a genuine fee-on-transfer token (no V4 orphan, e.g.
+	// id 219's SWARM) never gets a spurious rescue.
+	if (
+		!graph.reconstructed &&
+		(graph.breakReason?.kind === 'orphan_token' || graph.breakReason?.kind === 'fee_on_transfer')
+	) {
 		const v4Swaps = collectV4Swaps(logs);
 		if (v4Swaps.length > 0) {
 			const pmTokens = new Set<string>();
