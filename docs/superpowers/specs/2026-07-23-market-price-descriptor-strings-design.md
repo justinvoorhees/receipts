@@ -33,14 +33,42 @@ corroborated.
 
 - It now co-occurs with `ORACLE_DISAGREE` → `['ORACLE_DISAGREE','SINGLE_SOURCE']`.
 - It can never co-occur with `LIQUIDITY_DISAGREE` (that requires ≥2 classes).
-- Tier is unchanged: `SINGLE_SOURCE` is only added when `!corroborated`, i.e. the
-  result is already `estimated`. The single-pool + agreeing-oracle case stays
-  `full` (oracle in `corroboratedBy`), and gets no `SINGLE_SOURCE`.
+- Tier is unchanged by this line: `SINGLE_SOURCE` is only added when
+  `!corroborated`, i.e. the result is already `estimated`. The single-pool +
+  agreeing-oracle case stays `full` (oracle in `corroboratedBy`), and gets no
+  `SINGLE_SOURCE`.
 
 No consumer outside core branches on these flags — the dashboard renders the
 stored `methodology` string, not the flags (`marketPriceFlags` is persisted for
 the record only). So this change is inert everywhere except core's own
 descriptor selection.
+
+### 1a. Corroboration definition — two disagreeing pools are never "full"
+
+**(Added 2026-07-23, user-approved — overrides the original "no tier change"
+constraint for this one case.)** The Figma state table enumerates every valid
+state, and BOTH its `LIQUIDITY_DISAGREE` rows are `estimated`; there is no
+"full + pools disagree" state. But the existing reducer promotes to `full`
+whenever `oracleCorroborated`, even when the two liquidity pools disagree and the
+oracle merely lands near their median — yielding `corroboratedBy === ['oracle']`
+and the ungrammatical, un-spec'd `Confirmed: The oracle reference agree.`
+
+With two liquidity values, each sits equidistant from their median, so if they
+disagree (`LIQUIDITY_DISAGREE`) BOTH fall outside tolerance and neither is in
+`corroboratedBy`. Fix the promotion so an oracle can only confer `full` when
+there is a single liquidity source (the intended single-pool + oracle → full
+case, spec states 2/3/4):
+
+```ts
+// full requires liquidity agreement, OR a single pool the oracle corroborates.
+// Two disagreeing pools are never rescued to "full" by an oracle near their median.
+const corroborated = liquidityCorroborated || (liqClasses.length === 1 && oracleCorroborated);
+```
+
+Result: two disagreeing pools + oracle-near-median → `estimated` with
+`LIQUIDITY_DISAGREE` (spec state "disagree. Showing their median."). This makes
+`methodologyFor`'s full-tier branch structurally guaranteed to see ≥2
+corroborators, so the empty/1-part join is unreachable by construction.
 
 ## 2. Descriptor strings — `packages/core/src/pricing.ts`
 
@@ -51,7 +79,8 @@ N-1.'`) to the spec-exact strings. `direct`/`bridged` naming: `direct` →
 
 | State (tier / flags / corroboratedBy) | Descriptor |
 |---|---|
-| fast-path (USDC/WETH branch) | `Confirmed: The median of the available WETH/USDC pool prices agrees with the oracle reference.` |
+| fast-path (USDC/WETH), oracle corroborates | `Confirmed: The median of three WETH/USDC pool prices agrees with the oracle reference.` |
+| fast-path (USDC/WETH), `ORACLE_DISAGREE` | `Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the pool-based prices.` |
 | full · `direct,bridged,oracle` | `Confirmed: The direct pool price, WETH-derived price, and oracle reference agree.` |
 | full · `direct,oracle` | `Confirmed: The direct pool price and oracle reference agree.` |
 | full · `bridged,oracle` | `Confirmed: The WETH-derived price and oracle reference agree.` |
@@ -82,6 +111,28 @@ N-1.'`) to the spec-exact strings. `direct`/`bridged` naming: `direct` →
 The single liquidity class is always in `corroboratedBy` (a lone class is
 within-tol of itself, which is the mid), so `corroboratedBy` reliably names
 direct vs bridged for the single-source rows.
+
+### 2a. USDC/WETH fast-path oracle downgrade
+
+**(Added 2026-07-23, user-approved.)** The fast-path (`isUsdcWethPair` branch,
+pricing.ts ~419-448) currently ALWAYS returns `status: 'full'`, `tier: 'full'`
+with the confirmed string — even when the benchmark's oracle did not corroborate
+the pool median. The benchmark already emits `ORACLE_DISAGREE` in its `flags`
+when the pool median and the usable oracle(s) diverge beyond tolerance.
+
+Fix: when `bench.flags` includes `'ORACLE_DISAGREE'`, the fast-path returns
+`status: 'estimated'`, `tier: 'estimated'`, and the estimated fast-path string;
+otherwise `full` + the confirmed string. The shown `marketMid` is unchanged (it
+is still the pool median) in both cases — only the tier and descriptor change.
+
+- Confirmed (no `ORACLE_DISAGREE`): `Confirmed: The median of three WETH/USDC pool prices agrees with the oracle reference.`
+- Estimated (`ORACLE_DISAGREE`): `Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the pool-based prices.`
+
+**Trigger scope:** `ORACLE_DISAGREE` ONLY (user decision). Oracle-unavailable and
+oracle-stale benchmark states (`ORACLE_UNAVAILABLE`, `CHAINLINK_STALE`,
+`OFFCHAIN_STALE`) keep `tier: 'full'` for now; a distinct row/string for them is
+deferred. The "three" wording is verbatim per the design; the benchmark's
+`LOW_POOL_COVERAGE` case (fewer than three pools) is not separately worded here.
 
 ## 3. Dashboard
 
