@@ -109,7 +109,14 @@ export function synthesizeV4Legs(
   for (const s of swaps) {
     const key = poolKeys.get(s.poolId);
     if (!key) continue;
-    const map = (c: string) => (c === ZERO_ADDRESS ? wethSentinel : c);
+    // Lowercase the reader's currencies before mapping: the default reader
+    // normalizes, but a custom injected v4PoolKeyReader could return checksummed
+    // addresses, which would defeat the native (ZERO_ADDRESS) remap and the
+    // case-sensitive leg chaining / extraLegs de-dup downstream.
+    const map = (c: string) => {
+      const lc = c.toLowerCase();
+      return lc === ZERO_ADDRESS ? wethSentinel : lc;
+    };
     const tok0 = map(key.currency0);
     const tok1 = map(key.currency1);
     // amount0 sign tells us token0's role. Under positiveIsTokenIn, positive

@@ -352,7 +352,7 @@ export function makeV4PoolKeyReader(
  * Initialize event via viem and delegates decode/cache to makeV4PoolKeyReader.
  */
 export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader {
-	if (!rpcUrl) return async () => null;
+	if (!rpcUrl || rpcUrl === 'unused' || rpcUrl === 'http://invalid') return async () => null;
 	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
 	return makeV4PoolKeyReader(async (poolId: string) => {
 		const logs = await rpc.getLogs({
