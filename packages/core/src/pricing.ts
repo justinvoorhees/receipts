@@ -13,10 +13,19 @@
 import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 import { getBenchmarkMid, type BenchmarkResult } from './benchmarkPrice.js';
-import { getDeepestPoolForPair, getDeepestPoolWithDepth, readSlot0, readLiquidity } from './poolDiscovery.js';
+import {
+  getDeepestPoolForPair,
+  getDeepestPoolWithDepth,
+  readSlot0,
+  readLiquidity,
+  readV2Reserves,
+  type PoolKind,
+} from './poolDiscovery.js';
+import { mechanismForKind } from './poolFamilies.js';
 import {
   makeRpcDecimalsCache,
   sqrtPriceX96ToPrice,
+  v2MidFromReserves,
   getTokenUsdcValue,
   getEstimatedMidAtBlock,
   ESTIMATED_MID_MIN_LIQUIDITY,
@@ -147,16 +156,19 @@ export interface PoolMidReaders {
   /** In-range `liquidity()` for a pool at a block; null on revert. Used to reject
    *  empty pools whose slot0 price is not a usable mid. */
   readLiquidity: (poolAddress: string, blockNumber: bigint) => Promise<bigint | null>;
+  /** Reserves for a basic-AMM (Solidly/UniV2) pool; null on revert or empty. */
+  readV2Reserves: (poolAddress: string, blockNumber: bigint) => Promise<[bigint, bigint] | null>;
   readDecimals: (address: string) => Promise<number>;
 }
 
 /**
  * Compute an arbitrary-pair mid from the deepest on-chain pool.
  *
- * `getDeepestPoolForPair` returns V3-style pools only, so the mid is always a
- * `slot0` read. `sqrtPriceX96ToPrice` yields token1-per-token0 (Uniswap sort
- * order, lower address = token0); we invert when the caller's `tokenIn` is the
- * higher address so the result is always output-per-input.
+ * `getDeepestPoolForPair` can return either a V3-style pool (mid via `slot0`)
+ * or a basic-AMM pool (mid via `getReserves`); `mechanismForKind` picks the
+ * branch. Both branches yield token1-per-token0 (Uniswap sort order, lower
+ * address = token0); we invert when the caller's `tokenIn` is the higher
+ * address so the result is always output-per-input.
  *
  * Exported (and parameterized over `PoolMidReaders` rather than a raw
  * `PublicClient`) so this — the highest-risk math in the module — can be
@@ -178,20 +190,29 @@ export async function defaultGetPairMid(
   const pool = await readers.getDeepestPool(token0, token1, blockNumber);
   if (!pool) return null;
 
-  const sqrtPriceX96 = await readers.readSlot0(pool.address, blockNumber);
-  if (sqrtPriceX96 === null) return null;
-
-  // Reject an empty / one-sided pool: its slot0 price is a garbage extreme, not
-  // a usable mid. Two signals — a price pinned at a tick boundary, or liquidity
-  // below the floor. Returning null here lets priceReceipt fall through to the
-  // bridged `estimated` mid instead of quoting a bogus `full` mid.
-  if (sqrtPriceX96 <= MIN_SQRT_RATIO + 1n || sqrtPriceX96 >= MAX_SQRT_RATIO - 1n) return null;
-  const liquidity = await readers.readLiquidity(pool.address, blockNumber);
-  if (liquidity === null || liquidity < ESTIMATED_MID_MIN_LIQUIDITY) return null;
-
   const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
-  const rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1); // token1 per token0
+  let rawPrice: number; // token1 per token0
+
+  if (mechanismForKind(pool.kind as PoolKind) === 'v2-reserves') {
+    const reserves = await readers.readV2Reserves(pool.address, blockNumber);
+    if (reserves === null || reserves[0] === 0n || reserves[1] === 0n) return null;
+    rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
+  } else {
+    const sqrtPriceX96 = await readers.readSlot0(pool.address, blockNumber);
+    if (sqrtPriceX96 === null) return null;
+
+    // Reject an empty / one-sided pool: its slot0 price is a garbage extreme, not
+    // a usable mid. Two signals — a price pinned at a tick boundary, or liquidity
+    // below the floor. Returning null here lets priceReceipt fall through to the
+    // bridged `estimated` mid instead of quoting a bogus `full` mid.
+    if (sqrtPriceX96 <= MIN_SQRT_RATIO + 1n || sqrtPriceX96 >= MAX_SQRT_RATIO - 1n) return null;
+    const liquidity = await readers.readLiquidity(pool.address, blockNumber);
+    if (liquidity === null || liquidity < ESTIMATED_MID_MIN_LIQUIDITY) return null;
+    rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1);
+  }
+
   const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
+  if (!(price > 0)) return null;
   return { price, poolAddress: pool.address, poolKind: pool.kind };
 }
 
@@ -209,6 +230,7 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
     getDeepestPool: (token0, token1, blockNumber) => getDeepestPoolForPair(client, token0, token1, blockNumber),
     readSlot0: (poolAddress, blockNumber) => readSlot0(client, poolAddress as `0x${string}`, blockNumber),
     readLiquidity: (poolAddress, blockNumber) => readLiquidity(client, poolAddress as `0x${string}`, blockNumber),
+    readV2Reserves: (poolAddress, blockNumber) => readV2Reserves(client, poolAddress as `0x${string}`, blockNumber),
     readDecimals: decCache,
   };
 

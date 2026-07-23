@@ -321,6 +321,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
       },
       readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
       readLiquidity: async () => 1_000_000n, // healthy pool
+      readV2Reserves: async () => null,
       readDecimals: async () => 18, // dec0 === dec1 → rawPrice is exactly 4
     };
   }
@@ -352,6 +353,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
       getDeepestPool: async () => null,
       readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
       readLiquidity: async () => 1_000_000n,
+      readV2Reserves: async () => null,
       readDecimals: async () => 18,
     };
     const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
@@ -363,6 +365,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
       getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
       readSlot0: async () => null,
       readLiquidity: async () => 1_000_000n,
+      readV2Reserves: async () => null,
       readDecimals: async () => 18,
     };
     const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
@@ -375,6 +378,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
       getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
       readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
       readLiquidity: async () => 0n,
+      readV2Reserves: async () => null,
       readDecimals: async () => 18,
     };
     const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
@@ -388,10 +392,37 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
       getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
       readSlot0: async () => MAX_SQRT_RATIO - 1n,
       readLiquidity: async () => 1_000_000n, // even with "liquidity", a boundary price is unusable
+      readV2Reserves: async () => null,
       readDecimals: async () => 18,
     };
     const mid = await defaultGetPairMid(readers, EXOTIC_A, EXOTIC_B, 100n);
     expect(mid).toBeNull();
+  });
+});
+
+describe('defaultGetPairMid — basic-AMM (v2-reserves) pool', () => {
+  // token0 < token1 so no inversion; 18-decimals both sides.
+  const token0 = '0x1111111111111111111111111111111111111111';
+  const token1 = '0x2222222222222222222222222222222222222222';
+
+  const readers = (kind: string): PoolMidReaders => ({
+    getDeepestPool: async () => ({ address: '0xpool', kind }),
+    readSlot0: async () => { throw new Error('slot0 should not be called for a basic pool'); },
+    readLiquidity: async () => 0n,
+    readV2Reserves: async () => [2n * 10n ** 18n, 6000n * 10n ** 18n], // 3000 token1 per token0
+    readDecimals: async () => 18,
+  });
+
+  it('prices a basic pool from reserves instead of slot0', async () => {
+    const res = await defaultGetPairMid(readers('aerodrome_basic'), token0, token1, 100n);
+    expect(res).not.toBeNull();
+    expect(res!.price).toBeCloseTo(3000, 6);
+    expect(res!.poolKind).toBe('aerodrome_basic');
+  });
+
+  it('returns null on a one-sided basic pool (zero reserve)', async () => {
+    const r: PoolMidReaders = { ...readers('aerodrome_basic'), readV2Reserves: async () => [0n, 5n] };
+    expect(await defaultGetPairMid(r, token0, token1, 100n)).toBeNull();
   });
 });
 
