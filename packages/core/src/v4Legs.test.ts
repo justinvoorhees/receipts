@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decodeEventLog } from 'viem';
-import { V4_SWAP_EVENT_ABI, collectV4Swaps } from './v4Legs.js';
+import { V4_SWAP_EVENT_ABI, collectV4Swaps, synthesizeV4Legs, type V4Swap } from './v4Legs.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const swaps = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__/v4-id56-swaps.json'), 'utf-8'));
@@ -51,5 +51,51 @@ describe('collectV4Swaps', () => {
   it('ignores non-V4 logs', () => {
     const noise = [{ address: '0xabc', topics: ['0xdeadbeef'], data: '0x' }];
     expect(collectV4Swaps(noise as never)).toEqual([]);
+  });
+});
+
+const WETH = '0x4200000000000000000000000000000000000006';
+const NATIVE = '0x0000000000000000000000000000000000000000';
+const TOKEN_A = '0x000000000000000000000000000000000000aaaa';
+const TOKEN_B = '0x000000000000000000000000000000000000bbbb';
+
+describe('synthesizeV4Legs', () => {
+  it('builds a univ4 leg with tokenIn=negative-amount token per the pinned convention', () => {
+    // Convention pinned in Task 1: V4_AMOUNT_SIGN.positiveIsTokenIn === FALSE →
+    // the NEGATIVE-amount token is paid INTO the pool (tokenIn); the positive
+    // one is paid out (tokenOut). Here amount0 = +100 (token0 out), amount1 =
+    // -90 (token1 in).
+    const swaps: V4Swap[] = [
+      { poolId: '0xpool1', fee: 3000, amount0: 100n, amount1: -90n, sqrtPriceX96: 1n },
+    ];
+    const keys = new Map([['0xpool1', { currency0: TOKEN_A, currency1: TOKEN_B }]]);
+    const legs = synthesizeV4Legs(swaps, keys, WETH);
+    expect(legs).toHaveLength(1);
+    const leg = legs[0]!;
+    expect(leg.type).toBe('univ4');
+    expect(leg.v4PoolId).toBe('0xpool1');
+    expect(leg.v4FeeRaw).toBe(3000);
+    // positiveIsTokenIn === false: token1 (negative amount) is tokenIn, token0 (positive) is tokenOut.
+    expect(leg.tokenIn).toBe(TOKEN_B);
+    expect(leg.tokenOut).toBe(TOKEN_A);
+    expect(leg.amountInRaw).toBe(90n);   // |amount1|
+    expect(leg.amountOutRaw).toBe(100n); // |amount0|
+  });
+
+  it('maps native currency0 (address(0)) to the WETH sentinel', () => {
+    const swaps: V4Swap[] = [
+      { poolId: '0xpool2', fee: 500, amount0: -5n, amount1: 42n, sqrtPriceX96: 1n },
+    ];
+    const keys = new Map([['0xpool2', { currency0: NATIVE, currency1: TOKEN_B }]]);
+    const legs = synthesizeV4Legs(swaps, keys, WETH);
+    // positiveIsTokenIn === false: amount0 negative → token0 (native→WETH) is tokenIn;
+    // amount1 positive → token1 (TOKEN_B) is tokenOut.
+    expect(legs[0]!.tokenIn).toBe(WETH);
+    expect(legs[0]!.tokenOut).toBe(TOKEN_B);
+  });
+
+  it('drops swaps whose poolId has no resolved key', () => {
+    const swaps: V4Swap[] = [{ poolId: '0xunknown', fee: 3000, amount0: 1n, amount1: -1n, sqrtPriceX96: 1n }];
+    expect(synthesizeV4Legs(swaps, new Map(), WETH)).toEqual([]);
   });
 });

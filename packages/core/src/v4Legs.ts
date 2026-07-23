@@ -9,6 +9,7 @@
  * Pure module: no RPC. poolId→token resolution is injected by the caller.
  */
 import { decodeEventLog, parseAbiItem, toEventSelector } from 'viem';
+import type { Leg } from './routeGraph.js';
 import type { LogLike } from './tradeEndpoints.js';
 
 export const V4_SWAP_EVENT_ABI = [
@@ -57,6 +58,7 @@ export interface V4Swap {
 }
 
 const V4_SWAP_TOPIC = toEventSelector(V4_SWAP_EVENT_ABI[0]).toLowerCase();
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 /** Extract one V4Swap per Uniswap V4 Swap log. Malformed logs are skipped. */
 export function collectV4Swaps(logs: readonly LogLike[]): V4Swap[] {
@@ -87,6 +89,47 @@ export function collectV4Swaps(logs: readonly LogLike[]): V4Swap[] {
     } catch {
       // malformed V4 log — skip
     }
+  }
+  return out;
+}
+
+/**
+ * Build one univ4 Leg per resolved V4 swap. Direction comes from the pinned
+ * V4_AMOUNT_SIGN convention: the token with the positive (if positiveIsTokenIn)
+ * amount is tokenIn, the other is tokenOut. Native currency (address(0)) is
+ * remapped to the WETH sentinel so the ERC-20-only route graph can chain it.
+ * Swaps with an unresolved poolId are dropped.
+ */
+export function synthesizeV4Legs(
+  swaps: V4Swap[],
+  poolKeys: Map<string, { currency0: string; currency1: string }>,
+  wethSentinel: string,
+): Leg[] {
+  const out: Leg[] = [];
+  for (const s of swaps) {
+    const key = poolKeys.get(s.poolId);
+    if (!key) continue;
+    const map = (c: string) => (c === ZERO_ADDRESS ? wethSentinel : c);
+    const tok0 = map(key.currency0);
+    const tok1 = map(key.currency1);
+    // amount0 sign tells us token0's role. Under positiveIsTokenIn, positive
+    // amount0 ⇒ token0 is tokenIn. Amounts are magnitudes on the leg.
+    const zeroIsIn = V4_AMOUNT_SIGN.positiveIsTokenIn ? s.amount0 > 0n : s.amount0 < 0n;
+    const abs = (x: bigint) => (x < 0n ? -x : x);
+    const tokenIn = zeroIsIn ? tok0 : tok1;
+    const tokenOut = zeroIsIn ? tok1 : tok0;
+    const amountInRaw = zeroIsIn ? abs(s.amount0) : abs(s.amount1);
+    const amountOutRaw = zeroIsIn ? abs(s.amount1) : abs(s.amount0);
+    out.push({
+      venue: `v4:${s.poolId}`,
+      type: 'univ4',
+      tokenIn,
+      tokenOut,
+      amountInRaw,
+      amountOutRaw,
+      v4PoolId: s.poolId,
+      v4FeeRaw: s.fee,
+    });
   }
   return out;
 }
