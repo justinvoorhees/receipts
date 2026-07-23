@@ -302,3 +302,66 @@ export function createDefaultMidReader(
 		decimalsReader: decCache,
 	};
 }
+
+// ─── V4 poolId → currencies reader ───
+
+export type V4PoolKeyReader = (poolId: string) => Promise<{ currency0: string; currency1: string } | null>;
+export type V4InitLog = { args: { currency0: string; currency1: string } };
+
+// PoolManager deployment block on Base. Confirm on-chain before shipping; a
+// too-late value silently misses older pools (reader returns null → graceful).
+const V4_POOL_MANAGER_DEPLOY_BLOCK = 25_350_988n;
+const V4_INITIALIZE_EVENT = parseAbiItem(
+	'event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)',
+);
+
+/**
+ * Pure decode + per-poolId cache over an injected Initialize-log fetcher.
+ * Returns lowercased currencies from the first Initialize log, caches the
+ * result (including a null miss), and never throws — a failing fetch yields a
+ * cached null so callers degrade to the un-decomposed path. No viem here, so
+ * the decode/cache contract is unit-testable with a stub fetcher.
+ */
+export function makeV4PoolKeyReader(
+	fetchInitLogs: (poolId: string) => Promise<V4InitLog[]>,
+): V4PoolKeyReader {
+	const cache = new Map<string, { currency0: string; currency1: string } | null>();
+	return async (poolId: string): Promise<{ currency0: string; currency1: string } | null> => {
+		const key = poolId.toLowerCase();
+		if (cache.has(key)) return cache.get(key)!;
+		let result: { currency0: string; currency1: string } | null = null;
+		try {
+			const logs = await fetchInitLogs(key);
+			const init = logs[0];
+			if (init) {
+				result = {
+					currency0: init.args.currency0.toLowerCase(),
+					currency1: init.args.currency1.toLowerCase(),
+				};
+			}
+		} catch {
+			result = null;
+		}
+		cache.set(key, result);
+		return result;
+	};
+}
+
+/**
+ * Production V4 poolId → currencies reader: queries the PoolManager's indexed
+ * Initialize event via viem and delegates decode/cache to makeV4PoolKeyReader.
+ */
+export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader {
+	if (!rpcUrl) return async () => null;
+	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	return makeV4PoolKeyReader(async (poolId: string) => {
+		const logs = await rpc.getLogs({
+			address: V4_POOL_MANAGER,
+			event: V4_INITIALIZE_EVENT,
+			args: { id: poolId as `0x${string}` },
+			fromBlock: V4_POOL_MANAGER_DEPLOY_BLOCK,
+			toBlock,
+		});
+		return logs as unknown as V4InitLog[];
+	});
+}
