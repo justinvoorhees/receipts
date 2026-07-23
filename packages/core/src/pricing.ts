@@ -426,7 +426,7 @@ export async function priceReceipt(
     poolDivergenceBps: null,
     manipulationFlag: false,
     tier: 'none',
-    methodology: 'No reliable market price available.',
+    methodology: 'Unavailable: No reliable market price could be calculated.',
     marketPriceFlags: [],
     chainlinkDevBps: null,
     offchainPrice: null,
