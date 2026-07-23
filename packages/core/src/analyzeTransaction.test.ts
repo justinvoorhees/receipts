@@ -191,6 +191,31 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(legs.some((l) => l.type === 'wrap' || l.type === 'unwrap')).toBe(false);
 	}, 30_000);
 
+	it('prices a BLUAI->WETH trade whose only liquidity is an Aerodrome basic (getReserves) pool', async () => {
+		// id 209: BLUAI->WETH routed through the Aerodrome basic *volatile* pool
+		// 0x5fb5a087 (answers getReserves(), reverts on slot0()). Before the
+		// pool-family reserves mid reader, the slot0-only market-price apparatus
+		// found NO liquidity for this pair -> market_mid null -> all-in/slippage
+		// null (pricing_status "partial"). It must now price on the estimated tier.
+		const r = await analyzeTransaction(
+			'0xc8078a93d1ccfe88e9fc78ed1d1a4feaf9485f71d9fd91189cf2081d6dd365c8',
+			8453,
+			{ rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+		expect(r!.inputSymbol).toBe('BLUAI');
+		expect(r!.outputSymbol).toBe('WETH');
+		// The reserves-backed direct mid now resolves (was null under slot0-only).
+		expect(r!.marketMid).not.toBeNull();
+		expect(Number(r!.marketMid)).toBeGreaterThan(0);
+		expect(r!.pricingStatus).toBe('estimated');
+		expect(r!.allInCostBps).not.toBeNull();
+		// The traded venue is the Aerodrome basic volatile pool.
+		const legs209 = r!.routeLegs as { venue: string }[];
+		expect(legs209.map((l) => l.venue.toLowerCase()))
+			.toContain('0x5fb5a087a92bb8fdb7aa9ad456c76ac3c2a759bb');
+	}, 60_000);
+
 	it('decomposes a native-ETH-INPUT (ETH->USDC) trade with no spurious leg from the outer EOA->router frame', async () => {
 		// Odos ETH->USDC on Base, block 48452452: EOA sends native ETH directly to
 		// the Odos router, which wraps to WETH and swaps WETH->USDC on a Uni V2
