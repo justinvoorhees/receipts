@@ -6,7 +6,7 @@
  * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, type EstimatedMidReaders } from './tokenPricing.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, midViaDeepest, type EstimatedMidReaders } from './tokenPricing.js';
 import { type PublicClient } from 'viem';
 
 // ── sqrtPriceX96ToPrice ─────────────────────────────────────────────────────
@@ -186,11 +186,12 @@ function makeReaders(over: Partial<EstimatedMidReaders> = {}): EstimatedMidReade
   return {
     getDeepestPoolWithDepth: async (a, b) => {
       const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
-      if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n };
-      if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n };
+      if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n, kind: 'univ3' };
+      if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n, kind: 'univ3' };
       return null;
     },
     readSlot0: async () => SQRT_1, // both fake pools priced at raw 1:1 (see decimals below)
+    readV2Reserves: async () => null,
     readDecimals: async () => 18,
     ...over,
   };
@@ -211,8 +212,8 @@ describe('getEstimatedMidAtBlock', () => {
     const readers = makeReaders({
       getDeepestPoolWithDepth: async (a, b) => {
         const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
-        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n };
-        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 0n }; // dead
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n, kind: 'univ3' };
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 0n, kind: 'univ3' }; // dead
         return null;
       },
     });
@@ -230,12 +231,29 @@ describe('getEstimatedMidAtBlock', () => {
     const readers = makeReaders({
       getDeepestPoolWithDepth: async (a, b) => {
         const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
-        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 0n }; // dead
-        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n };
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 0n, kind: 'univ3' }; // dead
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n, kind: 'univ3' };
         return null;
       },
     });
     const res = await getEstimatedMidAtBlock(readers, WARP, NATIVE, 100n, 1n);
     expect(res).toBeNull();
+  });
+});
+
+// ── midViaDeepest — basic-AMM (reserves) branch ─────────────────────────────
+
+describe('midViaDeepest', () => {
+  it('prices a basic-AMM deepest pool from reserves', async () => {
+    const token0 = '0x1111111111111111111111111111111111111111';
+    const token1 = '0x2222222222222222222222222222222222222222';
+    const readers = {
+      getDeepestPoolWithDepth: async () => ({ address: '0xpool', depth: 5n, kind: 'aerodrome_basic' as const }),
+      readSlot0: async () => { throw new Error('slot0 not for basic'); },
+      readV2Reserves: async () => [1n * 10n ** 18n, 2500n * 10n ** 18n] as [bigint, bigint],
+      readDecimals: async () => 18,
+    };
+    const res = await midViaDeepest(readers as never, token0, token1, 100n);
+    expect(res!.price).toBeCloseTo(2500, 6);
   });
 });

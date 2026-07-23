@@ -257,9 +257,10 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
         {
           getDeepestPoolWithDepth: async (a, b, block) => {
             const best = await getDeepestPoolWithDepth(client, a, b, block);
-            return best ? { address: best.pool.address, depth: best.depth } : null;
+            return best ? { address: best.pool.address, depth: best.depth, kind: best.pool.kind } : null;
           },
           readSlot0: (pool, block) => readSlot0(client, pool as `0x${string}`, block),
+          readV2Reserves: (pool, block) => readV2Reserves(client, pool as `0x${string}`, block),
           readDecimals: decCache,
         },
         inputToken,
@@ -277,9 +278,10 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
               {
                 getDeepestPoolWithDepth: async (a, b, b2) => {
                   const best = await getDeepestPoolWithDepth(client, a, b, b2);
-                  return best ? { address: best.pool.address, depth: best.depth } : null;
+                  return best ? { address: best.pool.address, depth: best.depth, kind: best.pool.kind } : null;
                 },
                 readSlot0: (pool, b2) => readSlot0(client, pool as `0x${string}`, b2),
+                readV2Reserves: (pool, b2) => readV2Reserves(client, pool as `0x${string}`, b2),
                 readDecimals: decCache,
               }, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null;
           },

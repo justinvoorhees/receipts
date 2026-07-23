@@ -18,7 +18,9 @@ import {
   discoverPool,
   readSlot0,
   readV2Reserves,
+  type PoolKind,
 } from './poolDiscovery.js';
+import { mechanismForKind } from './poolFamilies.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -193,13 +195,21 @@ export async function getPairMidAtBlock(
 }
 
 export interface EstimatedMidReaders {
-  getDeepestPoolWithDepth: (a: string, b: string, block: bigint) => Promise<{ address: string; depth: bigint } | null>;
+  getDeepestPoolWithDepth: (a: string, b: string, block: bigint) => Promise<{ address: string; depth: bigint; kind: string } | null>;
   readSlot0: (pool: string, block: bigint) => Promise<bigint | null>;
+  readV2Reserves: (pool: string, block: bigint) => Promise<[bigint, bigint] | null>;
   readDecimals: (addr: string) => Promise<number>;
 }
 
-/** WETH-per-token (or USDC-per-WETH for the anchor) via the deepest pool, no floor. */
-async function midViaDeepest(
+/**
+ * WETH-per-token (or USDC-per-WETH for the anchor) via the deepest pool, no
+ * floor. `getDeepestPoolWithDepth` can return either a V3-style pool (mid via
+ * `slot0`) or a basic-AMM pool (mid via `getReserves`); `mechanismForKind`
+ * picks the branch, mirroring `defaultGetPairMid` in pricing.ts.
+ *
+ * Exported so this branch is directly unit-testable with fake readers.
+ */
+export async function midViaDeepest(
   readers: EstimatedMidReaders,
   tokenA: string,
   tokenB: string,
@@ -207,14 +217,22 @@ async function midViaDeepest(
 ): Promise<{ price: number; depth: bigint } | null> {
   const disc = await readers.getDeepestPoolWithDepth(tokenA, tokenB, block);
   if (!disc) return null;
-  const sqrt = await readers.readSlot0(disc.address, block);
-  if (sqrt === null || sqrt <= 0n) return null;
   const inverted = tokenA.toLowerCase() > tokenB.toLowerCase();
   const token0 = inverted ? tokenB : tokenA;
   const token1 = inverted ? tokenA : tokenB;
   const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
-  const raw = sqrtPriceX96ToPrice(sqrt, dec0, dec1); // token1 per token0
+  let raw: number; // token1 per token0
+  if (mechanismForKind(disc.kind as PoolKind) === 'v2-reserves') {
+    const r = await readers.readV2Reserves(disc.address, block);
+    if (r === null || r[0] === 0n || r[1] === 0n) return null;
+    raw = v2MidFromReserves(r[0], r[1], dec0, dec1);
+  } else {
+    const sqrt = await readers.readSlot0(disc.address, block);
+    if (sqrt === null || sqrt <= 0n) return null;
+    raw = sqrtPriceX96ToPrice(sqrt, dec0, dec1);
+  }
   const price = inverted ? (raw > 0 ? 1 / raw : 0) : raw; // tokenB per tokenA
+  if (!(price > 0)) return null;
   return { price, depth: disc.depth };
 }
 
