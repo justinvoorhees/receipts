@@ -49,6 +49,29 @@ describe('computeMarketPrice', () => {
     expect(r.tier).toBe('estimated');
     expect(r.marketMid).toBe(100);
     expect(r.flags).toContain('ORACLE_DISAGREE');
+    expect(r.flags).toContain('SINGLE_SOURCE');   // single liquidity source
+  });
+
+  it('single pool + disagreeing oracle => estimated with BOTH flags', () => {
+    const r = computeMarketPrice([direct(100), oracle(110)]);
+    expect(r.tier).toBe('estimated');
+    expect(r.marketMid).toBe(100);
+    expect(r.flags).toContain('ORACLE_DISAGREE');
+    expect(r.flags).toContain('SINGLE_SOURCE');   // the fix: single liquidity source
+    expect(r.corroboratedBy).toEqual(['direct']); // names the lone class for the descriptor
+  });
+
+  it('single bridged pool + disagreeing oracle => BOTH flags, bridged named', () => {
+    const r = computeMarketPrice([bridged(100), oracle(110)]);
+    expect(r.flags).toContain('ORACLE_DISAGREE');
+    expect(r.flags).toContain('SINGLE_SOURCE');
+    expect(r.corroboratedBy).toEqual(['bridged']);
+  });
+
+  it('two liquidity classes + disagreeing oracle => NO SINGLE_SOURCE', () => {
+    const r = computeMarketPrice([direct(100), bridged(100.3), oracle(140)]);
+    expect(r.flags).toContain('ORACLE_DISAGREE');
+    expect(r.flags).not.toContain('SINGLE_SOURCE'); // >=2 classes: not single-source
   });
 
   it('liquidity corroborates even when an oracle outlier disagrees', () => {

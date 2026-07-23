@@ -75,7 +75,10 @@ export function computeMarketPrice(
   }
 
   const corroborated = liquidityCorroborated || oracleCorroborated;
-  if (!corroborated && flags.length === 0) flags.push('SINGLE_SOURCE');
+  // SINGLE_SOURCE = exactly one liquidity class present and uncorroborated. It can
+  // co-occur with ORACLE_DISAGREE (a lone pool the oracle contradicts) but never with
+  // LIQUIDITY_DISAGREE (that requires >=2 classes). Tier is already 'estimated' here.
+  if (!corroborated && liqClasses.length === 1) flags.push('SINGLE_SOURCE');
   return { tier: corroborated ? 'full' : 'estimated', marketMid, corroboratedBy, flags };
 }
 
