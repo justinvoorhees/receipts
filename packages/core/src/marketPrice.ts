@@ -74,7 +74,11 @@ export function computeMarketPrice(
     }
   }
 
-  const corroborated = liquidityCorroborated || oracleCorroborated;
+  // full requires liquidity agreement, OR a single pool the oracle corroborates.
+  // Two disagreeing pools are never rescued to "full" by an oracle near their
+  // median (with two values each is equidistant from the median, so on disagreement
+  // BOTH fall outside tolerance) — that case stays estimated + LIQUIDITY_DISAGREE.
+  const corroborated = liquidityCorroborated || (liqClasses.length === 1 && oracleCorroborated);
   // SINGLE_SOURCE = exactly one liquidity class present and uncorroborated. It can
   // co-occur with ORACLE_DISAGREE (a lone pool the oracle contradicts) but never with
   // LIQUIDITY_DISAGREE (that requires >=2 classes). Tier is already 'estimated' here.

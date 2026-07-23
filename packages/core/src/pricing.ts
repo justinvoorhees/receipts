@@ -340,6 +340,9 @@ function methodologyFor(mp: MarketPriceResult): string {
   if (mp.tier === 'full') {
     // Order the corroborators canonically (direct, bridged, oracle) and join them:
     // "The A and B agree." / "The A, B, and C agree." First phrase is capitalized.
+    // Invariant (see marketPrice.ts corroboration rule): a 'full' result always
+    // has >=2 corroborators — single-pool+oracle => [pool, oracle]; liquidity
+    // agreement => >=2 pools. So `parts` below is never length<2.
     const order: EstimatorClass[] = ['direct', 'bridged', 'oracle'];
     const parts = order.filter((c) => mp.corroboratedBy.includes(c)).map((c) => CLASS_PHRASE[c]);
     const joined = parts.length === 3
@@ -456,8 +459,13 @@ export async function priceReceipt(
           ? 1 / wethUsd // USDC in, WETH out
           : null;
       const notionalUsd = await bestEffortNotional(deps, args, refBlock, wethUsd);
+      const oracleDisagreed = bench.flags.includes('ORACLE_DISAGREE');
+      const fastPathTier = oracleDisagreed ? 'estimated' : 'full';
+      const fastPathMethodology = oracleDisagreed
+        ? 'Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the pool-based prices.'
+        : 'Confirmed: The median of three WETH/USDC pool prices agrees with the oracle reference.';
       return {
-        status: 'full',
+        status: fastPathTier,
         marketMid,
         notionalUsd,
         inputSymbol,
@@ -467,8 +475,8 @@ export async function priceReceipt(
         chainlinkPrice: bench.chainlinkPrice,
         poolDivergenceBps: bench.poolDivergenceBps,
         manipulationFlag: bench.manipulationSuspect,
-        tier: 'full',
-        methodology: 'Confirmed: The median of the available WETH/USDC pool prices agrees with the oracle reference.',
+        tier: fastPathTier,
+        methodology: fastPathMethodology,
         marketPriceFlags: bench.flags,
         chainlinkDevBps: bench.chainlinkDevBps,
         offchainPrice: bench.offchainPrice,

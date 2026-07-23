@@ -101,6 +101,24 @@ describe('priceReceipt', () => {
     expect(r.offchainPrice).toBeNull();
     expect(r.offchainDevBps).toBeNull();
     expect(r.chainlinkStalenessSecs).toBe(12);
+    expect(r.tier).toBe('full');
+    expect(r.methodology).toBe('Confirmed: The median of three WETH/USDC pool prices agrees with the oracle reference.');
+  });
+
+  it('USDC/WETH fast-path downgrades to estimated when the oracle disagrees', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: WETH, outputToken: USDC },
+      makeDeps({
+        benchmark: async () => fakeBenchmark({ marketMid: 1800, flags: ['ORACLE_DISAGREE'] }),
+        getUsdValue: async () => 1800,
+        readDecimals: async (t) => (t.toLowerCase() === USDC ? 6 : 18),
+        readSymbol: async (t) => (t.toLowerCase() === USDC ? 'USDC' : 'WETH'),
+      }),
+    );
+    expect(r.status).toBe('estimated');
+    expect(r.tier).toBe('estimated');
+    expect(r.marketMid).toBeCloseTo(1800, 6); // mid unchanged — still the pool median
+    expect(r.methodology).toBe('Estimated: The median of three WETH/USDC pool prices disagree with the oracle reference. Showing the median of the pool-based prices.');
   });
 
   it('inverts the benchmark mid for USDC in, WETH out', async () => {
@@ -484,7 +502,7 @@ describe('methodology descriptor strings', () => {
     return r.methodology;
   };
   const mp = (tier: MarketPriceResult['tier'], corroboratedBy: MarketPriceResult['corroboratedBy'], flags: string[]): MarketPriceResult =>
-    ({ tier, marketMid: 1800, corroboratedBy, flags });
+    ({ tier, marketMid: tier === 'none' ? null : 1800, corroboratedBy, flags });
 
   it('full: direct + bridged + oracle', async () =>
     expect(await run(mp('full', ['direct', 'bridged', 'oracle'], []))).toBe(

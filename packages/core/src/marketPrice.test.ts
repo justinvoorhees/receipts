@@ -81,6 +81,16 @@ describe('computeMarketPrice', () => {
     expect(r.corroboratedBy).not.toContain('oracle');
     expect(r.flags).toContain('ORACLE_DISAGREE');
   });
+
+  it('two liquidity classes disagree + oracle near their median => estimated (not full)', () => {
+    // direct=100, bridged=101.5 => median 100.75; each is ~74bps off => LIQUIDITY_DISAGREE.
+    // oracle=100.75 sits on the median (within tol) but must NOT promote to full.
+    const r = computeMarketPrice([direct(100), bridged(101.5), oracle(100.75)]);
+    expect(r.tier).toBe('estimated');
+    expect(r.flags).toContain('LIQUIDITY_DISAGREE');
+    expect(r.flags).not.toContain('ORACLE_DISAGREE'); // oracle agreed with the median
+    expect(r.marketMid).toBeCloseTo(100.75, 6);       // still the pool median
+  });
 });
 
 describe('reconciledResult (single-ruler invariant)', () => {
