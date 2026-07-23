@@ -11,6 +11,7 @@
  */
 
 import { type PublicClient, parseAbi } from 'viem';
+import { POOL_FAMILIES, mechanismForKind, pickReferenceToken } from './poolFamilies.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -292,17 +293,20 @@ export async function readErc20Balance(
  * Discover the DEEPEST initialized reference pool for an arbitrary token pair.
  *
  * Unlike `discoverPool` (which returns the first initialized pool found and is
- * relied on unchanged by existing callers), this scans every V3 fee tier and
- * Aerodrome CL tick spacing, then ranks the initialized candidates by in-range
- * `liquidity()` and returns the deepest. This is the reference pool a generic
- * pair-mid should be sampled from.
+ * relied on unchanged by existing callers), this gathers candidates across
+ * every family in `POOL_FAMILIES` — V3-style pools (Uniswap V3, PancakeSwap
+ * V3, Aerodrome CL) plus basic-AMM pools (Aerodrome basic, Uniswap V2) — then
+ * ranks the initialized candidates by a uniform `balanceOf(referenceToken)`
+ * depth yardstick and returns the deepest. This is the reference pool a
+ * generic pair-mid should be sampled from.
  *
- * Returns only V3-style pools (Uniswap V3, PancakeSwap V3, Aerodrome CL) — the
- * same families `discoverPool` covers — so callers can always read the mid via
- * `readSlot0`. Returns `null` when no initialized pool exists for the pair.
+ * Each family's mechanism (`v3-slot0` vs `v2-reserves`) determines how it is
+ * gated for initialization: V3-style via `readSlot0`, basic AMM via
+ * `readV2Reserves`. Returns `null` when no initialized pool exists for the
+ * pair.
  *
- * NEVER throws: individual factory / liquidity reads are wrapped so a transient
- * RPC failure on one candidate just drops that candidate.
+ * NEVER throws: individual factory / reserve / balance reads are wrapped so a
+ * transient RPC failure on one candidate just drops that candidate.
  */
 export async function getDeepestPoolWithDepth(
   client: PublicClient,
@@ -310,62 +314,28 @@ export async function getDeepestPoolWithDepth(
   tokenB: string,
   blockNumber?: bigint,
 ): Promise<{ pool: DiscoveredPool; depth: bigint } | null> {
-  const a = tokenA.toLowerCase() as `0x${string}`;
-  const b = tokenB.toLowerCase() as `0x${string}`;
+  const a = tokenA.toLowerCase();
+  const b = tokenB.toLowerCase();
+  const refToken = pickReferenceToken(a, b);
 
-  const candidates: { address: `0x${string}`; kind: PoolKind }[] = [];
+  // Gather candidates from every family.
+  const candidates: PoolCandidate[] = [];
+  for (const fam of POOL_FAMILIES) {
+    const addrs = await fam.discover(client, a, b, blockNumber);
+    for (const addr of addrs) candidates.push({ address: addr, kind: fam.kind });
+  }
 
-  const v3Factories: { address: `0x${string}`; kind: PoolKind }[] = [
-    { address: UNIV3_FACTORY, kind: 'univ3' },
-    { address: PANCAKE_V3_FACTORY, kind: 'pancakev3' },
-  ];
-  for (const factory of v3Factories) {
-    for (const fee of V3_FEE_TIERS) {
-      try {
-        const poolAddr = await client.readContract({
-          address: factory.address,
-          abi: V3_FACTORY_ABI,
-          functionName: 'getPool',
-          args: [a, b, fee],
-        });
-        if (poolAddr && poolAddr !== ZERO_ADDRESS) {
-          candidates.push({ address: poolAddr as `0x${string}`, kind: factory.kind });
-        }
-      } catch {
-        // skip this tier
+  return rankCandidatesByDepth(candidates, {
+    isInitialized: async (c) => {
+      if (mechanismForKind(c.kind) === 'v2-reserves') {
+        const r = await readV2Reserves(client, c.address, blockNumber);
+        return r !== null && r[0] > 0n && r[1] > 0n;
       }
-    }
-  }
-  for (const tickSpacing of AERO_TICK_SPACINGS) {
-    try {
-      const poolAddr = await client.readContract({
-        address: AERO_CL_FACTORY,
-        abi: AERO_CL_FACTORY_ABI,
-        functionName: 'getPool',
-        args: [a, b, tickSpacing],
-      });
-      if (poolAddr && poolAddr !== ZERO_ADDRESS) {
-        candidates.push({ address: poolAddr as `0x${string}`, kind: 'aerodrome_cl' });
-      }
-    } catch {
-      // skip
-    }
-  }
-
-  // Rank initialized candidates by depth. `liquidity()` may be unreadable on
-  // some forks; such pools still qualify (depth treated as 0) so we never lose
-  // an initialized pool purely because its depth read reverted.
-  let best: { pool: DiscoveredPool; depth: bigint } | null = null;
-  for (const cand of candidates) {
-    const sqrtPriceX96 = await readSlot0(client, cand.address, blockNumber);
-    if (sqrtPriceX96 === null || sqrtPriceX96 <= 0n) continue; // uninitialized
-    const depth = (await readLiquidity(client, cand.address, blockNumber)) ?? 0n;
-    if (best === null || depth > best.depth) {
-      best = { pool: cand, depth };
-    }
-  }
-
-  return best;
+      const sqrt = await readSlot0(client, c.address, blockNumber);
+      return sqrt !== null && sqrt > 0n;
+    },
+    readDepth: (c) => readErc20Balance(client, refToken, c.address, blockNumber),
+  });
 }
 
 /**
