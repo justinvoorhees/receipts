@@ -534,7 +534,7 @@ git commit -m "feat(core): synthesizeV4Legs — per-pool V4 legs with pinned dir
 **Interfaces:**
 - Consumes: `collectV4Swaps`, `synthesizeV4Legs` (`./v4Legs.js`); `V4PoolKeyReader`, `createDefaultV4PoolKeyReader` (`./routeReaders.js`); existing `UNISWAP_V4_POOL_MANAGER`, `WETH`.
 - Adds `v4PoolKeyReader?: V4PoolKeyReader` to `DecomposeRouteDeps`.
-- Behavior: after `resolveV4Settlement`, if the PoolManager still nets **more than one** distinct token (multi-pool), collect V4 swaps, resolve their pool keys, synthesize legs, and pass them to `buildRouteGraph` via a new `extraLegs` input; the graph merges these with the address-derived legs. When the PM nets ≤1 token, behavior is unchanged (single-pool path already works).
+- Behavior: build the address-derived graph first. **Only if it fails to reconstruct with `breakReason.kind === 'orphan_token'`** (and the PM nets >1 token, and there are V4 swaps) collect V4 swaps, resolve pool keys, synthesize legs, and rebuild the graph with them via a new `extraLegs` input — adopting the V4-augmented graph only if it then reconstructs. Routes that already reconstruct are left completely untouched (adding legs there double-counts and regresses them). ⚠️ Do NOT gate merely on `pmTokens.size > 1`.
 
 - [ ] **Step 1: Write the failing test (end-to-end on the id 56 fixture)**
 
@@ -592,45 +592,60 @@ In the graph-build region (replace ~line 391–403), after `resolveV4Settlement`
 		rawTransfersWithNative, venues, input.trader, DENYLIST,
 	);
 
-	// Step 3c: V4 multi-pool case. When the PoolManager nets >1 distinct token
-	// even after settlement resolution, it hosts multiple pools in this route
-	// and address-level deltas can't split them. Synthesize a leg per V4 swap
-	// from the Swap events (poolId + amounts) and feed them to the graph.
-	const v4Swaps = collectV4Swaps(logs);
-	let extraV4Legs: Leg[] = [];
-	if (v4Swaps.length > 0) {
-		const pmTokens = new Set<string>();
-		for (const t of transfers) {
-			const from = t.from.toLowerCase();
-			const to = t.to.toLowerCase();
-			if (from === UNISWAP_V4_POOL_MANAGER || to === UNISWAP_V4_POOL_MANAGER) {
-				pmTokens.add(t.token.toLowerCase());
-			}
-		}
-		if (pmTokens.size > 1) {
-			const keyReader = deps?.v4PoolKeyReader
-				?? createDefaultV4PoolKeyReader(input.rpcUrl, input.blockNumber);
-			const poolKeys = new Map<string, { currency0: string; currency1: string }>();
-			for (const s of v4Swaps) {
-				if (poolKeys.has(s.poolId)) continue;
-				const key = await keyReader(s.poolId);
-				if (key) poolKeys.set(s.poolId, key);
-			}
-			extraV4Legs = synthesizeV4Legs(v4Swaps, poolKeys, WETH);
-			if (extraV4Legs.length > 0) {
-				routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
-			}
-		}
-	}
-
-	// Step 4: Build route graph (address-derived legs + synthesized V4 legs).
-	const graph = buildRouteGraph({
+	// Step 4: Build route graph from address-derived legs (first pass).
+	let graph = buildRouteGraph({
 		transfers,
 		trader: input.trader,
 		venues,
 		denylist: extendedDenylist,
-		extraLegs: extraV4Legs,
 	});
+
+	// Step 4b: V4 multi-pool RESCUE — narrowly gated on the orphan_token break.
+	// ⚠️ CRITICAL: do NOT synthesize V4 legs unconditionally when the PoolManager
+	// nets >1 token — many routes (single-pool V4 handled by resolveV4Settlement,
+	// RFQ/AMM hybrids, convergent splits) ALREADY reconstruct, and adding
+	// synthesized legs there double-counts and BREAKS them (regression observed
+	// on LFI->GITLAWB and id 189). Only when the first pass FAILED with
+	// breakReason.kind === 'orphan_token' (a token consumed but never produced —
+	// the V4 singleton signature) do we synthesize and retry, and we adopt the
+	// V4-augmented graph ONLY if it then reconstructs.
+	if (!graph.reconstructed && graph.breakReason?.kind === 'orphan_token') {
+		const v4Swaps = collectV4Swaps(logs);
+		if (v4Swaps.length > 0) {
+			const pmTokens = new Set<string>();
+			for (const t of transfers) {
+				const from = t.from.toLowerCase();
+				const to = t.to.toLowerCase();
+				if (from === UNISWAP_V4_POOL_MANAGER || to === UNISWAP_V4_POOL_MANAGER) {
+					pmTokens.add(t.token.toLowerCase());
+				}
+			}
+			if (pmTokens.size > 1) {
+				const keyReader = deps?.v4PoolKeyReader
+					?? createDefaultV4PoolKeyReader(input.rpcUrl, input.blockNumber);
+				const poolKeys = new Map<string, { currency0: string; currency1: string }>();
+				for (const s of v4Swaps) {
+					if (poolKeys.has(s.poolId)) continue;
+					const key = await keyReader(s.poolId);
+					if (key) poolKeys.set(s.poolId, key);
+				}
+				const extraV4Legs = synthesizeV4Legs(v4Swaps, poolKeys, WETH);
+				if (extraV4Legs.length > 0) {
+					const v4Graph = buildRouteGraph({
+						transfers,
+						trader: input.trader,
+						venues,
+						denylist: extendedDenylist,
+						extraLegs: extraV4Legs,
+					});
+					if (v4Graph.reconstructed) {
+						graph = v4Graph;
+						routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
+					}
+				}
+			}
+		}
+	}
 ```
 
 Then extend `BuildRouteArgs` and `buildRouteGraph` in `routeGraph.ts` to accept and merge `extraLegs`:
