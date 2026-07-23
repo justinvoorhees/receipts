@@ -38,7 +38,7 @@ export const anchorsToUsd = (t: string): boolean => isStable(t) || isWeth(t) || 
  * Anchor rank: stablecoins (2) outrank ETH/WETH (1), which outrank everything (0).
  * The stronger anchor is the quote; the weaker leg is the volatile "base".
  */
-function anchorRank(token: string): number {
+export function anchorRank(token: string): number {
   const t = token.toLowerCase();
   if (STABLECOINS.has(t)) return 2;
   // Native ETH is the same reference asset as WETH — anchor it identically.

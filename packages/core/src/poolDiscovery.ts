@@ -14,7 +14,7 @@ import { type PublicClient, parseAbi } from 'viem';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type PoolKind = 'univ3' | 'pancakev3' | 'aerodrome_cl' | 'univ2' | 'univ4';
+export type PoolKind = 'univ3' | 'pancakev3' | 'aerodrome_cl' | 'aerodrome_basic' | 'univ2' | 'univ4';
 
 export interface DiscoveredPool {
   address: `0x${string}`;
