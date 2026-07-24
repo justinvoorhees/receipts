@@ -423,7 +423,7 @@ describe('Receipt estimated pricing tier', () => {
 		// Execution Price renders (realizedPrice present); Market Price, Price Delta,
 		// Price Impact, and Slippage are all null on a fully partial receipt, each
 		// carrying the generic "no market price" tooltip.
-		expect((html.match(/>Null</g) ?? []).length).toBe(4);
+		expect((html.match(/>n\/a</g) ?? []).length).toBe(4);
 		expect((html.match(/No market price available/g) ?? []).length).toBeGreaterThanOrEqual(4);
 	});
 });
@@ -483,7 +483,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).toContain(`href="https://basescan.org/address/${venue}"`);
 		expect(html).toContain('color:var(--color-secondary)');
 		expect(html).toContain('Market maker inventory, no L.P. fee or market price available');
-		expect(html).toContain('>Null<');
+		expect(html).toContain('>n/a<');
 	});
 
 	// The Price Impact section (populated by TradesTable's getPriceImpactRows,

@@ -205,7 +205,7 @@ export function Receipt({
 				>
 					{hasMarketPrice
 						? formatExecutionPrice(row.marketMid, base, quote)
-						: 'Null'}
+						: 'n/a'}
 					{hasMarketPrice && row.manipulationFlag ? (
 						<span
 							className="ml-2"
@@ -221,7 +221,7 @@ export function Receipt({
 					subValue={priceDelta?.sub ?? undefined}
 					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
-					{priceDelta?.text ?? 'Null'}
+					{priceDelta?.text ?? 'n/a'}
 				</DetailRow>
 
 				{hasMarketPrice && (
@@ -258,7 +258,7 @@ export function Receipt({
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						{legs.map((leg, index) => {
 							const { text: lpText, color: lpColor } = isMakerLeg(leg)
-								? { text: 'Null', color: undefined }
+								? { text: 'n/a', color: undefined }
 								: leg.lpFeeBps == null
 									? { text: '–', color: undefined }
 									: formatDialogBps(-leg.lpFeeBps);
@@ -315,13 +315,13 @@ export function Receipt({
 					<>
 						<BkdHeading
 							label="Price Impact"
-							value="Null"
+							value="n/a"
 							valueTooltip={NULL_PRICE_TOOLTIP}
 							tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
 						/>
 						<BkdHeading
 							label="Slippage"
-							value="Null"
+							value="n/a"
 							valueTooltip={NULL_PRICE_TOOLTIP}
 							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
 						/>

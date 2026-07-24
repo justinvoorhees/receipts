@@ -203,7 +203,7 @@ export function getPriceImpactRows(
 		const rawImpact = leg.priceImpactBps;
 		const isNullImpact = rawImpact == null;
 		const impact = isNullImpact
-			? { text: 'Null', color: undefined }
+			? { text: 'n/a', color: undefined }
 			: formatDialogBps(-rawImpact);
 		return {
 			label: getVenueLabel(leg),
@@ -235,9 +235,14 @@ export function isMakerLeg(leg: Pick<RouteLeg, 'type' | 'venue'>): boolean {
 // same everywhere it's not the market-maker-specific case above.
 export const NULL_PRICE_TOOLTIP = 'No market price available';
 
+// Per-leg null-pricing cells (a specific route leg's Price Impact) get a
+// leg-scoped explanation, distinct from the receipt-level NULL_PRICE_TOOLTIP
+// used by Market Price / Price Delta / Slippage.
+export const LEG_NULL_PRICE_TOOLTIP = 'No price available for this leg';
+
 function getNullPriceImpactTooltip(leg: Pick<RouteLeg, 'type' | 'venue'>): string {
 	if (isMakerLeg(leg)) return RFQ_LEG_TOOLTIP;
-	return NULL_PRICE_TOOLTIP;
+	return LEG_NULL_PRICE_TOOLTIP;
 }
 
 function shortAddress(address: string): string {
@@ -263,11 +268,7 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 
 const KNOWN_VENUE_LABELS: Record<string, string> = {
 	'0x77e44581399f96129a8a0041dbb4e1a7569b9969': 'Curve StableNG',
-	'0x3eb210eaa4026f62d027fafaba1fa5592febb06a': 'Fabric OTC',
-	'0x69e68e18f53889bdc7589e9f2defbf88e2d32de7': 'Fabric OTC',
-	'0x73f0859f844f042cd699f35bb5fe13a120f95c0f': 'Fabric OTC',
 	'0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap v4',
-	'0xb94b22332abf5f89877a14cc88f2abc48c34b3df': 'Fabric OTC',
 	'0xb1383dc47d9971fc999c3a9088f79e744b376e97': 'Hydrex',
 	'0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76': 'UniPool',
 };
