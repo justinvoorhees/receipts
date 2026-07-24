@@ -3,7 +3,7 @@ import type { Receipt } from '@fabric-tca/core';
 
 vi.mock('@fabric-tca/core', () => ({
 	analyzeTransaction: vi.fn(),
-	enrichFeeSinkNames: vi.fn(async (sinks) => sinks.map((s) => ({ ...s, name: null }))),
+	enrichFeeSinkNames: vi.fn(async (sinks: { address: string; feeBps: number; source: string }[]) => sinks.map((s) => ({ ...s, name: null }))),
 }));
 vi.mock('../../../lib/queries.js', () => ({
 	getReceiptByHash: vi.fn(),
