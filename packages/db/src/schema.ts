@@ -77,6 +77,9 @@ export const receipts = pgTable(
 		// = 0. A fee <= 10bps is ambiguous on-chain → both left null.
 		feeRecipient: text('fee_recipient'),
 		feeSinkSource: text('fee_sink_source'),
+		// Full dominant-first fee-sink array: [{ address, feeBps, source, name }].
+		// `feeRecipient`/`feeSinkSource` above mirror feeSinks[0] for back-compat.
+		feeSinks: jsonb('fee_sinks').$type<{ address: string; feeBps: number; source: string; name: string | null }[]>(),
 		integratorFeeBps: numeric('integrator_fee_bps'),
 		fabricFeeBps: numeric('fabric_fee_bps'),
 		// tagging / provenance
