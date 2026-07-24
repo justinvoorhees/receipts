@@ -5,6 +5,8 @@
  * get a `Receipt` (or `null`).
  */
 export { analyzeTransaction, type Receipt } from './analyzeTransaction.js';
+export { resolveContractName, enrichFeeSinkNames, type FeeSinkNamed, type NameResolverDeps } from './contractNames.js';
+export { buildFeeSinks, type FeeSinkOut } from './decomposeRoute.js';
 export { classifyTransaction } from './classifyTransaction.js';
 export type { AnalyzeFailure, RelayerDetail, FailureReason } from './endpoints.js';
 export { resolveAggregator, type AggregatorResolution, type DetectedVia } from './resolveAggregator.js';
