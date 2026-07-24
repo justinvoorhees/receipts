@@ -242,3 +242,31 @@ Per-leg impact never moves across any step.
 - Whether `anchor_price_usd` is dropped now (cleanup migration) or left dormant.
 - Confirm `~Size` sourcing when neither side anchors (bridge-both-through-WETH) is
   acceptable as orientation-grade.
+
+## Earmarked implementation inconsistencies (2026-07-23)
+
+These must be resolved before the methodology copy is treated as a faithful
+description of the implementation:
+
+1. **An oracle can currently confirm a constructed liquidity median without
+   corroborating either liquidity source.** `computeMarketPrice` first takes the
+   median of the direct and WETH-derived prices, then compares the oracle with that
+   median. If the two liquidity sources disagree but the oracle is close to their
+   median, the result can become `full` even though no two source prices agree.
+   Confirmation must require agreement between two actual independent source
+   estimates; an oracle must not confirm only the midpoint of two disagreeing
+   sources.
+2. **The WETH/USDC fast path overstates confidence.** `priceReceipt` always returns
+   `tier: 'full'` and always claims a corroborated pools-plus-oracle benchmark even
+   when benchmark flags report unavailable or stale oracles, oracle disagreement,
+   low pool coverage, pool divergence, or suspected manipulation. Its tier and
+   methodology must be derived from the surviving pool/oracle evidence, or the fast
+   path must be folded into the general apparatus as originally specified.
+3. **The flags do not fully describe the expanded methodology states.** With one
+   liquidity source and a disagreeing oracle, the reducer emits
+   `ORACLE_DISAGREE` but not `SINGLE_SOURCE`, because `SINGLE_SOURCE` is added only
+   when no other flag exists. Methodology selection must either derive source
+   availability from explicit provenance or make the flags independently
+   composable. It must also distinguish direct-only from WETH-derived-only and
+   handle combined `LIQUIDITY_DISAGREE + ORACLE_DISAGREE` without hiding either
+   condition.
