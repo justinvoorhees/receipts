@@ -8,7 +8,8 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks } from './decomposeRoute.js';
+import type { FeeSink } from './tradeFees.js';
 import { getLegMidAtBlock } from './routeReaders.js';
 import type { DecomposeTradeInput } from './decomposeTrade.js';
 import type { Leg } from './routeGraph.js';
@@ -1362,4 +1363,33 @@ describe('decomposeRoute V4 multi-pool extraction (id 56)', () => {
 		expect(result.lpFeeBps).not.toBeNull();
 		expect(result.slippageBps).not.toBeNull();
 	}, 15000);
+});
+
+describe('buildFeeSinks', () => {
+	it('sorts dominant-first and splits aggFeeBps proportionally', () => {
+		const sinks: FeeSink[] = [
+			{ address: '0xsmall', usdcRetained: 1, wethRetained: 0, totalUsdc: 1, source: 'retained_balance' },
+			{ address: '0xbig', usdcRetained: 3, wethRetained: 0, totalUsdc: 3, source: 'retained_balance' },
+		];
+		const out = buildFeeSinks(sinks, 20); // aggFeeBps = 20
+		expect(out.map(s => s.address)).toEqual(['0xbig', '0xsmall']);
+		expect(out[0]!.feeBps).toBeCloseTo(15, 6);
+		expect(out[1]!.feeBps).toBeCloseTo(5, 6);
+		expect(out.reduce((a, s) => a + s.feeBps, 0)).toBeCloseTo(20, 6);
+		expect(out[0]!.source).toBe('retained_balance');
+	});
+
+	it('returns [] for no sinks', () => {
+		expect(buildFeeSinks([], 0)).toEqual([]);
+	});
+
+	it('splits evenly when total retained is zero', () => {
+		const sinks: FeeSink[] = [
+			{ address: '0xa', usdcRetained: 0, wethRetained: 0, totalUsdc: 0, source: 'vault_map' },
+			{ address: '0xb', usdcRetained: 0, wethRetained: 0, totalUsdc: 0, source: 'vault_map' },
+		];
+		const out = buildFeeSinks(sinks, 10);
+		expect(out).toHaveLength(2);
+		expect(out[0]!.feeBps).toBeCloseTo(5, 6);
+	});
 });

@@ -20,6 +20,7 @@ import {
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg, type RouteBreakReason } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput } from './legFees.js';
 import { decomposeTrade, type DecomposeTradeInput } from './decomposeTrade.js';
+import { type FeeSink } from './tradeFees.js';
 import { type PairMidResult } from './tokenPricing.js';
 import {
 	scanVenues,
@@ -37,6 +38,31 @@ import {
 } from './routeReaders.js';
 import { isCuratedMaker } from './makerRegistry.js';
 import { collectV4Swaps, synthesizeV4Legs } from './v4Legs.js';
+
+// ─── Fee sinks ───
+
+export interface FeeSinkOut {
+	address: string;
+	feeBps: number;
+	source: string;
+}
+
+/**
+ * Map the internal FeeSink[] to the persisted/output shape: dominant-first,
+ * with aggFeeBps split across sinks proportionally to retained value. When the
+ * total retained value is zero (e.g. vault_map sinks with no measured USDC),
+ * split evenly. Pure — no RPC.
+ */
+export function buildFeeSinks(sinks: FeeSink[], aggFeeBps: number): FeeSinkOut[] {
+	if (sinks.length === 0) return [];
+	const sorted = [...sinks].sort((a, b) => b.totalUsdc - a.totalUsdc);
+	const totalRetained = sorted.reduce((a, s) => a + s.totalUsdc, 0);
+	return sorted.map((s) => ({
+		address: s.address,
+		feeBps: totalRetained > 0 ? aggFeeBps * (s.totalUsdc / totalRetained) : aggFeeBps / sorted.length,
+		source: s.source,
+	}));
+}
 
 // ─── Constants ───
 
@@ -85,6 +111,8 @@ export interface RouteDecomposeResult {
 	feeRecipient: string | null;
 	/** How the dominant fee sink was detected: 'vault_map' | 'retained_balance', or null. */
 	feeSinkSource: string | null;
+	/** All detected fee sinks, dominant-first, each with its proportional share of aggFeeBps. Empty when none. */
+	feeSinks: FeeSinkOut[];
 }
 
 /** Injectable dependencies for testing without live RPC. */
@@ -366,6 +394,7 @@ export async function decomposeRoute(
 		: null;
 	const feeRecipient = dominantSink?.address ?? null;
 	const feeSinkSource = dominantSink?.source ?? null;
+	const feeSinks = buildFeeSinks(base.feeSinks, base.aggFeeBps);
 
 	// Step 2: Get trace (injected or from input)
 	const trace = (deps?.trace ?? input.trace) as TraceNode;
@@ -683,6 +712,7 @@ export async function decomposeRoute(
 			flags: [...base.flags, ...routeFlags],
 			feeRecipient,
 			feeSinkSource,
+			feeSinks,
 		};
 	}
 
@@ -722,5 +752,6 @@ export async function decomposeRoute(
 		flags: [...base.flags, ...routeFlags],
 		feeRecipient,
 		feeSinkSource,
+		feeSinks,
 	};
 }

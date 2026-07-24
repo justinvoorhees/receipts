@@ -24,7 +24,7 @@ import { createPublicClient, http } from 'viem';
 import { base } from 'viem/chains';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
-import { decomposeRoute } from './decomposeRoute.js';
+import { decomposeRoute, type FeeSinkOut } from './decomposeRoute.js';
 import { createDefaultMidReader } from './routeReaders.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
@@ -159,6 +159,7 @@ export interface Receipt {
 	decompConfidence: string | null;
 	feeRecipient: string | null;
 	feeSinkSource: string | null;
+	feeSinks: FeeSinkOut[];
 	integratorFeeBps: number | null;
 	fabricFeeBps: number | null;
 	settlementEventName: string | null;
@@ -421,6 +422,7 @@ export async function analyzeTransaction(
 			decompConfidence: route.confidence,
 			feeRecipient: route.feeRecipient,
 			feeSinkSource: route.feeSinkSource,
+			feeSinks: route.feeSinks,
 			...splitFabricFee(aggSlug, route.aggFeeBps),
 			settlementEventName: sig?.eventName ?? null,
 			settlementEventTopic0: matchedTopic,
