@@ -157,9 +157,9 @@ describe('TradesTable', () => {
 				label: 'Curve StableNG',
 				href: 'https://basescan.org/address/0x4545410f7601b34a779edcebc641e529f465eeaa',
 				context: 'USDC/WETH',
-				value: 'Null',
+				value: 'n/a',
 				color: undefined,
-				valueTooltip: 'No market price available',
+				valueTooltip: 'No price available for this leg',
 			},
 		]);
 	});
@@ -316,7 +316,7 @@ describe('TradesTable', () => {
 
 		expect(rows[0]).toMatchObject({
 			label: 'Curve StableNG',
-			valueTooltip: 'No market price available',
+			valueTooltip: 'No price available for this leg',
 		});
 	});
 
@@ -339,8 +339,8 @@ describe('TradesTable', () => {
 		] as never)[0]).toMatchObject({
 			label: 'Unknown Pool',
 			context: 'USDC/VIRTUAL',
-			value: 'Null',
-			valueTooltip: 'No market price available',
+			value: 'n/a',
+			valueTooltip: 'No price available for this leg',
 		});
 	});
 

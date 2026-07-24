@@ -13,7 +13,8 @@ import { Receipt } from './receiptView';
 // them without the TradesTable ↔ ReceiptView cycle. The component below uses two
 // of them directly; the rest are re-exported so existing import sites (the tests,
 // which do `await import('./TradesTable')`) keep resolving unchanged.
-import { getExecutionBreakdown, normalizeRouteLegs } from './receipt/receiptDisplay';
+import { getExecutionBreakdown, isMakerLeg, normalizeRouteLegs } from './receipt/receiptDisplay';
+import { receiptPairTitle } from './receipt/priceFormat';
 export * from './receipt/receiptDisplay';
 
 const COL = 'p-0 py-[10px] pl-[28px] align-baseline';
@@ -141,6 +142,9 @@ function HeaderRow({
 				<SortHeader col="aggregator" sort={sort} onSort={onSort} align="left">Aggregator</SortHeader>
 			</th>
 			<th className={TH}>
+				<SortHeader col="side" sort={sort} onSort={onSort}>Pair</SortHeader>
+			</th>
+			<th className={TH}>
 				<SortHeader col="size" sort={sort} onSort={onSort}>Size</SortHeader>
 			</th>
 			<th className={TH}>
@@ -234,6 +238,13 @@ function DataRow({
 	const accuracyColor = accuracy != null && accuracy > 0.05 ? '#117d45' : undefined;
 
 	const lp = formatContribution(row.lpFeeBps != null ? Number(row.lpFeeBps) : null);
+	// A market-maker (RFQ) leg carries lpFeeBps: 0, so a maker-only route
+	// aggregates to a misleading 0.0bps. When the route has a maker leg and no
+	// pool leg contributes a real L.P. fee, the fee is not applicable → show '–'.
+	// (Mixed routes with a genuine pool leg keep their computed fee.)
+	const legs = normalizeRouteLegs(row.routeLegs);
+	const lpNotApplicable =
+		legs.some(isMakerLeg) && !legs.some((l) => !isMakerLeg(l) && typeof l.lpFeeBps === 'number');
 	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
 	const execution = getExecutionBreakdown(row);
 	const impact = execution.priceImpactDisplay;
@@ -248,8 +259,9 @@ function DataRow({
 			onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(row); } }}
 		>
 			<td className={COL_FIRST} style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</td>
+			<td className={`${COL} text-right whitespace-nowrap`}>{receiptPairTitle(row)}</td>
 			<td className={`${COL} text-right`}>{formatNotional(row.notionalUsd != null ? Number(row.notionalUsd) : null)}</td>
-			<td className={`${COL} text-right`} style={lp.color ? { color: lp.color } : undefined}>{stripSign(lp.text)}</td>
+			<td className={`${COL} text-right`} style={!lpNotApplicable && lp.color ? { color: lp.color } : undefined}>{lpNotApplicable ? '–' : stripSign(lp.text)}</td>
 			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
 			<td className={`${COL} text-right`} style={slip.color ? { color: slip.color } : undefined}>{slip.text}</td>
