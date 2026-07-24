@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { analyzeTransaction, type Receipt } from '@fabric-tca/core';
+import { analyzeTransaction, enrichFeeSinkNames, type Receipt } from '@fabric-tca/core';
 import { deleteReceipt, getReceiptByHash, insertReceipt, type NewReceipt } from '../../../lib/queries.js';
 
 // core uses viem + fs (config load in tagging.ts) — must run on Node, not edge.
@@ -20,7 +20,7 @@ function num(v: number | null | undefined): string | null {
  * (nulls preserved). jsonb (routeLegs, normalizeFlags) and the int/text/bool
  * columns pass through unchanged.
  */
-function toNewReceipt(r: Receipt): NewReceipt {
+async function toNewReceipt(r: Receipt): Promise<NewReceipt> {
 	return {
 		txHash: r.txHash,
 		chainId: r.chainId,
@@ -57,6 +57,7 @@ function toNewReceipt(r: Receipt): NewReceipt {
 		decompConfidence: r.decompConfidence,
 		feeRecipient: r.feeRecipient,
 		feeSinkSource: r.feeSinkSource,
+		feeSinks: await enrichFeeSinkNames(r.feeSinks),
 		integratorFeeBps: num(r.integratorFeeBps),
 		fabricFeeBps: num(r.fabricFeeBps),
 		settlementEventName: r.settlementEventName,
@@ -106,7 +107,7 @@ export async function POST(req: Request): Promise<Response> {
 	}
 
 	// 3. Persist and return the stored row (so it also shows up in History).
-	const inserted = await insertReceipt(toNewReceipt(receipt));
+	const inserted = await insertReceipt(await toNewReceipt(receipt));
 	return NextResponse.json(inserted, { status: 200 });
 }
 

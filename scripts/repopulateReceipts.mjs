@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { createDb, schema } from '@fabric-tca/db';
 const { analyzeTransaction } = await import(new URL('../packages/core/dist/analyzeTransaction.js', import.meta.url));
+const { enrichFeeSinkNames } = await import(new URL('../packages/core/dist/contractNames.js', import.meta.url));
 import { eq, asc } from 'drizzle-orm';
 
 // ── env ──
@@ -31,7 +32,7 @@ const onlyIds = idsArg ? new Set(idsArg.slice('--ids='.length).split(',').map(Nu
 const num = v => (v == null ? null : String(v));
 
 /** Map a computed core Receipt → the mutable receipt columns (identity cols excluded). */
-function toUpdate(r) {
+function toUpdate(r, feeSinks) {
 	return {
 		aggregator: r.aggregator, routerAddress: r.routerAddress, trader: r.trader,
 		fillerAddress: r.fillerAddress, direction: r.direction,
@@ -45,7 +46,7 @@ function toUpdate(r) {
 		slippageBps: num(r.slippageBps), gasCostUsd: num(r.gasCostUsd), routePure: r.routePure,
 		routeShape: r.routeShape, hopCount: r.hopCount, routeLegs: r.routeLegs,
 		reconResidualBps: num(r.reconResidualBps), decompConfidence: r.decompConfidence,
-		feeRecipient: r.feeRecipient, feeSinkSource: r.feeSinkSource,
+		feeRecipient: r.feeRecipient, feeSinkSource: r.feeSinkSource, feeSinks,
 		integratorFeeBps: num(r.integratorFeeBps), fabricFeeBps: num(r.fabricFeeBps),
 		settlementEventName: r.settlementEventName, settlementEventTopic0: r.settlementEventTopic0,
 		settlementEventSeen: r.settlementEventSeen, normalizeFlags: r.normalizeFlags,
@@ -72,10 +73,15 @@ for (const row of rows) {
 	catch (e) { console.log(`id ${row.id}  ERROR ${e.message}`); failed++; continue; }
 	if (!r) { console.log(`id ${String(row.id).padStart(3)}  ⚠ NULL receipt now (was ${row.inputSymbol}->${row.outputSymbol}) — SKIPPED, not overwriting`); nulled++; continue; }
 
-	const upd = toUpdate(r);
+	const feeSinks = await enrichFeeSinkNames(r.feeSinks);
+	const upd = toUpdate(r, feeSinks);
 	const diffs = WATCH.filter(k => norm(row[k]) !== norm(upd[k])).map(k => `${k}:${norm(row[k])}→${norm(upd[k])}`);
 	const tag = diffs.length ? `Δ ${diffs.join('  ')}` : 'no change';
 	console.log(`id ${String(row.id).padStart(3)}  ${(r.inputSymbol + '->' + r.outputSymbol).padEnd(16)} ${tag}`);
+	if (feeSinks.length) {
+		const summary = feeSinks.map((s, i) => `${i === 0 ? (s.name ?? '[generic]') : s.address.slice(0, 6) + '…' + s.address.slice(-4)}=${s.feeBps.toFixed(2)}bps`).join(', ');
+		console.log(`         feeSinks: ${summary}`);
+	}
 	if (diffs.length) changed++;
 	if (COMMIT) await db.update(schema.receipts).set(upd).where(eq(schema.receipts.id, row.id));
 }

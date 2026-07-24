@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Receipt } from '@fabric-tca/core';
 
-vi.mock('@fabric-tca/core', () => ({ analyzeTransaction: vi.fn() }));
+vi.mock('@fabric-tca/core', () => ({
+	analyzeTransaction: vi.fn(),
+	enrichFeeSinkNames: vi.fn(async (sinks) => sinks.map((s) => ({ ...s, name: null }))),
+}));
 vi.mock('../../../lib/queries.js', () => ({
 	getReceiptByHash: vi.fn(),
 	insertReceipt: vi.fn(),
@@ -58,6 +61,7 @@ const sampleReceipt: Receipt = {
 	decompConfidence: 'high',
 	feeRecipient: null,
 	feeSinkSource: null,
+	feeSinks: [],
 	integratorFeeBps: null,
 	fabricFeeBps: null,
 	settlementEventName: 'Swap',
