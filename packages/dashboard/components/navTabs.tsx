@@ -22,7 +22,9 @@ export function NavTabs() {
 	const [pending, startTransition] = useTransition();
 
 	return (
-		<nav className="flex gap-[40px] items-center">
+		// Tabs are visually hidden but remain interactive (opacity-0 keeps pointer
+		// events; `invisible`/`hidden` would strip clickability).
+		<nav className="flex gap-[40px] items-center opacity-0">
 			{TABS.map((tab) => {
 				const selected = tab.matches(pathname);
 				const className = selected

@@ -1,9 +1,37 @@
 'use client';
 import type { Route } from 'next';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
+
+// Shown as greyed placeholder text in the empty search field.
+const PLACEHOLDER_HASH = '0x16e782f7a9dfefc3b84054ec81a366efbd603aea745ee5373ec005568adb360f';
+
+// The button's loading label draws a random word from this hat per search.
+const LOADER_WORDS = [
+	'Analyzing',
+	'Deciphering',
+	'Decoding',
+	'Deconstructing',
+	'Deducing',
+	'Disintegrating',
+	'Dissecting',
+	'Dissolving',
+	'Elucidating',
+	'Examining',
+	'Inquiring',
+	'Inspecting',
+	'Investigating',
+	'Scrutinizing',
+	'Unraveling',
+] as const;
+
+// Pick a random loader word, never repeating the previous one back-to-back.
+function nextLoaderWord(prev: string | null): string {
+	const pool = prev == null ? LOADER_WORDS : LOADER_WORDS.filter((w) => w !== prev);
+	return pool[Math.floor(Math.random() * pool.length)] as string;
+}
 
 export function ReceiptSearch({ hash, failure }: { hash: string; failure?: AnalyzeFailure }) {
 	const router = useRouter();
@@ -11,6 +39,8 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	const [inputHovered, setInputHovered] = useState(false);
 	const [inputFocused, setInputFocused] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
+	const [loaderWord, setLoaderWord] = useState<string>(LOADER_WORDS[0]);
+	const lastLoaderWord = useRef<string | null>(null);
 
 	useEffect(() => {
 		setValue(hash);
@@ -23,6 +53,9 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	const go = async (raw: string) => {
 		const trimmed = raw.trim();
 		if (!trimmed || submitting) return;
+		const word = nextLoaderWord(lastLoaderWord.current);
+		lastLoaderWord.current = word;
+		setLoaderWord(word);
 		setSubmitting(true);
 		try {
 			await fetch('/api/receipts', {
@@ -66,6 +99,8 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 				<input
 					type="text"
 					value={value}
+					placeholder={PLACEHOLDER_HASH}
+					autoFocus
 					onChange={(e) => setValue(e.target.value)}
 					onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
 					onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
@@ -95,7 +130,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 						fontFeatureSettings: '"calt" 0',
 					}}
 				>
-					{submitting ? 'Analyzing…' : 'Create Receipt'}
+					{submitting ? `${loaderWord}…` : 'Create Receipt'}
 				</button>
 			</div>
 			{failure && <FailureNotice failure={failure} />}

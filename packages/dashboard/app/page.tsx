@@ -4,7 +4,6 @@ import { classifyTransaction, type AnalyzeFailure } from '@fabric-tca/core';
 
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_HASH = '0xa21e4d82b961726614ce6f310e30e29a4b55b8eca1d6a46621c3adaf8edf6ab1';
 const DEFAULT_CHAIN_ID = 8453;
 
 export default async function ReceiptPage({
@@ -14,8 +13,10 @@ export default async function ReceiptPage({
 }) {
 	const sp = await searchParams;
 	const explicit = sp.tx != null && sp.tx.trim() !== '';
-	const hash = (sp.tx ?? DEFAULT_HASH).trim();
-	const receipt = await getReceiptByHash(hash);
+	// No default transaction: the bare index renders just the search input (empty
+	// hash → empty field). A receipt is only fetched for an explicitly-pasted tx.
+	const hash = explicit ? (sp.tx as string).trim() : '';
+	const receipt = explicit ? await getReceiptByHash(hash) : null;
 
 	// On a genuine miss for an explicitly-pasted hash, diagnose WHY (page is the
 	// single server render; successes are already persisted by the awaited POST).
