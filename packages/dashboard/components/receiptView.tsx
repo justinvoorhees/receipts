@@ -12,7 +12,7 @@ import {
 	normalizeRouteLegs,
 	getExecutionBreakdown,
 	getPriceImpactRows,
-	getAggregatorFeeAttribution,
+	getAggregatorFeeLines,
 	ShareButton,
 	isMakerLeg,
 	NULL_PRICE_TOOLTIP,
@@ -85,9 +85,8 @@ export function Receipt({
 	const methodologyText = row.methodology ?? fallbackMethodology(row.pricingStatus);
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
-	const agg = formatDialogBps(row.aggFeeBps != null ? -Number(row.aggFeeBps) : null);
-	const hasAggFee = row.aggFeeBps != null && Number(row.aggFeeBps) !== 0;
-	const aggAttribution = getAggregatorFeeAttribution(row);
+	const feeLines = getAggregatorFeeLines(row);
+	const hasAggFee = feeLines.length > 0;
 	const execution = getExecutionBreakdown(row);
 	const priceImpactRows = getPriceImpactRows(legs, row);
 	const pairTitle = receiptPairTitle(row);
@@ -297,13 +296,19 @@ export function Receipt({
 				{hasAggFee ? (
 					<>
 						<BkdHeading label="Aggregator Fee" plain />
-						<BkdRow
-							label={aggAttribution.label}
-							href={aggAttribution.href}
-							value={agg.text}
-							color={agg.color}
-							secondary
-						/>
+						{feeLines.map((line, i) => {
+							const d = formatDialogBps(-line.bps);
+							return (
+								<BkdRow
+									key={`${line.href ?? line.label}-${i}`}
+									label={line.label}
+									href={line.href}
+									value={d.text}
+									color={d.color}
+									secondary
+								/>
+							);
+						})}
 					</>
 				) : (
 					<BkdHeading label="Aggregator Fee" value="0.00bps" plain />

@@ -418,71 +418,31 @@ describe('TradesTable', () => {
 		expect(html).toContain('id="tooltip-slippage"');
 	});
 
-	it('links known aggregator fee vaults by contract', async () => {
-		const { getAggregatorFeeAttribution } = await import('./tradesTable');
+	it('per-sink fee lines: dominant named/generic, subsequent truncated, all linked', async () => {
+		// Replaces the old curated-vault getAggregatorFeeAttribution tests. Fee
+		// attribution now flows off the persisted feeSinks[] + Basescan names;
+		// full coverage lives in receipt/receiptDisplay.test.ts.
+		const { getAggregatorFeeLines } = await import('./tradesTable');
 
-		expect(getAggregatorFeeAttribution({ aggregator: 'velora' } as never)).toEqual({
-			label: 'Augustus Fee Vault',
-			href: 'https://basescan.org/address/0x00700052c0608F670705380a4900e0a8080010CC',
-		});
-		expect(getAggregatorFeeAttribution({ aggregator: 'relay' } as never)).toEqual({
-			label: 'Relay: Solver',
-			href: 'https://basescan.org/address/0xf70da97812CB96acDF810712Aa562db8dfA3dbEF',
-		});
-		expect(getAggregatorFeeAttribution({ aggregator: 'kyberswap' } as never)).toEqual({
-			label: 'KyberSwap Fee Sink',
-			href: 'https://basescan.org/address/0x4f82e73edb06d29ff62c91ec8f5ff06571bdeb29',
-		});
-	});
-
-	it('attributes any nonzero Fabric-router fee to the integrator, not Fabric itself, linking to the fee recipient', async () => {
-		// Fabric is only ever the *router*; any fee retained by an address
-		// reached via the Fabric router belongs to whichever integrator/partner
-		// set it up, never to Fabric. No name-resolution, no tooltip — just a
-		// neutral "Integrator Fee" label linking out to the recipient's contract.
-		const { getAggregatorFeeAttribution } = await import('./tradesTable');
-
-		const result = getAggregatorFeeAttribution({
+		// Fabric-router fee → neutral "Integrator Fee", linked to the recipient.
+		const fabric = getAggregatorFeeLines({
 			aggregator: 'Fabric',
 			aggFeeBps: 11.58,
-			feeRecipient: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5',
+			feeSinks: [{ address: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5', feeBps: 11.58, source: 'retained_balance', name: null }],
 		} as never);
-		expect(result.label).toBe('Integrator Fee');
-		expect(result.label).not.toMatch(/^Fabric Fee$/);
-		expect(result).not.toHaveProperty('tooltip');
-		expect(result.href).toBe('https://basescan.org/address/0x403560800cb7e03a06ebbc991dba0f6ac751a1c5');
-	});
+		expect(fabric[0]!.label).toBe('Integrator Fee');
+		expect(fabric[0]!.href).toBe('https://basescan.org/address/0x403560800cb7e03a06ebbc991dba0f6ac751a1c5');
 
-	it('labels a Fabric-router fee neutrally when no feeRecipient is persisted (no link)', async () => {
-		const { getAggregatorFeeAttribution } = await import('./tradesTable');
+		// Non-Fabric unnamed sink → generic "<Provider> Fee".
+		const odos = getAggregatorFeeLines({
+			aggregator: 'odos',
+			aggFeeBps: 80,
+			feeSinks: [{ address: '0x1111111111111111111111111111111111111111', feeBps: 80, source: 'retained_balance', name: null }],
+		} as never);
+		expect(odos[0]!.label).toBe('Odos Fee');
 
-		const result = getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 42 } as never);
-		expect(result.label).toBe('Integrator Fee');
-		expect(result.href).toBeUndefined();
-	});
-
-	it('labels a small Fabric-router fee the same as a large one — no ambiguous "Router Fee" case', async () => {
-		const { getAggregatorFeeAttribution } = await import('./tradesTable');
-
-		const result = getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 5 } as never);
-		expect(result.label).toBe('Integrator Fee');
-		expect(result.label).not.toMatch(/^Fabric Fee$/);
-	});
-
-	it('still labels a zero Fabric fee as the plain provider name', async () => {
-		const { getAggregatorFeeAttribution } = await import('./tradesTable');
-
-		expect(getAggregatorFeeAttribution({ aggregator: 'fabric', aggFeeBps: 0 } as never)).toEqual({
-			label: 'Fabric',
-		});
-	});
-
-	it('keeps the "<Provider> Fee" label for non-Fabric aggregators regardless of fee size', async () => {
-		const { getAggregatorFeeAttribution } = await import('./tradesTable');
-
-		expect(getAggregatorFeeAttribution({ aggregator: 'odos', aggFeeBps: 80 } as never)).toEqual({
-			label: 'Odos Fee',
-		});
+		// Zero fee → no lines.
+		expect(getAggregatorFeeLines({ aggregator: 'fabric', aggFeeBps: 0 } as never)).toEqual([]);
 	});
 
 	it('formats dialog bps values with two decimal places', async () => {

@@ -11,7 +11,7 @@
  * module is marked 'use client'.
  */
 import { useState } from 'react';
-import { formatProvider } from '../../lib/formatters';
+import { formatProvider, shortTxHash } from '../../lib/formatters';
 import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 import { formatUsdMagnitude } from './usdFormat';
@@ -371,40 +371,58 @@ export function getStepContext(legType: RouteLeg['type']): string | undefined {
 // rather than naming or explaining it inline.
 const FABRIC_AGGREGATOR_SLUG = 'fabric';
 
-function aggregatorFeeLabel(row: { aggregator: string; aggFeeBps: string | number | null }): string {
-	const provider = formatProvider(row.aggregator.toLowerCase());
-	const feeBps = Number(row.aggFeeBps ?? 0);
-	if (feeBps === 0) return provider;
-	if (row.aggregator.toLowerCase() === FABRIC_AGGREGATOR_SLUG) return 'Integrator Fee';
-	return `${provider} Fee`;
+export interface FeeLine {
+	label: string;
+	href?: string;
+	bps: number;
 }
 
-export function getAggregatorFeeAttribution(row: { aggregator: string; aggFeeBps: string | number | null; feeRecipient?: string | null }): {
-	label: string;
-	href?: string | undefined;
-} {
-	const vaults: Record<string, { label: string; href: string }> = {
-		velora: {
-			label: 'Augustus Fee Vault',
-			href: 'https://basescan.org/address/0x00700052c0608F670705380a4900e0a8080010CC',
-		},
-		relay: {
-			label: 'Relay: Solver',
-			href: 'https://basescan.org/address/0xf70da97812CB96acDF810712Aa562db8dfA3dbEF',
-		},
-		kyberswap: {
-			label: 'KyberSwap Fee Sink',
-			href: 'https://basescan.org/address/0x4f82e73edb06d29ff62c91ec8f5ff06571bdeb29',
-		},
-	};
-	const tagged = vaults[row.aggregator.toLowerCase()];
-	if (tagged) return tagged;
-	const label = aggregatorFeeLabel(row);
-	if (label === 'Integrator Fee') {
-		// Link to the persisted feeRecipient (the integrator's fee wallet) when available.
-		return { label, ...(row.feeRecipient ? { href: `https://basescan.org/address/${row.feeRecipient}` } : {}) };
+interface FeeSinkNamed {
+	address: string;
+	feeBps: number;
+	source: string;
+	name: string | null;
+}
+
+// Generic label for a fee whose recipient contract has no verified Basescan
+// name. Fabric is only ever the *router*, so a retained fee there belongs to an
+// integrator/partner — labeled neutrally as "Integrator Fee", never "Fabric Fee".
+function genericFeeLabel(aggregator: string): string {
+	if (aggregator.toLowerCase() === FABRIC_AGGREGATOR_SLUG) return 'Integrator Fee';
+	return `${formatProvider(aggregator.toLowerCase())} Fee`;
+}
+
+// One clickable line per aggregator fee sink. The dominant (first) sink is
+// named by its verified Basescan contract name, falling back to the generic
+// "[Aggregator] Fee". Every subsequent sink is labeled by its truncated address
+// — a deliberate visual cue that it needs curation/investigation. All sinks
+// link to their Basescan address page.
+export function getAggregatorFeeLines(row: {
+	aggregator: string;
+	aggFeeBps: string | number | null;
+	feeRecipient?: string | null;
+	feeSinks?: FeeSinkNamed[] | null;
+}): FeeLine[] {
+	const totalBps = Number(row.aggFeeBps ?? 0);
+	if (!Number.isFinite(totalBps) || totalBps === 0) return [];
+
+	const sinks: FeeSinkNamed[] =
+		row.feeSinks && row.feeSinks.length > 0
+			? row.feeSinks
+			: row.feeRecipient
+				? [{ address: row.feeRecipient, feeBps: totalBps, source: 'retained_balance', name: null }]
+				: [];
+
+	if (sinks.length === 0) {
+		// Fee detected but no recipient — show the generic label, unlinked.
+		return [{ label: genericFeeLabel(row.aggregator), bps: totalBps }];
 	}
-	return { label };
+
+	return sinks.map((s, i) => ({
+		label: i === 0 ? (s.name ?? genericFeeLabel(row.aggregator)) : shortTxHash(s.address),
+		href: `https://basescan.org/address/${s.address}`,
+		bps: s.feeBps,
+	}));
 }
 
 export function tokenUnitPriceUsd(

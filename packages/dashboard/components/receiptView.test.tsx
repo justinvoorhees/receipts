@@ -973,3 +973,26 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		expect(html).toContain('Paid separately in ETH');
 	});
 });
+
+describe('Aggregator fee sinks', () => {
+	it('renders one fee line per sink: first named-or-generic, rest truncated, all linked', async () => {
+		const { Receipt } = await import('./receiptView');
+		const row = {
+			...fullUsdcWethRow,
+			aggregator: 'Nordstern',
+			aggFeeBps: '22',
+			feeRecipient: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae',
+			feeSinks: [
+				{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null },
+				{ address: '0x5f6900000000000000000000000000000000d431', feeBps: 2.98, source: 'retained_balance', name: null },
+			],
+		};
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		// First sink: generic "[Aggregator] Fee", linked to its recipient.
+		expect(html).toContain('Nordstern Fee');
+		expect(html).toContain('href="https://basescan.org/address/0x3dbe077e7986657e95e1cc50089f17a5a4af0aae"');
+		// Second sink: truncated address as label + link (curation cue).
+		expect(html).toContain('0x5f69…d431');
+		expect(html).toContain('href="https://basescan.org/address/0x5f6900000000000000000000000000000000d431"');
+	});
+});
