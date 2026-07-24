@@ -8,6 +8,20 @@
 			"provenance": "Cross-aggregator RFQ counterparty (Nordstern/KyberSwap/Velora); silent value-mover (emits no logs), no pool interface / fill event / EIP-1967 slot; 4084-byte plain contract; diversified multi-chain inventory; Basescan unlabeled. Unprovable by the two on-chain tiers — human-attested.",
 			"addedBy": "justin@withfabric.xyz",
 			"date": "2026-07-21"
+		},
+		{
+			"address": "0x51c72848c68a965f66fa7a88855f9f7784502a7f",
+			"label": "Market Maker",
+			"provenance": "0x Settler RFQ/PMM counterparty in tx 0xb02037466b0756a3972f77d674413a0d7468663aca62e8c6eb757f15ced59e26 (leg 5, USDC→1INCH, 1-in-1-out with settler 0x7747f8d2); silent value-mover (emits no logs), no pool interface (slot0/getReserves/token0/token1/fee/factory/globalState/liquidity all revert), impl slot 0; 23278-byte plain contract; diversified multi-token inventory (~$858k, 201+ tokens); Basescan-labeled \"Market Maker\". Unprovable by the two on-chain tiers (plain contract, no fill event) — human-attested.",
+			"addedBy": "justin@withfabric.xyz",
+			"date": "2026-07-23"
+		},
+		{
+			"address": "0xbb1b19f138db3925883a96ff7a304277460e0c99",
+			"label": "Market Maker",
+			"provenance": "0x Settler RFQ/OTC counterparty in tx 0xa218f228520dd065b16095e50608909721a5e573aa5dd9df052738a6f5e53c5c (receipt 324, USDC→WETH, 1-in-1-out with settler 0x7747f8d2: +731.01 USDC / −0.3899 WETH); Safe v1.4.1 3-of-N multisig (slot-0 masterCopy 0x29fcb43b…c762 = SafeL2 singleton, answers getThreshold/getOwners/nonce), 171-byte proxy; emits no logs, no pool interface, EIP-1967 slot 0; Basescan labels it generically \"Safe\" (NOT \"Market Maker\") — attestation rests on the settlement behavior, not a public MM label. Unprovable by the two on-chain tiers (Safe proxy reads as plain contract, no fill event) — human-attested.",
+			"addedBy": "justin@withfabric.xyz",
+			"date": "2026-07-23"
 		}
 	]
 }
