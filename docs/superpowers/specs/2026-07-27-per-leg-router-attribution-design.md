@@ -93,8 +93,10 @@ distinguish "B handed this leg to C and **C** chose the pool" from "**B** chose
 the pool and used C purely as an execution contract". `Relay > 0x` (id 307) is
 exactly this ambiguity: 0x's Settler is a contract many parties call.
 
-**Consequence:** the tag means **executed by**, never "chose this route", and
-the tooltip must say so rather than implying authorship.
+**Consequence:** the tag means **executed by**, never "chose this route". That
+constraint governs how the feature is documented and how far the data may be
+pushed later (e.g. it forbids ever summing "routed volume" by leg tag); it is
+not surfaced as UI copy — see §4 on tooltip content.
 
 ## Desired behavior (user-specified)
 
@@ -148,6 +150,15 @@ happens server-side on read; display naming happens on the client.
 of venue addresses → `Map<venueAddressLower, string[]>`, enclosing `CALL` frames
 outermost→innermost.
 
+**A venue occurrence is any log whose emitter is a venue address** — no
+swap-topic filter. An earlier draft of this spec filtered on `routeVenueScan`'s
+swap topics, which contradicted §4's "RFQ/maker legs follow the normal rule":
+maker legs are identified by a fill topic (`0x51ab1232…`), and
+`addKnownVenuesFromTransfers` venues by no topic at all, so a swap-topic filter
+would have silently denied attribution to both. Matching on emitter address
+covers every venue kind, needs no topic set, and removes a drift risk (a new
+venue family would otherwise need its topic added here too).
+
 Filtering rules, all mechanical:
 
 - `CALL` frames only — `DELEGATECALL` / `STATICCALL` have no frame of their own.
@@ -160,10 +171,6 @@ Filtering rules, all mechanical:
 **No registry lookup and no naming in this module.** Raw addresses only. This is
 what makes it a pure, fixture-driven, RPC-free function, and it is the property
 retroactivity depends on.
-
-Swap-topic recognition reuses `routeVenueScan`'s existing topic set — not a
-private copy. (An ad-hoc survey copy missed QuickSwap v4's Algebra topic; the
-production path must not.)
 
 Wired in at `analyzeTransaction.ts:349`, where `routeLegsBase` is built and both
 the trace and the legs are in scope.
@@ -221,8 +228,13 @@ never disagree about what to call someone.
   `path.map(formatProvider).join(' → ')`. Link and tooltip coexist on one
   element. Reuses the existing `TooltipBubble` (`receiptRows.tsx:26`) — the
   Figma bubble (12px / `leading-[20px]` / `max-w-[320px]` / `rounded-[2px]` /
-  `p-[10px]`) already matches it. Wording states **executed by**, per §"Decision:
-  containment, not authorship".
+  `p-[10px]`) already matches it. Content is the **path alone**, exactly as
+  Figma `529:2048` specifies — no added prose. An earlier draft of this spec
+  said the tooltip should state "executed by"; that over-specified, since at
+  depth ≤ 2 there is no tooltip at all and the caveat would have nowhere to
+  live. The containment-not-authorship semantics are carried by the module
+  doc comment and this design doc, not by UI copy. Revisit if the distinction
+  turns out to mislead in use.
 - **Width:** no work beyond verification. `BkdRow` (`receiptRows.tsx:266`) is
   already `grid-cols-[1fr_92px]` with a `min-w-0` label cell and no
   `nowrap`/`truncate` anywhere in the receipt; the fixed `w-[268px]` is a
@@ -276,6 +288,11 @@ appear in the path); id 307 → `0x`; no tag anywhere on the 44 others.
 - Persisted receipts go stale silently on core changes (project-wide gotcha) —
   the one-time repopulation is mandatory.
 - Registry edits need a **process restart**, not just a page refresh.
+- Matching on emitter address rather than topic means a venue that emits an
+  unrelated log from a different call frame trips the ambiguity guard and loses
+  its tag. The V4 `PoolManager` is the candidate (it emits from several frames
+  per swap). Fail-closed, and the Task 2 golden test over id 328 / 216 / 250 /
+  307 is what proves it does not fire in practice.
 - `route_legs` grows by one short string array per leg. The 12-entry cap bounds
   it; observed max chain depth is 3.
 
