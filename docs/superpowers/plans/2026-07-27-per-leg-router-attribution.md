@@ -1154,3 +1154,212 @@ EOF
 - **The `hopCount`/`linearFlowValid` follow-ups** in the refactor backlog are untouched; out of scope.
 
 **Type consistency:** `frameChain: string[]` is written in Task 2, declared in Task 2 (`queries.ts`), consumed in Tasks 3–4. `ResolvedLegRouter { slug, address, path }` is defined in Task 3 and used unchanged in Tasks 4–5. `extractFrameChains(trace, venues)` and `resolveLegRouter(frameChain, topLevelSlug)` keep the same argument order everywhere. `enrichLegRouters` is named identically in Task 4's implementation, test, and both call sites.
+
+---
+
+### Task 7: Tag the Price Impact rows too
+
+**Added 2026-07-27 after Task 6 verification**, which showed the receipt has a
+**third** per-leg list the original plan missed. "Price Impact" rows are built by
+`getPriceImpactRows` (`receipt/receiptDisplay.tsx:180`) and rendered directly
+through `BkdRow` at `receiptView.tsx:341-351` — they never go through `LegRow`,
+so they compose their own `context` string and never see `leg.router`. Live
+result on receipt id 328: `DAI/USDC • Fabric` in the Liquidity Provider Fee
+list, bare `DAI/USDC` three rows below in Price Impact. The user reviewed both
+renderings and chose to extend the tag.
+
+**Files:**
+- Modify: `packages/dashboard/components/receipt/receiptRows.tsx` (export `LegRouterTag`; add `legContext`; use it in `LegRow`)
+- Modify: `packages/dashboard/components/receipt/receiptDisplay.tsx` (`getPriceImpactRows` :180-218)
+- Modify: `packages/dashboard/components/receiptView.tsx` (Price Impact render site :341-351)
+- Modify: `packages/dashboard/components/receiptView.test.tsx` (add tests)
+
+**Interfaces:**
+- Consumes: `RouteLeg.router` (Task 4); `LegRouterTag` (Task 5, currently module-private).
+- Produces: `legContext(pair, router, suppress)` and `LegRouterTag` exported from `receiptRows.tsx`; `getPriceImpactRows` returns an extra `router?: RouteLeg['router']` field.
+
+**Import-direction constraint — the reason for this shape.** `receiptRows.tsx`
+already imports from `receiptDisplay.tsx` (`getVenueLabel`, `legPairContext`,
+`getStepContext`). Importing `LegRouterTag` the other way would create a cycle,
+and this codebase has been bitten by exactly that before (the
+ReceiptView↔TradesTable cycle that cascaded into `.next` build failures). So
+`getPriceImpactRows` must stay **JSX-free** and return `router` as *data*; the
+JSX is composed at the render site in `receiptView.tsx`, which already imports
+from `receiptRows.tsx`. Do not import `receiptRows.tsx` from
+`receiptDisplay.tsx`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `packages/dashboard/components/receiptView.test.tsx`:
+
+```ts
+describe('getPriceImpactRows router attribution', () => {
+	const ROUTER = { slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'fabric'] };
+	const baseRow = {
+		inputToken: '0x4200000000000000000000000000000000000006',
+		outputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+		inputSymbol: 'WETH',
+		outputSymbol: 'USDC',
+	};
+	const leg = (extra: Record<string, unknown> = {}) => ({
+		venue: '0x345825a980bd94e1480bc4f20fe4e3dae2f23dd3',
+		type: 'pancakev3',
+		tokenIn: baseRow.inputToken,
+		tokenOut: baseRow.outputToken,
+		tokenInSymbol: 'WETH',
+		tokenOutSymbol: 'USDC',
+		priceImpactBps: 3,
+		...extra,
+	});
+
+	it('passes the leg router through as data', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ router: ROUTER })] as never, baseRow as never);
+		expect(rows[0]!.router).toEqual(ROUTER);
+		expect(rows[0]!.context).toBe('WETH/USDC');
+	});
+
+	it('omits the router on a leg that has none', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg()] as never, baseRow as never);
+		expect(rows[0]!.router).toBeUndefined();
+	});
+
+	it('omits the router on a wrap step row', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ type: 'wrap', router: ROUTER })] as never, baseRow as never);
+		expect(rows[0]!.context).toBe('ETH → WETH');
+		expect(rows[0]!.router).toBeUndefined();
+	});
+
+	it('returns JSX-free data — context stays a string', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ router: ROUTER })] as never, baseRow as never);
+		expect(typeof rows[0]!.context).toBe('string');
+	});
+});
+
+describe('legContext', () => {
+	const ROUTER = { slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'fabric'] };
+
+	const render = async (pair: string | undefined, router: unknown, suppress: boolean) => {
+		const { legContext } = await import('./receipt/receiptRows');
+		return renderToStaticMarkup(
+			React.createElement('div', null, legContext(pair, router as never, suppress)),
+		);
+	};
+
+	it('joins the pair and the router with the bullet separator, in that order', async () => {
+		const html = await render('WETH/USDC', ROUTER, false);
+		expect(html).toMatch(/WETH\/USDC\s*•\s*<a[^>]*>Fabric<\/a>/);
+	});
+
+	it('emits exactly one separator', async () => {
+		const html = await render('WETH/USDC', ROUTER, false);
+		expect(html.match(/•/g)).toHaveLength(1);
+	});
+
+	it('renders the pair alone with no trailing separator when there is no router', async () => {
+		const html = await render('WETH/USDC', undefined, false);
+		expect(html).toBe('<div>WETH/USDC</div>');
+	});
+
+	it('renders the router with no leading separator when the pair is absent', async () => {
+		const html = await render(undefined, ROUTER, false);
+		expect(html).not.toContain('•');
+		expect(html).toContain('Fabric');
+	});
+
+	it('suppresses the router entirely when suppress is set', async () => {
+		const html = await render('ETH → WETH', ROUTER, true);
+		expect(html).toBe('<div>ETH → WETH</div>');
+	});
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `npm test -- receiptView`
+Expected: FAIL — `legContext` is not exported, and `rows[0].router` is undefined in the first test.
+
+- [ ] **Step 3: Add `legContext` and export both symbols**
+
+In `packages/dashboard/components/receipt/receiptRows.tsx`, change `function LegRouterTag(` to `export function LegRouterTag(`, and add directly beneath it:
+
+```tsx
+/**
+ * The muted detail beside a leg's venue label: `WETH/cbBTC • Fabric`.
+ *
+ * Shared by the two `LegRow` lists and the Price Impact list, which reaches it
+ * through receiptView because `getPriceImpactRows` must stay JSX-free —
+ * receiptRows already imports from receiptDisplay, so the reverse import would
+ * be a cycle.
+ *
+ * `suppress` is for step rows (wrap/unwrap): their slot holds the step itself,
+ * and wrapping is not a routing decision.
+ */
+export function legContext(
+	pair: string | undefined,
+	router: RouteLeg['router'],
+	suppress: boolean,
+): React.ReactNode {
+	if (!router || suppress) return pair;
+	return (
+		<>
+			{pair}
+			{pair ? ' • ' : ''}
+			<LegRouterTag router={router} />
+		</>
+	);
+}
+```
+
+Then replace `LegRow`'s whole `const context = …` ternary with:
+
+```tsx
+	const context = legContext(pair, leg.router, isStep);
+```
+
+- [ ] **Step 4: Pass the router through `getPriceImpactRows` as data**
+
+In `packages/dashboard/components/receipt/receiptDisplay.tsx`: add `'router'` to the `legs` parameter's `Pick<...>` union, add `router?: RouteLeg['router'];` to the declared return-object type, and add `router: leg.router,` to the **second** (non-step) returned object only. The step-row early return must NOT carry a router.
+
+- [ ] **Step 5: Compose the JSX at the render site**
+
+In `packages/dashboard/components/receiptView.tsx`, add `legContext` to the existing import from `./receipt/receiptRows`, and change the Price Impact `BkdRow`'s context prop from `context={impact.context}` to:
+
+```tsx
+									context={legContext(impact.context, impact.router, false)}
+```
+
+`false` is correct: Step 4 already suppressed the router on step rows inside `getPriceImpactRows`, so no second guard is needed here.
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `npm test -- receiptView`
+Expected: PASS, including the 9 new tests, with the 5 existing `LegRow` tests unchanged.
+
+- [ ] **Step 7: Typecheck, lint, full suite**
+
+Run: `npx tsc --build && npm run lint && npm test`
+Expected: all clean.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add packages/dashboard/components/receipt/receiptRows.tsx packages/dashboard/components/receipt/receiptDisplay.tsx packages/dashboard/components/receiptView.tsx packages/dashboard/components/receiptView.test.tsx
+git commit -m "$(cat <<'EOF'
+feat(dashboard): tag the Price Impact leg rows too
+
+Price Impact rows are built by getPriceImpactRows and rendered straight
+through BkdRow, never via LegRow, so the same leg showed `DAI/USDC - Fabric`
+under Liquidity Provider Fee and a bare `DAI/USDC` three rows below.
+
+Adds the shared `legContext` composer. getPriceImpactRows stays JSX-free and
+returns the router as data -- receiptRows already imports receiptDisplay, so
+composing there would be an import cycle.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+)"
+```
