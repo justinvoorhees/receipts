@@ -56,6 +56,11 @@ export interface RouteLeg {
 	// on-chain symbol() read failed — both fall back to address-based resolution.
 	tokenInSymbol?: string;
 	tokenOutSymbol?: string;
+	// Enclosing CALL frame addresses (outermost→innermost) for this leg's venue,
+	// captured by core from the trace. Raw addresses — names are resolved on read
+	// by resolveLegRouter so registry growth applies retroactively. Absent on
+	// rows persisted before 2026-07-27 and on legs whose chain was ambiguous.
+	frameChain?: string[];
 }
 
 /**

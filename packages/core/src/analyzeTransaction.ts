@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveTrader, anchorFlags, type Anchor } from './resolveTrader.js';
 import { loadReactors } from './settlementDecoders.js';
+import { extractFrameChains } from './legFrameChains.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REACTORS = await loadReactors(path.resolve(__dirname, '../../../configs/reactors.json'));
@@ -346,16 +347,28 @@ export async function analyzeTransaction(
 		// at all — LP + Agg only). Gate on `priced`, not `isFull`, so the estimated
 		// tier surfaces the decomposition instead of nulling values decomposeRoute
 		// actually computed. Oracle-derived fields stay tier-gated separately.
-		const routeLegsBase = route.legs.map((l) => ({
-			venue: l.leg.venue,
-			type: l.leg.type,
-			tokenIn: l.leg.tokenIn,
-			tokenOut: l.leg.tokenOut,
-			feeTierBps: l.feeTierBps,
-			notionalUsdc: l.notionalUsdc,
-			lpFeeBps: l.lpFeeBps,
-			priceImpactBps: midReliable ? l.priceImpactBps : null,
-		}));
+		// Which call frame executed each leg? `trace` is the one already fetched
+		// above — no extra RPC. Raw addresses only; naming happens on read so
+		// registry growth is retroactive (see legFrameChains.ts).
+		const venueAddresses = new Set(route.legs.map((l) => l.leg.venue.toLowerCase()));
+		const frameChains = extractFrameChains(trace, venueAddresses);
+
+		const routeLegsBase = route.legs.map((l) => {
+			const frameChain = frameChains.get(l.leg.venue.toLowerCase());
+			return {
+				venue: l.leg.venue,
+				type: l.leg.type,
+				tokenIn: l.leg.tokenIn,
+				tokenOut: l.leg.tokenOut,
+				feeTierBps: l.feeTierBps,
+				notionalUsdc: l.notionalUsdc,
+				lpFeeBps: l.lpFeeBps,
+				priceImpactBps: midReliable ? l.priceImpactBps : null,
+				// Omitted (not null) when absent, matching attachLegSymbols' contract:
+				// an absent key reads as "no attribution" on old and new rows alike.
+				...(frameChain ? { frameChain } : {}),
+			};
+		});
 
 		// Resolve a display symbol for every leg token — including intermediate hops
 		// (e.g. USDT) that are neither an endpoint nor in the dashboard's static map,
