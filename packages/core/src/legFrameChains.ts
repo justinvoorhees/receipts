@@ -30,6 +30,11 @@ import type { TraceNode } from './tradeEndpoints.js';
  */
 const MAX_CHAIN = 12;
 
+/**
+ * @param venues - venue addresses, already lowercased. Compared directly
+ * against lowercased trace addresses with no normalization on this side, so
+ * a mixed-case entry in the set silently never matches.
+ */
 export function extractFrameChains(
 	trace: TraceNode,
 	venues: ReadonlySet<string>,
@@ -40,8 +45,13 @@ export function extractFrameChains(
 	const visit = (node: TraceNode, stack: readonly string[]): void => {
 		const to = node.to?.toLowerCase();
 		// Only CALL creates a frame: DELEGATECALL/STATICCALL execute in the
-		// caller's context. Reverted frames did not happen. The venue itself is
-		// never part of its own chain.
+		// caller's context. A reverted frame does not open a frame of its own —
+		// we still recurse into its children and still record their logs (the
+		// revert unwinds the frame, not the traversal), we just never push the
+		// reverted call's own address onto the stack. Venue addresses never open
+		// a frame either, for any venue in `venues` (not just the one whose
+		// chain is being built): a venue is a pool or maker, never a router, so
+		// it would only add noise the read-time resolver discards anyway.
 		const opensFrame =
 			node.type === 'CALL' && to != null && to !== '' && !node.error && !venues.has(to);
 		// Collapse CONSECUTIVE repeats: V4 runs

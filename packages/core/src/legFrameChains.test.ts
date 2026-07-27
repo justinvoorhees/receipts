@@ -3,9 +3,13 @@ import { extractFrameChains } from './legFrameChains.js';
 import type { TraceNode } from './tradeEndpoints.js';
 
 const POOL = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const POOL_B = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const OUTER = '0xcccccccccccccccccccccccccccccccccccccccc';
 const MID = '0xdddddddddddddddddddddddddddddddddddddddd';
 const INNER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+// A real fill-topic shape (RFQ maker fill), used to prove log-matching is
+// topic-blind rather than merely tolerant of an empty topics array.
+const RFQ_FILL_TOPIC = '0x51ab1232e2b0ce9c8db2b12f5c4a3b4e9b1c8f3d2a6e5b7c9d0e1f2a3b4c5d6e';
 
 /** A log emitted by `address`; topics are irrelevant — matching is by emitter. */
 const log = (address: string) => ({
@@ -98,13 +102,46 @@ describe('extractFrameChains', () => {
 	});
 
 	it('matches any log from a venue, not just swap topics (RFQ + transfer-discovered venues)', () => {
-		const trace = call(OUTER, { calls: [call(POOL, { logs: [log(POOL)] })] });
+		const trace = call(OUTER, {
+			calls: [call(POOL, { logs: [{
+				address: POOL as `0x${string}`,
+				data: '0x' as `0x${string}`,
+				topics: [RFQ_FILL_TOPIC as `0x${string}`],
+			}] })],
+		});
 		expect(extractFrameChains(trace, new Set([POOL])).has(POOL)).toBe(true);
+	});
+
+	it('never opens a frame for a venue address — not just the one whose chain is being built (a venue is never a router)', () => {
+		// OUTER -> POOL(logs) -> POOL_B(logs), both venues. POOL must not appear
+		// in POOL_B's chain even though POOL directly called POOL_B.
+		const trace = call(OUTER, {
+			calls: [call(POOL, { logs: [log(POOL)], calls: [call(POOL_B, { logs: [log(POOL_B)] })] })],
+		});
+		const chains = extractFrameChains(trace, new Set([POOL, POOL_B]));
+		expect(chains.get(POOL)).toEqual([OUTER]);
+		expect(chains.get(POOL_B)).toEqual([OUTER]);
 	});
 
 	it('returns an empty map for a venue with no logs at all', () => {
 		const trace = call(OUTER, { calls: [call(POOL)] });
 		expect(extractFrameChains(trace, new Set([POOL])).size).toBe(0);
+	});
+
+	it('does not throw and does not open a frame for a node with no type', () => {
+		const trace = call(OUTER, {
+			calls: [{ to: MID as `0x${string}`, calls: [call(POOL, { logs: [log(POOL)] })] }],
+		});
+		expect(() => extractFrameChains(trace, new Set([POOL]))).not.toThrow();
+		expect(extractFrameChains(trace, new Set([POOL])).get(POOL)).toEqual([OUTER]);
+	});
+
+	it('does not throw and does not open a frame for a node with no to', () => {
+		const trace = call(OUTER, {
+			calls: [{ type: 'CALL', calls: [call(POOL, { logs: [log(POOL)] })] }],
+		});
+		expect(() => extractFrameChains(trace, new Set([POOL]))).not.toThrow();
+		expect(extractFrameChains(trace, new Set([POOL])).get(POOL)).toEqual([OUTER]);
 	});
 
 	it('lowercases venue keys and frame addresses', () => {
