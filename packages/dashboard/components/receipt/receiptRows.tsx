@@ -231,7 +231,11 @@ export function BkdRow({
 }: {
 	label: string;
 	value: string;
-	context?: string | undefined;
+	/** Trailing muted detail beside the label — the token pair, plus the
+	 *  executing router when another aggregator ran this leg. A node, not a
+	 *  string, because the router segment is a link and above depth 2 also a
+	 *  tooltip trigger. */
+	context?: React.ReactNode;
 	href?: string | undefined;
 	color?: string | undefined;
 	labelColor?: string | undefined;
@@ -291,6 +295,40 @@ export function BkdRow({
 	);
 }
 
+/**
+ * The executing-router tag in a leg's context slot: `WETH/cbBTC • Fabric`.
+ *
+ * Quaternary rather than the provider accent — per-leg accents made the
+ * breakdown noisy. The link target is the frame's own contract address, so it
+ * resolves to whichever router of that aggregator actually ran (several
+ * aggregators run more than one).
+ *
+ * The full path appears only above depth 2. At depth 2 it is just
+ * `topLine › thisRouter`, and the top line is already stated at the head of
+ * the receipt, so a tooltip would restate what the reader can see.
+ */
+function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
+	const link = (
+		<a
+			href={`https://basescan.org/address/${router.address}`}
+			target="_blank"
+			rel="noreferrer"
+			className="underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+		>
+			{formatProvider(router.slug, { full: true })}
+		</a>
+	);
+	if (router.path.length <= 2) return link;
+	return (
+		<span className="group relative">
+			{link}
+			<TooltipBubble align="left">
+				{router.path.map((slug) => formatProvider(slug, { full: true })).join(' → ')}
+			</TooltipBubble>
+		</span>
+	);
+}
+
 // Shared row for the Cost Breakdown "Liquidity Provider Fee" / "Pools Touched"
 // lists — same venue/label/context, differing only in the value column and
 // (for the uncosted "Pools Touched" list) an extra guard against legs missing
@@ -317,11 +355,24 @@ export function LegRow({
 	const hasPair = leg.tokenIn && leg.tokenOut;
 	const hideContext = requirePair && !isStep && !hasPair;
 	const maker = isMakerLeg(leg);
+	const pair = stepContext ?? (hideContext ? undefined : legPairContext(leg, index, legsLength, row));
+	// Step rows (wrap/unwrap) never carry a router tag: their context slot holds
+	// the step itself, and wrapping is not a routing decision.
+	const context =
+		leg.router && !isStep ? (
+			<>
+				{pair}
+				{pair ? ' • ' : ''}
+				<LegRouterTag router={leg.router} />
+			</>
+		) : (
+			pair
+		);
 	return (
 		<BkdRow
 			label={getVenueLabel(leg)}
 			href={`https://basescan.org/address/${leg.venue}`}
-			context={stepContext ?? (hideContext ? undefined : legPairContext(leg, index, legsLength, row))}
+			context={context}
 			value={value}
 			color={color}
 			secondary

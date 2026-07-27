@@ -996,3 +996,78 @@ describe('Aggregator fee sinks', () => {
 		expect(html).toContain('href="https://basescan.org/address/0x5f6900000000000000000000000000000000d431"');
 	});
 });
+
+describe('LegRow router attribution', () => {
+	const baseRow = {
+		inputToken: '0x4200000000000000000000000000000000000006',
+		outputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+		inputSymbol: 'WETH',
+		outputSymbol: 'USDC',
+	};
+	const leg = (router?: { slug: string; address: string; path: string[] }) => ({
+		venue: '0x345825a980bd94e1480bc4f20fe4e3dae2f23dd3',
+		type: 'pancakev3',
+		tokenIn: baseRow.inputToken,
+		tokenOut: baseRow.outputToken,
+		tokenInSymbol: 'WETH',
+		tokenOutSymbol: 'USDC',
+		feeTierBps: 5,
+		notionalUsdc: 1000,
+		lpFeeBps: 5,
+		priceImpactBps: 1,
+		...(router ? { router } : {}),
+	});
+
+	const render = async (l: ReturnType<typeof leg>) => {
+		const { LegRow } = await import('./receipt/receiptRows');
+		return renderToStaticMarkup(
+			React.createElement(LegRow, {
+				leg: l as never,
+				index: 0,
+				legsLength: 1,
+				row: baseRow as never,
+				value: '5.0bps',
+			}),
+		);
+	};
+
+	it('renders the pair alone when no other aggregator executed the leg', async () => {
+		const html = await render(leg());
+		expect(html).toContain('WETH/USDC');
+		expect(html).not.toContain('basescan.org/address/0x7c137a37');
+	});
+
+	it('appends the router, linked to its Basescan contract page', async () => {
+		const html = await render(
+			leg({ slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'fabric'] }),
+		);
+		expect(html).toContain('WETH/USDC');
+		expect(html).toContain('Fabric');
+		expect(html).toContain('href="https://basescan.org/address/0x7c137a37742437d2212b7bd873ed135b5c4c61da"');
+	});
+
+	it('shows no tooltip at depth 2', async () => {
+		const html = await render(
+			leg({ slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'fabric'] }),
+		);
+		expect(html).not.toContain('role="tooltip"');
+	});
+
+	it('shows the full arrow-joined path in a tooltip above depth 2', async () => {
+		const html = await render(
+			leg({ slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'odos', 'fabric'] }),
+		);
+		expect(html).toContain('role="tooltip"');
+		expect(html).toContain('Relay → Odos → Fabric');
+	});
+
+	it('renders no router tag on a wrap step row', async () => {
+		const wrapLeg = {
+			...leg({ slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'fabric'] }),
+			type: 'wrap',
+		};
+		const html = await render(wrapLeg as never);
+		expect(html).toContain('ETH → WETH');
+		expect(html).not.toContain('basescan.org/address/0x7c137a37');
+	});
+});
