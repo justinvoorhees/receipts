@@ -307,7 +307,7 @@ export function BkdRow({
  * `topLine › thisRouter`, and the top line is already stated at the head of
  * the receipt, so a tooltip would restate what the reader can see.
  */
-export function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
+function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
 	const link = (
 		<a
 			href={`https://basescan.org/address/${router.address}`}

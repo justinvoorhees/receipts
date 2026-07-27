@@ -57,6 +57,24 @@ describe('resolveLegRouter', () => {
 		expect(resolveLegRouter([RELAY, N2, N1], 'relay')!.path).toEqual(['relay', 'nordstern']);
 	});
 
+	it('documents (does not fix) that a raw-address top-level slug does not match a resolved chain slug', () => {
+		// Pinning test, not a spec: this function only ever COMPARES the two
+		// slugs it is given — it never looks up `topLevelSlug` itself. So a raw,
+		// uncurated address string passed as `topLevelSlug` (which is what
+		// `row.aggregator` freezes at analysis time before a router is curated)
+		// will never equal a resolved slug like 'relay', even when the address
+		// IS Relay. That is by design: resolveLegRouter has no registry
+		// dependency for its top-line argument, only for the chain. The caller
+		// (enrichLegRouters in packages/dashboard/lib/queries.ts) is responsible
+		// for passing a registry-RESOLVED slug, derived from routerAddress, not
+		// the frozen `aggregator` label — see Finding 1 there.
+		expect(resolveLegRouter([RELAY], RELAY)).toEqual({
+			slug: 'relay',
+			address: RELAY,
+			path: ['relay'],
+		});
+	});
+
 	it('is case-insensitive on both the chain and the top-level slug', () => {
 		expect(resolveLegRouter([RELAY.toUpperCase().replace('0X', '0x'), FABRIC], 'RELAY')).toEqual({
 			slug: 'fabric',

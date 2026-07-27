@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
 import { analyzeTransaction, enrichFeeSinkNames, type Receipt } from '@fabric-tca/core';
-import { deleteReceipt, getReceiptByHash, insertReceipt, type NewReceipt } from '../../../lib/queries.js';
+import {
+	deleteReceipt,
+	enrichLegRouters,
+	getReceiptByHash,
+	insertReceipt,
+	type NewReceipt,
+} from '../../../lib/queries.js';
 
 // core uses viem + fs (config load in tagging.ts) — must run on Node, not edge.
 export const runtime = 'nodejs';
@@ -107,8 +113,11 @@ export async function POST(req: Request): Promise<Response> {
 	}
 
 	// 3. Persist and return the stored row (so it also shows up in History).
+	// Enrich here too, same as the cache-hit path above — otherwise the two
+	// responses for the same hash have different shapes (legs missing `router`
+	// on a fresh analysis, present on a cache hit).
 	const inserted = await insertReceipt(await toNewReceipt(receipt));
-	return NextResponse.json(inserted, { status: 200 });
+	return NextResponse.json(enrichLegRouters(inserted), { status: 200 });
 }
 
 /**

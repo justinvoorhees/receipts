@@ -1074,6 +1074,15 @@ to:
 const WATCH = ['tier', 'pricingStatus', 'routeShape', 'hopCount', 'allInCostBps', 'executionBps', 'lpFeeBps', 'aggFeeBps', 'slippageBps', 'decompConfidence', 'routeLegs'];
 ```
 
+**Reverted during execution — this step does not work.** `norm()` at
+`repopulateReceipts.mjs:62` ends in `String(v)`, so a jsonb leg array
+stringifies to `"[object Object],[object Object]"` on both the before and
+after side — the two strings are identical regardless of what changed inside
+the legs, so `routeLegs` can never show a diff in the WATCH report. The
+addition above was tried and reverted; `routeLegs` was left out of WATCH, and
+backfill verification for `frameChain` moved to a direct DB query instead of
+the drift report.
+
 - [ ] **Step 3: Dry-run the repopulation**
 
 Run (background — 48 rows exceeds the 5-minute foreground tool timeout):

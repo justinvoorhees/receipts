@@ -8,15 +8,19 @@ vi.mock('@fabric-tca/core', () => ({
 vi.mock('../../../lib/queries.js', () => ({
 	getReceiptByHash: vi.fn(),
 	insertReceipt: vi.fn(),
+	// Identity here: the route only needs to see it's applied, not what it does —
+	// enrichLegRouters itself is covered by legRouterEnrichment.test.ts.
+	enrichLegRouters: vi.fn((row: unknown) => row),
 }));
 
 import { analyzeTransaction } from '@fabric-tca/core';
-import { getReceiptByHash, insertReceipt } from '../../../lib/queries.js';
+import { enrichLegRouters, getReceiptByHash, insertReceipt } from '../../../lib/queries.js';
 import { POST } from './route.js';
 
 const mockAnalyze = vi.mocked(analyzeTransaction);
 const mockGet = vi.mocked(getReceiptByHash);
 const mockInsert = vi.mocked(insertReceipt);
+const mockEnrich = vi.mocked(enrichLegRouters);
 
 function post(body: unknown): Request {
 	return new Request('http://x/api/receipts', {
@@ -118,6 +122,9 @@ describe('POST /api/receipts', () => {
 		expect(await res.json()).toEqual(inserted);
 		expect(mockAnalyze).toHaveBeenCalledOnce();
 		expect(mockInsert).toHaveBeenCalledOnce();
+		// Finding 3: the fresh-analysis path must enrich too, so it returns the
+		// same shape as the cache-hit path (getReceiptByHash is enriched by queries.ts).
+		expect(mockEnrich).toHaveBeenCalledWith(inserted);
 
 		// numeric columns must be strings for Drizzle numeric inserts
 		const arg = mockInsert.mock.calls[0]![0] as Record<string, unknown>;

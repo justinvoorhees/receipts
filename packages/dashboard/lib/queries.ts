@@ -1,7 +1,7 @@
 import { desc, eq, sql } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
-import { resolveLegRouter, type ResolvedLegRouter } from '@fabric-tca/core';
+import { resolveAggregator, resolveLegRouter, type ResolvedLegRouter } from '@fabric-tca/core';
 
 // ─── Receipts data layer ─────────────────────────────────────────────────────
 // CRUD over the `receipts` table (Task 1 schema, Task 2 seed). Consumed by the
@@ -81,7 +81,20 @@ export interface RouteLeg {
  */
 export function enrichLegRouters(row: ReceiptRow): ReceiptRow {
 	if (!Array.isArray(row.routeLegs)) return row;
-	const topLevelSlug = String(row.aggregator ?? '').toLowerCase();
+	// Must resolve through the SAME registry snapshot that resolveLegRouter
+	// uses for the leg side, not the label `row.aggregator` froze at analysis
+	// time. Those two can diverge: an uncurated top-level address is persisted
+	// as its raw lowercase string, but a later routers.json addition (or a
+	// rename) changes what resolveAggregator returns for that same address
+	// today. If the top line here stayed the stale label, the comparison in
+	// resolveLegRouter would stop matching and a leg run by the SAME contract
+	// as the top line would get wrongly tagged as a second aggregator the
+	// moment the registry grows — turning a correct `null` into a false
+	// attribution. Re-deriving from `routerAddress` (tx.to, persisted
+	// separately and never relabeled) keeps both sides on today's registry.
+	const topLevelSlug = row.routerAddress
+		? resolveAggregator(row.routerAddress, []).slug
+		: String(row.aggregator ?? '').toLowerCase();
 	const legs = (row.routeLegs as RouteLeg[]).map((leg) => {
 		const router = resolveLegRouter(leg.frameChain, topLevelSlug);
 		return router ? { ...leg, router } : leg;
