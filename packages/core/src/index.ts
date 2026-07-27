@@ -16,3 +16,4 @@ export type { MarketPriceTier, MarketPriceResult, Estimator } from './marketPric
 // Pure receipt helpers — the ONE definition (also the @fabric-tca/core/pure subpath).
 export { anchorsToUsd, baseIsOutputLeg, reconciledResult } from './receiptPure.js';
 export { extractFrameChains } from './legFrameChains.js';
+export { resolveLegRouter, type ResolvedLegRouter } from './resolveLegRouter.js';
