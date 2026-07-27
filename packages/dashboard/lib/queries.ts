@@ -1,6 +1,7 @@
 import { desc, eq, sql } from 'drizzle-orm';
 import { schema } from '@fabric-tca/db';
 import { getDb } from './db';
+import { resolveLegRouter, type ResolvedLegRouter } from '@fabric-tca/core';
 
 // ─── Receipts data layer ─────────────────────────────────────────────────────
 // CRUD over the `receipts` table (Task 1 schema, Task 2 seed). Consumed by the
@@ -12,7 +13,8 @@ export type NewReceipt = typeof schema.receipts.$inferInsert;
 /** All receipts, most recently created first. */
 export async function listReceipts(): Promise<ReceiptRow[]> {
 	const db = getDb();
-	return db.select().from(schema.receipts).orderBy(desc(schema.receipts.createdAt));
+	const rows = await db.select().from(schema.receipts).orderBy(desc(schema.receipts.createdAt));
+	return rows.map(enrichLegRouters);
 }
 
 /** Looks up a receipt by transaction hash, case-insensitively. Returns null if not found. */
@@ -23,7 +25,7 @@ export async function getReceiptByHash(hash: string): Promise<ReceiptRow | null>
 		.from(schema.receipts)
 		.where(sql`lower(${schema.receipts.txHash}) = lower(${hash})`)
 		.limit(1);
-	return rows[0] ?? null;
+	return rows[0] ? enrichLegRouters(rows[0]) : null;
 }
 
 /** Inserts a new receipt row and returns it. Idempotency is handled by the caller (API route). */
@@ -61,6 +63,30 @@ export interface RouteLeg {
 	// by resolveLegRouter so registry growth applies retroactively. Absent on
 	// rows persisted before 2026-07-27 and on legs whose chain was ambiguous.
 	frameChain?: string[];
+	// Resolved from `frameChain` on read (never persisted) — see
+	// enrichLegRouters. Present only when another curated aggregator executed
+	// this leg.
+	router?: ResolvedLegRouter;
+}
+
+/**
+ * Resolve each leg's persisted `frameChain` into a named router, on read.
+ *
+ * Deliberately not persisted: doing it here means adding an address to
+ * configs/routers.json retroactively attributes every historical receipt,
+ * with no repopulation. Runs server-side only — resolveLegRouter reads the
+ * registries from disk and must never cross into a client bundle.
+ *
+ * Exported for tests; every query below applies it.
+ */
+export function enrichLegRouters(row: ReceiptRow): ReceiptRow {
+	if (!Array.isArray(row.routeLegs)) return row;
+	const topLevelSlug = String(row.aggregator ?? '').toLowerCase();
+	const legs = (row.routeLegs as RouteLeg[]).map((leg) => {
+		const router = resolveLegRouter(leg.frameChain, topLevelSlug);
+		return router ? { ...leg, router } : leg;
+	});
+	return { ...row, routeLegs: legs };
 }
 
 /**
