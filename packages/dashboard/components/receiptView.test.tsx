@@ -1071,3 +1071,86 @@ describe('LegRow router attribution', () => {
 		expect(html).not.toContain('basescan.org/address/0x7c137a37');
 	});
 });
+
+describe('getPriceImpactRows router attribution', () => {
+	const ROUTER = { slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'fabric'] };
+	const baseRow = {
+		inputToken: '0x4200000000000000000000000000000000000006',
+		outputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+		inputSymbol: 'WETH',
+		outputSymbol: 'USDC',
+	};
+	const leg = (extra: Record<string, unknown> = {}) => ({
+		venue: '0x345825a980bd94e1480bc4f20fe4e3dae2f23dd3',
+		type: 'pancakev3',
+		tokenIn: baseRow.inputToken,
+		tokenOut: baseRow.outputToken,
+		tokenInSymbol: 'WETH',
+		tokenOutSymbol: 'USDC',
+		priceImpactBps: 3,
+		...extra,
+	});
+
+	it('passes the leg router through as data', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ router: ROUTER })] as never, baseRow as never);
+		expect(rows[0]!.router).toEqual(ROUTER);
+		expect(rows[0]!.context).toBe('WETH/USDC');
+	});
+
+	it('omits the router on a leg that has none', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg()] as never, baseRow as never);
+		expect(rows[0]!.router).toBeUndefined();
+	});
+
+	it('omits the router on a wrap step row', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ type: 'wrap', router: ROUTER })] as never, baseRow as never);
+		expect(rows[0]!.context).toBe('ETH → WETH');
+		expect(rows[0]!.router).toBeUndefined();
+	});
+
+	it('returns JSX-free data — context stays a string', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ router: ROUTER })] as never, baseRow as never);
+		expect(typeof rows[0]!.context).toBe('string');
+	});
+});
+
+describe('legContext', () => {
+	const ROUTER = { slug: 'fabric', address: '0x7c137a37742437d2212b7bd873ed135b5c4c61da', path: ['relay', 'fabric'] };
+
+	const render = async (pair: string | undefined, router: unknown, suppress: boolean) => {
+		const { legContext } = await import('./receipt/receiptRows');
+		return renderToStaticMarkup(
+			React.createElement('div', null, legContext(pair, router as never, suppress)),
+		);
+	};
+
+	it('joins the pair and the router with the bullet separator, in that order', async () => {
+		const html = await render('WETH/USDC', ROUTER, false);
+		expect(html).toMatch(/WETH\/USDC\s*•\s*<a[^>]*>Fabric<\/a>/);
+	});
+
+	it('emits exactly one separator', async () => {
+		const html = await render('WETH/USDC', ROUTER, false);
+		expect(html.match(/•/g)).toHaveLength(1);
+	});
+
+	it('renders the pair alone with no trailing separator when there is no router', async () => {
+		const html = await render('WETH/USDC', undefined, false);
+		expect(html).toBe('<div>WETH/USDC</div>');
+	});
+
+	it('renders the router with no leading separator when the pair is absent', async () => {
+		const html = await render(undefined, ROUTER, false);
+		expect(html).not.toContain('•');
+		expect(html).toContain('Fabric');
+	});
+
+	it('suppresses the router entirely when suppress is set', async () => {
+		const html = await render('ETH → WETH', ROUTER, true);
+		expect(html).toBe('<div>ETH → WETH</div>');
+	});
+});

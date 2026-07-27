@@ -178,7 +178,7 @@ export function legPairContext(
 }
 
 export function getPriceImpactRows(
-	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol'>[],
+	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol' | 'router'>[],
 	row?: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
 ): {
 	label: string;
@@ -187,6 +187,7 @@ export function getPriceImpactRows(
 	value: string;
 	color: string | undefined;
 	valueTooltip?: string | undefined;
+	router?: RouteLeg['router'];
 }[] {
 	return legs.map((leg, index) => {
 		const stepContext = getStepContext(leg.type);
@@ -214,6 +215,7 @@ export function getPriceImpactRows(
 			value: impact.text,
 			color: impact.color,
 			valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
+			router: leg.router,
 		};
 	});
 }

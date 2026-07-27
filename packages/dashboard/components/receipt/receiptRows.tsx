@@ -307,7 +307,7 @@ export function BkdRow({
  * `topLine › thisRouter`, and the top line is already stated at the head of
  * the receipt, so a tooltip would restate what the reader can see.
  */
-function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
+export function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
 	const link = (
 		<a
 			href={`https://basescan.org/address/${router.address}`}
@@ -326,6 +326,32 @@ function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
 				{router.path.map((slug) => formatProvider(slug, { full: true })).join(' → ')}
 			</TooltipBubble>
 		</span>
+	);
+}
+
+/**
+ * The muted detail beside a leg's venue label: `WETH/cbBTC • Fabric`.
+ *
+ * Shared by the two `LegRow` lists and the Price Impact list, which reaches it
+ * through receiptView because `getPriceImpactRows` must stay JSX-free —
+ * receiptRows already imports from receiptDisplay, so the reverse import would
+ * be a cycle.
+ *
+ * `suppress` is for step rows (wrap/unwrap): their slot holds the step itself,
+ * and wrapping is not a routing decision.
+ */
+export function legContext(
+	pair: string | undefined,
+	router: RouteLeg['router'],
+	suppress: boolean,
+): React.ReactNode {
+	if (!router || suppress) return pair;
+	return (
+		<>
+			{pair}
+			{pair ? ' • ' : ''}
+			<LegRouterTag router={router} />
+		</>
 	);
 }
 
@@ -356,18 +382,7 @@ export function LegRow({
 	const hideContext = requirePair && !isStep && !hasPair;
 	const maker = isMakerLeg(leg);
 	const pair = stepContext ?? (hideContext ? undefined : legPairContext(leg, index, legsLength, row));
-	// Step rows (wrap/unwrap) never carry a router tag: their context slot holds
-	// the step itself, and wrapping is not a routing decision.
-	const context =
-		leg.router && !isStep ? (
-			<>
-				{pair}
-				{pair ? ' • ' : ''}
-				<LegRouterTag router={leg.router} />
-			</>
-		) : (
-			pair
-		);
+	const context = legContext(pair, leg.router, isStep);
 	return (
 		<BkdRow
 			label={getVenueLabel(leg)}

@@ -38,6 +38,7 @@ import {
 	BkdHeading,
 	BkdRow,
 	LegRow,
+	legContext,
 } from './receipt/receiptRows';
 
 export function ReceiptView({
@@ -343,7 +344,7 @@ export function Receipt({
 									key={`${impact.href ?? impact.label}-${index}`}
 									label={impact.label}
 									href={impact.href}
-									context={impact.context}
+									context={legContext(impact.context, impact.router, false)}
 									value={impact.value}
 									color={impact.color}
 									valueTooltip={impact.valueTooltip}
