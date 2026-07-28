@@ -162,8 +162,6 @@ export function Receipt({
 				<DetailRow label="Chain">{chainLabel(row.chainId)}</DetailRow>
 				<DetailRow label="Block">{row.blockNumber.toLocaleString()}</DetailRow>
 
-				<Divider dashed />
-
 				{/* Anchored (single-ruler) → per-side USD + Execution Result, no Size.
 				    Otherwise → the soft ~Size line for orientation (notionalUsd already
 				    prefers the USD-anchored side via pricing.ts bestEffortNotional). */}
@@ -189,8 +187,6 @@ export function Receipt({
 						{execResult.text}
 					</DetailRow>
 				)}
-
-				<Divider dashed />
 
 				<DetailRow
 					label="Execution Price"
@@ -232,14 +228,14 @@ export function Receipt({
 					</p>
 				)}
 
-				<Divider dashed />
-
 				{/* The descriptor is a property of the row, not of the number: gas is paid
 				    in ETH outside the swap regardless of whether we could price it. */}
 				<DetailRow label="Gas Cost" subValue="Paid separately in ETH">
 					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</DetailRow>
 			</div>
+
+			<Divider />
 
 			<h2
 				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
@@ -270,8 +266,6 @@ export function Receipt({
 				) : (
 					<BkdHeading label="Aggregator Fee" value="0.00bps" plain />
 				)}
-
-				<Divider dashed />
 
 				{legs.length === 0 ? (
 					<>
@@ -317,8 +311,6 @@ export function Receipt({
 					</>
 				)}
 
-				<Divider dashed />
-
 				{isPartial || (legs.length > 0 && !hasCostedLeg) ? (
 					<>
 						<BkdHeading
@@ -357,8 +349,6 @@ export function Receipt({
 							<BkdRow label="No Route Found" value="–" secondary />
 						)}
 
-						<Divider dashed />
-
 						<BkdHeading
 							label="Slippage"
 							value={execution.slippageDisplay.text}
@@ -372,7 +362,6 @@ export function Receipt({
 							tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
 						/>
 
-						<Divider dashed />
 						<BkdRow
 							label="Total Execution Delta"
 							value={accuracy}

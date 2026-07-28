@@ -34,19 +34,16 @@ function TooltipBubble({ align, children }: { align: 'left' | 'right'; children:
 	);
 }
 
-export function Divider({ dashed = false, color }: { dashed?: boolean; color?: string }) {
-	if (dashed) {
-		return (
-			<div
-				className="h-px w-full shrink-0"
-				style={{
-					backgroundImage:
-						'repeating-linear-gradient(to right, var(--color-border) 0, var(--color-border) 1px, transparent 1px, transparent 3px)',
-				}}
-			/>
-		);
-	}
-	return <div className="h-px w-full shrink-0 bg-[var(--color-primary)]" style={color ? { backgroundColor: `var(--color-${color})` } : undefined} />;
+// One form only: a solid full-width rule in the theme's primary color. The
+// dotted `dashed` variant was retired in the Figma v3 pass — no frame contains
+// an internal table rule.
+export function Divider({ color }: { color?: string }) {
+	return (
+		<div
+			className="h-px w-full shrink-0 bg-[var(--color-primary)]"
+			style={color ? { backgroundColor: `var(--color-${color})` } : undefined}
+		/>
+	);
 }
 
 export function DetailRow({
