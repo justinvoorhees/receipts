@@ -6,6 +6,7 @@ import {
 	type TradesSortColumn,
 } from '../../lib/queries';
 import { TradesTable } from '../../components/tradesTable';
+import { Divider } from '../../components/receipt/receiptRows';
 
 export const revalidate = 30;
 
@@ -25,6 +26,11 @@ export default async function TradesPage({
 
 	return (
 		<div className="pb-5">
+			{/* The layout's <hr> was removed in the Figma v3 pass; /trades is not in
+			    the frames, so it renders its own rule to keep today's appearance. */}
+			<div className="mt-[40px]">
+				<Divider />
+			</div>
 			<div className="flex items-end justify-between mt-[40px]">
 				<h1
 					className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"

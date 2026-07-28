@@ -1,15 +1,15 @@
 import { NavTabs } from './navTabs';
 import { ThemePicker } from './ThemePicker';
 
-// Native aspect ratio of the wordmark SVG is 512:139 (~3.683).
-// At 40px tall the rendered width is 40 * 512/139 ≈ 147.4px.
+// Native aspect ratio of the RECEIPTS wordmark is 120.505:40 (~3.013).
+// At 40px tall the rendered width is 120.505px.
 const LOGO_HEIGHT = 40;
-const LOGO_WIDTH = (LOGO_HEIGHT * 512) / 139;
+const LOGO_WIDTH = (LOGO_HEIGHT * 120.505) / 40;
 
 export function Header() {
 	return (
 		<header className="flex items-center max-w-[720px] mx-auto pt-20">
-			<a href="/" aria-label="Fabric — home" className="text-[var(--color-primary)]">
+			<a href="/" aria-label="Receipts — home" className="text-[var(--color-primary)]">
 				{/*
 				 * The wordmark is rendered as a CSS mask so its color follows the parent's
 				 * `currentColor`. That way the logo adopts the active theme's primary color
@@ -22,10 +22,10 @@ export function Header() {
 						height: LOGO_HEIGHT,
 						width: LOGO_WIDTH,
 						backgroundColor: 'currentColor',
-						WebkitMaskImage: 'url(/fabric-logo-h-black.svg)',
+						WebkitMaskImage: 'url(/receipts-logo.svg)',
 						WebkitMaskRepeat: 'no-repeat',
 						WebkitMaskSize: 'contain',
-						maskImage: 'url(/fabric-logo-h-black.svg)',
+						maskImage: 'url(/receipts-logo.svg)',
 						maskRepeat: 'no-repeat',
 						maskSize: 'contain',
 					}}

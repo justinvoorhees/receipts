@@ -20,7 +20,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 		<html lang="en">
 			<body>
 				<Header />
-				<hr className="border-0 border-t border-[var(--color-primary)] max-w-[720px] mx-auto mt-[40px]" />
 				<main className="max-w-[720px] mx-auto">{children}</main>
 				<Footer />
 			</body>
