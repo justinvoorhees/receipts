@@ -388,6 +388,10 @@ export function Receipt({
 				)}
 			</div>
 
+			{/* The rule above the share bar (Figma 546-793) belongs to the standalone
+			    page only — the dialog's button area is deliberately unchanged. */}
+			{onClose == null && <Divider />}
+
 			<div className="flex flex-col gap-[10px]">
 				{onDelete != null && (
 					<button
@@ -399,7 +403,7 @@ export function Receipt({
 						Delete
 					</button>
 				)}
-				<ShareButton {...(sharePath !== undefined ? { path: sharePath } : {})} />
+				<ShareButton large={onClose == null} {...(sharePath !== undefined ? { path: sharePath } : {})} />
 			</div>
 		</>
 	);

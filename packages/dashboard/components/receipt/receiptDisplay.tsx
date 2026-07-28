@@ -25,7 +25,7 @@ export function formatSubvalueUsd(value: number): string {
 // consumers of TradesTable's formatUsdMagnitude keep working unchanged.
 export { formatUsdMagnitude };
 
-export function ShareButton({ path }: { path?: string } = {}) {
+export function ShareButton({ path, large = false }: { path?: string; large?: boolean } = {}) {
 	const [copied, setCopied] = useState(false);
 
 	const handleClick = async () => {
@@ -35,14 +35,21 @@ export function ShareButton({ path }: { path?: string } = {}) {
 		setTimeout(() => setCopied(false), 1500);
 	};
 
+	// `large` is the standalone receipt page's 69px bar (Figma 547-1011). The
+	// History dialog keeps the original 40px button — it is deliberately out of
+	// scope for the v3 pass.
+	const sizing = large
+		? 'h-[69px] text-[40px] leading-[40px] px-[20px]'
+		: 'h-[40px] text-[20px] leading-[20px] px-[8px]';
+
 	return (
 		<button
 			type="button"
 			onClick={handleClick}
-			className="flex h-[40px] w-full shrink-0 cursor-pointer items-center justify-center rounded-[2px] bg-[var(--color-primary)] px-[8px] font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] text-[var(--color-surface-base)]"
+			className={`flex w-full shrink-0 cursor-pointer items-center justify-center rounded-[2px] bg-[var(--color-primary)] font-['Sohne_Breit'] font-medium text-[var(--color-surface-base)] ${sizing}`}
 			style={{ fontFeatureSettings: '"calt" 0' }}
 		>
-			{copied ? 'Copied' : 'Share'}
+			{large ? (copied ? 'COPIED' : 'SHARE') : copied ? 'Copied' : 'Share'}
 		</button>
 	);
 }

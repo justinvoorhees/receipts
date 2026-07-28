@@ -1350,3 +1350,34 @@ describe('Execution Delta row', () => {
 		expect(html).toContain('+25.53bps');
 	});
 });
+
+describe('SHARE bar', () => {
+	it('renders the large uppercase bar with a rule above it on the standalone page', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		expect(html).toContain('>SHARE<');
+		expect(html).toContain('h-[69px]');
+		const share = html.indexOf('>SHARE<');
+		expect(html.lastIndexOf('h-px w-full shrink-0 bg-[var(--color-primary)]', share)).toBeGreaterThan(-1);
+		// The above assertion alone is vacuous: the Cost Breakdown rule (Task 5)
+		// already renders earlier in this same markup and shares this exact
+		// className, so lastIndexOf finds THAT rule even if the new one directly
+		// above the bar is missing. Anchor past it — require a SECOND occurrence
+		// of the divider className, i.e. one strictly after the Cost Breakdown
+		// rule, proving a distinct rule sits between it and the bar.
+		const costBreakdownRule = html.indexOf('h-px w-full shrink-0 bg-[var(--color-primary)]');
+		const ruleAboveBar = html.lastIndexOf('h-px w-full shrink-0 bg-[var(--color-primary)]', share);
+		expect(ruleAboveBar).toBeGreaterThan(costBreakdownRule);
+	});
+
+	it('leaves the dialog buttons untouched', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={fullUsdcWethRow as never} onClose={() => {}} onDelete={() => {}} />,
+		);
+		expect(html).toContain('>Share<');
+		expect(html).toContain('>Delete<');
+		expect(html).not.toContain('>SHARE<');
+		expect(html).not.toContain('h-[69px]');
+	});
+});
