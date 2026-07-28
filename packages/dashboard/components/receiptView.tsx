@@ -264,7 +264,7 @@ export function Receipt({
 						})}
 					</>
 				) : (
-					<BkdHeading label="Aggregator Fee" value="0.00bps" plain />
+					<BkdHeading label="Aggregator Fee" value="0.00bps" plain standalone />
 				)}
 
 				{legs.length === 0 ? (
@@ -318,12 +318,14 @@ export function Receipt({
 							value="n/a"
 							valueTooltip={NULL_PRICE_TOOLTIP}
 							tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
+							standalone
 						/>
 						<BkdHeading
 							label="Slippage"
 							value="n/a"
 							valueTooltip={NULL_PRICE_TOOLTIP}
 							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+							standalone
 						/>
 					</>
 				) : (
@@ -354,12 +356,14 @@ export function Receipt({
 							value={execution.slippageDisplay.text}
 							color={execution.slippageDisplay.color}
 							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+							standalone
 						/>
 						<BkdHeading
 							label="Positive Slippage"
 							value={execution.positiveSlippageDisplay.text}
 							color={execution.positiveSlippageDisplay.color}
 							tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
+							standalone
 						/>
 
 						<BkdRow
@@ -367,6 +371,7 @@ export function Receipt({
 							value={accuracy}
 							color={accuracyColor}
 							tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage"
+							standalone
 						/>
 					</>
 				)}

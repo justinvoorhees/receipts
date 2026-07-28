@@ -55,6 +55,7 @@ export function DetailRow({
 	subValue,
 	subValueColor,
 	valueColor,
+	hug = false,
 }: {
 	label: string;
 	children: React.ReactNode;
@@ -72,9 +73,16 @@ export function DetailRow({
 	 * green and leaves everything else primary (see formatDialogBps).
 	 */
 	valueColor?: string | undefined;
+	/**
+	 * Opts this row out of the 34px floor so it hugs its content. Only the Market
+	 * Price row uses it: its methodology footnote sits 10px below the row inside a
+	 * shared wrapper, so a floor here would push the footnote off its mark
+	 * (Figma 546-687 = 34+10+36; 549-3112 = 12+10+36 when there is no subvalue).
+	 */
+	hug?: boolean;
 }) {
 	return (
-		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
+		<div className={`grid grid-cols-[180px_1fr] gap-x-[24px] ${hug ? '' : 'min-h-[34px]'}`}>
 			<div>
 				{tooltip ? (
 					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
@@ -180,6 +188,7 @@ export function BkdHeading({
 	tooltip,
 	valueTooltip,
 	plain = false,
+	standalone = false,
 }: {
 	label: string;
 	value?: string | undefined;
@@ -187,9 +196,15 @@ export function BkdHeading({
 	tooltip?: string | undefined;
 	valueTooltip?: string | undefined;
 	plain?: boolean;
+	/**
+	 * A row that is not part of a heading+children group takes the 34px floor.
+	 * Group members (fee sinks, legs, and the headings that own them) stay at
+	 * 12px on the container's 20px gap — Figma 546-713.
+	 */
+	standalone?: boolean;
 }) {
 	return (
-		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
+		<div className={`grid grid-cols-[1fr_92px] gap-x-[24px] ${standalone ? 'min-h-[34px]' : ''}`}>
 			{tooltip ? (
 				<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 					{label}
@@ -225,6 +240,7 @@ export function BkdRow({
 	tooltip,
 	secondary = false,
 	plain = false,
+	standalone = false,
 }: {
 	label: string;
 	value: string;
@@ -240,6 +256,12 @@ export function BkdRow({
 	tooltip?: string | undefined;
 	secondary?: boolean;
 	plain?: boolean;
+	/**
+	 * A row that is not part of a heading+children group takes the 34px floor.
+	 * Group members (fee sinks, legs, and the headings that own them) stay at
+	 * 12px on the container's 20px gap — Figma 546-713.
+	 */
+	standalone?: boolean;
 }) {
 	const labelClass = [
 		plain ? '' : 'underline decoration-dotted underline-offset-[3px]',
@@ -264,7 +286,7 @@ export function BkdRow({
 		</span>
 	);
 	return (
-		<div className="grid grid-cols-[1fr_92px] gap-x-[24px]">
+		<div className={`grid grid-cols-[1fr_92px] gap-x-[24px] ${standalone ? 'min-h-[34px]' : ''}`}>
 			<div className="min-w-0">
 				{tooltip ? (
 					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">

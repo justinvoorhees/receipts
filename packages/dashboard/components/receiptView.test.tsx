@@ -1217,3 +1217,41 @@ describe('receipt dividers', () => {
 		expect(html.slice(rule, heading)).not.toContain('Gas Cost');
 	});
 });
+
+describe('list item heights', () => {
+	it('floors detail rows at 34px', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		const aggregator = html.indexOf('>Aggregator<');
+		expect(aggregator).toBeGreaterThan(-1);
+		// The row's own grid carries the floor; find the wrapper opening just before it.
+		expect(html.lastIndexOf('min-h-[34px]', aggregator)).toBeGreaterThan(-1);
+	});
+
+	it('floors the four standalone breakdown rows but not the group rows', async () => {
+		const { Receipt } = await import('./receiptView');
+		const row = { ...fullUsdcWethRow, pricingStatus: 'full', routeLegs: [
+			{ venue: '0x1111111111111111111111111111111111111111', type: 'univ3',
+				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				feeTierBps: 5, notionalUsdc: 1000, lpFeeBps: 5, priceImpactBps: 1 },
+		] };
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		// Total Execution Delta is standalone → floored. Anchored on ITS OWN nearest
+		// grid wrapper rather than "any earlier min-h-[34px] in the document": the
+		// detail table above is already full of floored DetailRows, so a bare
+		// lastIndexOf-before-label check would pass vacuously no matter what this
+		// row's own `standalone` flag is set to.
+		const total = html.indexOf('>Total Execution Delta<');
+		expect(total).toBeGreaterThan(-1);
+		const gridBeforeTotal = html.lastIndexOf('grid grid-cols-', total);
+		expect(html.slice(gridBeforeTotal, total)).toContain('min-h-[34px]');
+		// The LP Fee heading is a group heading → NOT floored. Assert that the
+		// nearest wrapper before it is not a floored one by checking the slice
+		// between the heading and its own grid contains no floor class.
+		const lpHeading = html.indexOf('>Liquidity Provider Fee<');
+		expect(lpHeading).toBeGreaterThan(-1);
+		const gridBefore = html.lastIndexOf('grid grid-cols-', lpHeading);
+		expect(html.slice(gridBefore, lpHeading)).not.toContain('min-h-[34px]');
+	});
+});
