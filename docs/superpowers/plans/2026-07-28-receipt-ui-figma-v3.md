@@ -475,19 +475,41 @@ EOF
 
 **Context:** neither table in any frame contains an internal rule. All six `<Divider dashed />` instances go, which leaves the `dashed` branch dead. One solid rule is added above the `Cost Breakdown` heading.
 
-- [ ] **Step 1: Fix the dialog assertion first**
+- [ ] **Step 1: Repair BOTH top-divider assertions first**
 
-`receiptView.test.tsx:219-229` asserts the dialog renders **no** element with class `h-px w-full shrink-0 bg-[var(--color-primary)]`. That was a proxy for "no divider above the header". The Cost Breakdown rule renders in the dialog too (it is body structure, not button chrome), so the proxy stops working.
+⚠️ **Corrected 2026-07-28 after Task 4.** An earlier draft of this step named only the dialog test. There are **two** tests using the same class substring as a proxy for "the top divider", and Task 4 broke both — one loudly, one silently:
 
-Replace the assertion at line 224 with a position-anchored one:
+- `receiptView.test.tsx:211` *"keeps the top divider and renders no close/delete controls outside the dialog"* — asserts `toContain(...)`. Task 4 moved the divider to `ReceiptView`, so `Receipt` standalone no longer has one and this test **fails now**.
+- `receiptView.test.tsx:219` *"in dialog mode … omits the top divider …"* — asserts `not.toContain(...)`. It **passes vacuously** right now (there is no divider anywhere in `Receipt`), and will start failing the moment this task adds the Cost Breakdown rule.
+
+Fix both, and do not let either keep using bare presence/absence of that class as a stand-in for position.
+
+For the standalone test at line 211, drop the divider assertion entirely — the rule is no longer `Receipt`'s to render, and Task 4 already covers it in `ReceiptView` (*"renders the divider under the input even with no receipt"*). What remains is the control-absence claim the test name also makes:
+
+```tsx
+	it('renders no close/delete controls outside the dialog', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		// The rule under the input belongs to ReceiptView now, not Receipt — see
+		// the 'ReceiptSearch chrome' block for its coverage.
+		expect(html).not.toContain('Close transaction details');
+		expect(html).not.toContain('>Delete<');
+	});
+```
+
+For the dialog test at line 219, replace the absence assertion on line 224 with a position-anchored one:
 
 ```tsx
 		// The dialog has no rule ABOVE its header — but it does carry the Cost
 		// Breakdown rule further down, so assert ORDER, not absence. A bare
-		// not.toContain here would fail the moment any body divider is added.
+		// not.toContain here passes vacuously until a body divider exists, then
+		// fails for the wrong reason.
 		expect(html.indexOf('aria-label="Close transaction details"'))
 			.toBeLessThan(html.indexOf('h-px w-full shrink-0 bg-[var(--color-primary)]'));
 ```
+
+Also rename that test — it no longer "omits the top divider":
+`'in dialog mode (onClose/onDelete passed), renders the close button beside the header and a Delete button above Share'`
 
 - [ ] **Step 2: Write the failing test**
 
