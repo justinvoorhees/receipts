@@ -623,7 +623,7 @@ EOF
 
 Both live as siblings in the same `gap-[20px]` flex column, so only the floor differs. `min-height`, never fixed height, so a wrapped value grows instead of clipping.
 
-**Which Cost Breakdown rows are standalone.** Exactly four call sites, all of which render a value and none of which sit under a heading:
+**Which Cost Breakdown rows are standalone.** Five row identities spanning SIX JSX call sites (Slippage appears twice — a partial form and a costed form). All render a value; none sit under a heading:
 
 | Call site | `standalone` |
 | --- | --- |
