@@ -12,7 +12,6 @@
  */
 import type { ReceiptRow } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
-import { formatUsdMagnitude } from './usdFormat';
 // Import from the pure leaf subpath (NOT the barrel): the barrel re-exports
 // analyzeTransaction → tagging → node:fs, which webpack cannot bundle for the
 // 'use client' tree. See packages/core/src/receiptPure.ts.
@@ -59,16 +58,4 @@ export function receiptDollars(
 	const notionalOut = notionalIn + execResultUsd;
 	if (![notionalIn, notionalOut, execResultUsd].every(Number.isFinite)) return null;
 	return { notionalIn, notionalOut, execResultUsd };
-}
-
-// Unsigned execution result (the receipt's "Execution Delta" row): magnitude only. Direction is
-// the `sub` label (Gained/Lost) + color — never a +/- prefix. `color` applies to the
-// VALUE, not the subvalue. Positive = surplus (green); a loss stays uncolored rather
-// than red, matching formatDialogBps — green marks good, nothing else is marked.
-export function formatExecutionResult(execResultUsd: number): { text: string; sub: string | null; color: string | undefined } {
-	const mag = formatUsdMagnitude(Math.abs(execResultUsd)) ?? '0.00';
-	const text = `$${mag}`;
-	if (execResultUsd > 0) return { text, sub: 'Gained', color: '#117d45' };
-	if (execResultUsd < 0) return { text, sub: 'Lost', color: undefined };
-	return { text, sub: null, color: undefined };
 }

@@ -19,9 +19,10 @@ import {
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
 } from './receipt/receiptDisplay';
-import { receiptDollars, formatExecutionResult } from './receipt/qualityNotionals';
+import { receiptDollars } from './receipt/qualityNotionals';
 import type { PriceDeltaRow } from './receipt/priceFormat';
 import {
+	formatExecutionDelta,
 	formatPriceDeltaUsd,
 	formatPriceDeltaToken,
 	fallbackMethodology,
@@ -105,7 +106,12 @@ export function Receipt({
 	const execUsdPerBase = dollars != null && baseAmount > 0 ? dollars.notionalIn / baseAmount : null;
 	const marketUsdPerBase = dollars != null && baseAmount > 0 ? dollars.notionalOut / baseAmount : null;
 	const deltaUsdPerBase = dollars != null && baseAmount > 0 ? Math.abs(dollars.execResultUsd) / baseAmount : null;
-	const execResult = dollars != null ? formatExecutionResult(dollars.execResultUsd) : null;
+	// Execution Delta states the gap on THIS trade; Price Delta states it per 1 base.
+	// Same sentence, same direction source — they can never disagree.
+	const executionDelta =
+		dollars != null
+			? formatExecutionDelta(dollars.execResultUsd, base, baseIsOutput, formatTokenIn(row))
+			: null;
 	// Price Delta takes ONE sentence shape everywhere; only the denomination differs.
 	// An anchored pair states the gap in USD (from the same execResultUsd the
 	// Execution Delta row uses); everything else states it in the quote token,
@@ -182,9 +188,9 @@ export function Receipt({
 				>
 					{formatTokenOut(row)}
 				</DetailRow>
-				{execResult != null && (
-					<DetailRow label="Execution Delta" subValue={execResult.sub} valueColor={execResult.color}>
-						{execResult.text}
+				{executionDelta != null && (
+					<DetailRow label="Execution Delta" subValue={executionDelta.sub ?? undefined}>
+						{executionDelta.text}
 					</DetailRow>
 				)}
 

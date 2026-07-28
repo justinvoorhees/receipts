@@ -30,6 +30,25 @@ export interface PriceDeltaRow {
 }
 
 /**
+ * The sentence both delta rows share: base symbol, the verb implied by the trade
+ * direction, the magnitude, and where the fill landed. Verb and direction stay
+ * independent facts whose combination carries the verdict without stating one
+ * (bought below / sold above are the favorable halves).
+ */
+function deltaSentence(base: string, baseIsOutput: boolean, magnitude: string, direction: 'above' | 'below'): string {
+	return `${base} ${baseIsOutput ? 'bought' : 'sold'} at ${magnitude} ${direction} Market Price`;
+}
+
+/**
+ * Where the fill landed, given a dollar result. A gain on a bought base means the
+ * fill was BELOW the mid; a gain on a sold base means ABOVE. Shared so the
+ * Execution Delta and Price Delta rows can never disagree about direction.
+ */
+function deltaDirection(gain: boolean, baseIsOutput: boolean): 'above' | 'below' {
+	return gain === baseIsOutput ? 'below' : 'above';
+}
+
+/**
  * The shared Price Delta sentence. Base symbol leads, then the verb implied by the
  * trade direction, the magnitude, and where the fill landed — e.g. "WBTC bought at
  * $159.76 below Market Price". Verb and direction stay independent facts whose
@@ -43,10 +62,7 @@ function priceDeltaSentence(
 	magnitude: string,
 	direction: 'above' | 'below',
 ): PriceDeltaRow {
-	return {
-		text: `${base} ${baseIsOutput ? 'bought' : 'sold'} at ${magnitude} ${direction} Market Price`,
-		sub: `per 1 ${base}`,
-	};
+	return { text: deltaSentence(base, baseIsOutput, magnitude, direction), sub: `per 1 ${base}` };
 }
 
 /**
@@ -62,9 +78,34 @@ export function formatPriceDeltaUsd(
 	execResultUsd: number,
 ): PriceDeltaRow {
 	if (!(deltaUsdPerBase > 0) || execResultUsd === 0) return { text: 'None', sub: null };
-	const gain = execResultUsd > 0;
-	const direction = gain === baseIsOutput ? 'below' : 'above';
+	const direction = deltaDirection(execResultUsd > 0, baseIsOutput);
 	return priceDeltaSentence(base, baseIsOutput, formatSubvalueUsd(deltaUsdPerBase), direction);
+}
+
+/**
+ * The Execution Delta row: the same sentence Price Delta uses, but stating the gap
+ * on THIS trade rather than per 1 base — so the subvalue qualifies it with the
+ * amount actually paid in ("Per 1 ETH") instead of "per 1 {base}".
+ *
+ * `execResultUsd` is the dashboard's whole-trade dollar result. It is the same
+ * quantity as the Total Execution Delta bps row at the foot of the receipt:
+ * core's allInCostBps = (mid − realized)/mid × 10⁴ is the exact negative of the
+ * qualityBps behind execResultUsd, so |execResultUsd| = notionalIn ×
+ * |allInCostBps| / 10⁴. The two rows state one fact in USD and in bps.
+ *
+ * Note the capital "Per", against Price Delta's lowercase "per" — the frames
+ * (546-677 vs 546-695) differ here deliberately.
+ */
+export function formatExecutionDelta(
+	execResultUsd: number,
+	base: string,
+	baseIsOutput: boolean,
+	tokenInLabel: string,
+): PriceDeltaRow {
+	if (execResultUsd === 0) return { text: 'None', sub: null };
+	const direction = deltaDirection(execResultUsd > 0, baseIsOutput);
+	const magnitude = formatSubvalueUsd(Math.abs(execResultUsd));
+	return { text: deltaSentence(base, baseIsOutput, magnitude, direction), sub: `Per ${tokenInLabel}` };
 }
 
 /**

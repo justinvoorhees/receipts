@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { receiptDollars, formatExecutionResult } from './qualityNotionals';
+import { receiptDollars } from './qualityNotionals';
 
 describe('isAnchorable', () => {
 	it('is true for stablecoins and ETH/WETH, false otherwise', async () => {
@@ -10,21 +10,6 @@ describe('isAnchorable', () => {
 		expect(isAnchorable('ETH')).toBe(true);
 		expect(isAnchorable('WBTC')).toBe(false);
 		expect(isAnchorable('GITLAWB')).toBe(false);
-	});
-});
-
-describe('formatExecutionResult', () => {
-	it('formats a positive result as unsigned $ in green with Gained sub', async () => {
-		const { formatExecutionResult } = await import('./qualityNotionals');
-		expect(formatExecutionResult(20)).toEqual({ text: '$20.00', sub: 'Gained', color: '#117d45' });
-	});
-	it('formats a negative result as unsigned $ with default color and Lost sub', async () => {
-		const { formatExecutionResult } = await import('./qualityNotionals');
-		expect(formatExecutionResult(-10)).toEqual({ text: '$10.00', sub: 'Lost', color: undefined });
-	});
-	it('formats an exact-zero result as $0.00 with no sub', async () => {
-		const { formatExecutionResult } = await import('./qualityNotionals');
-		expect(formatExecutionResult(0)).toEqual({ text: '$0.00', sub: null, color: undefined });
 	});
 });
 
@@ -59,25 +44,5 @@ describe('receiptDollars (single ruler, display-orientation aware)', () => {
 		expect(receiptDollars({ inputToken: TKN, outputToken: TKB, inputAmount: '1', outputAmount: '1', marketMid: '1', notionalUsd: '1' })).toBeNull();
 		expect(receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: '1', outputAmount: '0.028625', marketMid: null, notionalUsd: '1791.14' })).toBeNull();
 		expect(receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: '1', outputAmount: '0.028625', marketMid: '35.0232', notionalUsd: null })).toBeNull();
-	});
-});
-
-describe('formatExecutionResult (unsigned)', () => {
-	it('positive => magnitude only + Gained + green (no + sign)', () => {
-		const r = formatExecutionResult(4.57);
-		expect(r.text).toBe('$4.57');
-		expect(r.text).not.toContain('+');
-		expect(r.sub).toBe('Gained');
-		expect(r.color).toBe('#117d45');
-	});
-	it('negative => magnitude only + Lost + default color (no - sign)', () => {
-		const r = formatExecutionResult(-3.2);
-		expect(r.text).toBe('$3.20');
-		expect(r.text).not.toContain('-');
-		expect(r.sub).toBe('Lost');
-		expect(r.color).toBeUndefined();
-	});
-	it('zero => no direction', () => {
-		expect(formatExecutionResult(0).sub).toBeNull();
 	});
 });

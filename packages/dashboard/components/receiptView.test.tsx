@@ -685,9 +685,9 @@ describe('Price Delta row', () => {
 		expect(html).toContain('WBTC bought at');
 		expect(html).toContain('below Market Price');
 		expect(html).toContain('per 1 WBTC');
-		// bought below = a good fill: Execution Delta reads Gained AND it agrees with
-		// Total Execution Delta +25.53bps. This is the pairing the old inverted labels broke.
-		expect(html).toContain('Gained');
+		// Execution Delta now states direction in prose; the pairing it must preserve
+		// is that a bought-below fill agrees with a positive Total Execution Delta.
+		expect(html).toContain('Per 1 ETH');
 		expect(html).toContain('+25.53bps');
 		// Still never a verdict word on the price rows; the old labels stay gone.
 		expect(html).not.toContain('better');
@@ -707,7 +707,8 @@ describe('Price Delta row', () => {
 		expect(html).toContain('WBTC bought at');
 		expect(html).toContain('above Market Price');
 		expect(html).toContain('per 1 WBTC');
-		expect(html).toContain('Lost');
+		// Execution Delta states the same "above" direction in its own sentence now.
+		expect(html).toContain('Per 1 ETH');
 	});
 
 	it('reads "Sold … above" for a sell (WETH→USDC), where the base is the input', async () => {
@@ -727,7 +728,7 @@ describe('Price Delta row', () => {
 		expect(html).toContain('WETH sold at');
 		expect(html).toContain('above Market Price');
 		expect(html).toContain('per 1 WETH');
-		expect(html).toContain('Gained');
+		expect(html).toContain('Per 1 WETH');
 	});
 
 	it('reads "Sold … below" for a sell that received less than the mid', async () => {
@@ -745,7 +746,7 @@ describe('Price Delta row', () => {
 		expect(html).toContain('WETH sold at');
 		expect(html).toContain('below Market Price');
 		expect(html).toContain('per 1 WETH');
-		expect(html).toContain('Lost');
+		expect(html).toContain('Per 1 WETH');
 	});
 
 	it('renders None with no tooltip when execution exactly matches the mid', async () => {
@@ -797,7 +798,7 @@ describe('Price Delta row', () => {
 		expect(html).toContain('WETH bought at');
 		expect(html).toContain('above Market Price');
 		expect(html).toContain('per 1 WETH');
-		expect(html).toContain('Lost');
+		expect(html).toContain('Per 1000.00 USDC');
 	});
 });
 
@@ -837,7 +838,7 @@ describe('Size row', () => {
 		);
 		expect(html).not.toContain('Size');
 		expect(html).toContain('>Execution Delta<');
-		expect(html).toContain('Gained');
+		expect(html).toContain('Per 1 ETH');
 		// Token In/Out carry per-side USD notionals.
 		expect(html).toContain('$1,791.14'); // notionalIn (ETH side)
 	});
@@ -893,11 +894,11 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		allInCostBps: '-25.53', chainlinkPrice: null,
 	};
 
-	it('renders per-side USD notionals + Execution Delta (Gained), no Size', async () => {
+	it('renders per-side USD notionals + Execution Delta, no Size', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
 		expect(html).toContain('>Execution Delta<');
-		expect(html).toContain('Gained');
+		expect(html).toContain('Per 1 ETH');
 		expect(html).toContain('$1,791.14'); // Token In (ETH) notionalIn
 		expect(html).toContain('$1,795.71'); // Token Out (WBTC) notionalOut
 		expect(html).not.toContain('Size');  // Size replaced by Execution Delta when anchored
@@ -909,7 +910,9 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		// $159.76 below Market Price per WBTC × 0.02862539 WBTC ≈ $4.57 Execution Delta.
 		expect(html).toContain('WBTC bought at $159.76 below Market Price');
 		expect(html).toContain('per 1 WBTC');
-		expect(html).toContain('Gained');
+		// Execution Delta states the SAME direction on the whole-trade magnitude.
+		expect(html).toContain('WBTC bought at $4.57 below Market Price');
+		expect(html).toContain('Per 1 ETH');
 	});
 
 	it('renders USD sublines on the price rows, keeping the token-denominated main lines', async () => {
@@ -940,24 +943,24 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		expect(html).not.toContain('text-[10px]');
 	});
 
-	it('colors the Execution Delta VALUE green on a gain, leaving the subvalue secondary', async () => {
+	it('renders the Execution Delta sentence uncolored on a gain, with the Per subvalue in secondary gray', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
 		expect(html).toContain('>Execution Delta<');
-		expect(html).toContain('Gained');
-		// The green now sits on the element carrying the dollar magnitude, and the
-		// "Gained" subvalue renders in secondary gray.
-		expect(html).toMatch(/style="color:#117d45">\$4\.57</);
-		expect(html).toMatch(/color:var\(--color-secondary\)">Gained/);
+		expect(html).toContain('WBTC bought at $4.57 below Market Price');
+		// The value carries no color (direction lives in the prose now), and the
+		// "Per 1 ETH" subvalue renders in secondary gray like every other subvalue.
+		expect(html).toMatch(/<span class="min-w-0 text-right">WBTC bought at \$4\.57 below Market Price<\/span>/);
+		expect(html).toMatch(/color:var\(--color-secondary\)">Per 1 ETH/);
 	});
 
-	it('leaves a loss uncolored rather than red, matching formatDialogBps', async () => {
+	it('leaves a loss uncolored too — no red, matching formatDialogBps', async () => {
 		const { Receipt } = await import('./receiptView');
 		// Received fewer WBTC than the mid implies → a loss.
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, outputAmount: '0.0284', realizedPrice: '35.2113', allInCostBps: '25' } as never} />,
 		);
-		expect(html).toContain('Lost');
+		expect(html).toContain('WBTC bought at $9.57 above Market Price');
 		expect(html).not.toContain('--color-red');
 		expect(html).not.toContain('#fa0b54');
 	});
@@ -1283,5 +1286,67 @@ describe('Market Price composite', () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={partialRow as never} />);
 		expect(html).toContain('Unavailable: No reliable market price could be calculated.');
+	});
+});
+
+describe('formatExecutionDelta', () => {
+	it('mirrors the Price Delta sentence with a Per {tokenIn} subvalue', async () => {
+		const { formatExecutionDelta } = await import('./receipt/priceFormat');
+		// Bought the base with a gain → the fill landed BELOW the mid.
+		expect(formatExecutionDelta(4.57, 'WBTC', true, '1 ETH')).toEqual({
+			text: 'WBTC bought at $4.57 below Market Price',
+			sub: 'Per 1 ETH',
+		});
+		// Sold the base with a gain → the fill landed ABOVE the mid.
+		expect(formatExecutionDelta(5, 'WETH', false, '1000 USDC')).toEqual({
+			text: 'WETH sold at $5.00 above Market Price',
+			sub: 'Per 1000 USDC',
+		});
+	});
+
+	it('renders a loss on the opposite side of the mid', async () => {
+		const { formatExecutionDelta } = await import('./receipt/priceFormat');
+		expect(formatExecutionDelta(-4.57, 'WBTC', true, '1 ETH')).toEqual({
+			text: 'WBTC bought at $4.57 above Market Price',
+			sub: 'Per 1 ETH',
+		});
+	});
+
+	it('renders an exact tie as None with no subvalue', async () => {
+		const { formatExecutionDelta } = await import('./receipt/priceFormat');
+		expect(formatExecutionDelta(0, 'WBTC', true, '1 ETH')).toEqual({ text: 'None', sub: null });
+	});
+});
+
+describe('Execution Delta row', () => {
+	// ETH→WBTC: base = WBTC (output, anchor rank 0 < ETH's 1) → the user BOUGHT the base.
+	const ethWbtcRow = {
+		...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
+		inputSymbol: 'ETH', outputSymbol: 'WBTC',
+		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
+		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
+		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+		allInCostBps: '-25.53', chainlinkPrice: null,
+	};
+
+	it('renders the sentence and the Per {tokenIn} subvalue, not Gained/Lost', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={ethWbtcRow as never} />);
+		expect(html).toContain('>Execution Delta<');
+		expect(html).toContain('Per 1 ETH');
+		expect(html).not.toContain('Gained');
+		expect(html).not.toContain('Lost');
+	});
+
+	it('leaves the sentence uncolored — green stays on the bps rows', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={ethWbtcRow as never} />);
+		const delta = html.indexOf('>Execution Delta<');
+		const total = html.indexOf('>Total Execution Delta<');
+		// The green hex must not appear in the Execution Delta row's own markup.
+		expect(html.slice(delta, html.indexOf('>Execution Price<'))).not.toContain('#117d45');
+		// …but the bps row below still carries it.
+		expect(total).toBeGreaterThan(-1);
+		expect(html).toContain('+25.53bps');
 	});
 });
