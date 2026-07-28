@@ -359,8 +359,8 @@ describe('Receipt token-denominated price rows', () => {
 		expect(html).toContain('0.000000000394 ETH = 1 WARP');
 		expect(html).not.toContain('0.000000000385 = 1 WARP');
 		// WARP→ETH is ANCHORED (ETH anchors), so the price rows now carry USD sublines
-		// and a Spread — the MVP-thesis "no USD claim" no longer applies here.
-		expect(html).toContain('Spread');
+		// and an Execution Delta — the MVP-thesis "no USD claim" no longer applies here.
+		expect(html).toContain('>Execution Delta<');
 		// Header pair title reads as the swap direction (input→output), matching
 		// Token In/Out. It must NOT invert to ETH→WARP.
 		expect(html).toContain('WARP → ETH');
@@ -443,6 +443,23 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).not.toContain('No Route Found');
 	});
 
+	// Figma node 524-1644 orders the Cost Breakdown Aggregator Fee → Liquidity
+	// Provider Fee → Price Impact. The first pair is the one that moved (Agg Fee
+	// used to sit second), and lpFeeSection's slice bounds depend on it holding.
+	it('orders the Cost Breakdown Aggregator Fee → Liquidity Provider Fee → Price Impact', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const row = { ...base, pricingStatus: 'full', routeLegs: [
+			{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
+				tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+				tokenOut: '0x4200000000000000000000000000000000000006',
+				feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2 },
+		] };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html.indexOf('Aggregator Fee')).toBeGreaterThan(-1);
+		expect(html.indexOf('Aggregator Fee')).toBeLessThan(html.indexOf('Liquidity Provider Fee'));
+		expect(html.indexOf('Liquidity Provider Fee')).toBeLessThan(html.indexOf('Price Impact'));
+	});
+
 	it('renders a Pools Touched section when no leg is costed', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, pricingStatus: 'partial', routeLegs: [
@@ -482,7 +499,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).toContain('Market Maker');
 		expect(html).toContain(`href="https://basescan.org/address/${venue}"`);
 		expect(html).toContain('color:var(--color-secondary)');
-		expect(html).toContain('Market maker inventory, no L.P. fee or market price available');
+		expect(html).toContain('Market maker inventory, no L.P. fee or price available for this leg');
 		expect(html).toContain('>n/a<');
 	});
 
@@ -505,7 +522,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		const priceImpactSection = html.slice(html.indexOf('Price Impact'), html.indexOf('Slippage'));
-		expect(priceImpactSection).toContain('Market maker inventory, no L.P. fee or market price available');
+		expect(priceImpactSection).toContain('Market maker inventory, no L.P. fee or price available for this leg');
 		expect(priceImpactSection).not.toContain('implausible or stale');
 	});
 });
@@ -546,8 +563,15 @@ describe('Receipt leg context — endpoint token resolution', () => {
 	// "Price Impact" list further down the page is populated by TradesTable's
 	// getPriceImpactRows — a different, out-of-scope code path — so assertions
 	// are scoped to the LP Fee section to avoid coupling to that unrelated list.
+	// End-anchored on "Price Impact", the section that now FOLLOWS LP Fee. Do not
+	// anchor on "Aggregator Fee": it renders ABOVE LP Fee, so the slice would run
+	// backwards and return '' — silently turning every not.toContain below into a
+	// vacuous pass.
 	function lpFeeSection(html: string): string {
-		return html.slice(html.indexOf('Liquidity Provider Fee'), html.indexOf('Aggregator Fee'));
+		const start = html.indexOf('Liquidity Provider Fee');
+		const end = html.indexOf('Price Impact');
+		if (start < 0 || end <= start) throw new Error('lpFeeSection: LP Fee section not found before Price Impact');
+		return html.slice(start, end);
 	}
 
 	it('resolves the leading leg\'s WARP token via the receipt\'s own inputSymbol, not a short address', async () => {
@@ -656,8 +680,8 @@ describe('Price Delta row', () => {
 		expect(html).toContain('WBTC bought at');
 		expect(html).toContain('below Market Price');
 		expect(html).toContain('per 1 WBTC');
-		// bought below = a good fill: Spread reads Gained AND it agrees with
-		// Total Execution Quality +25.53bps. This is the pairing the old inverted labels broke.
+		// bought below = a good fill: Execution Delta reads Gained AND it agrees with
+		// Total Execution Delta +25.53bps. This is the pairing the old inverted labels broke.
 		expect(html).toContain('Gained');
 		expect(html).toContain('+25.53bps');
 		// Still never a verdict word on the price rows; the old labels stay gone.
@@ -722,7 +746,7 @@ describe('Price Delta row', () => {
 	it('renders None with no tooltip when execution exactly matches the mid', async () => {
 		const { Receipt } = await import('./receiptView');
 		// A genuine tie: 3000 USDC → 1 WETH at a 3000 USDC/WETH mid → realized == mid,
-		// so the single-ruler Spread is exactly $0 and the Price Delta is None.
+		// so the single-ruler Execution Delta is exactly $0 and the Price Delta is None.
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...fullUsdcWethRow, inputAmount: '3000', outputAmount: '1', notionalUsd: '3000' } as never} />,
 		);
@@ -790,11 +814,11 @@ describe('Size row', () => {
 		expect(html).toContain('~$1,791.14');
 		// Size precedes Token In in the document.
 		expect(html.indexOf('Size')).toBeLessThan(html.indexOf('Token In'));
-		// No Spread row on a non-anchored pair.
-		expect(html).not.toContain('Spread');
+		// No Execution Delta row on a non-anchored pair.
+		expect(html).not.toContain('>Execution Delta<');
 	});
 
-	it('replaces Size with Spread on an ANCHORED pair (ETH→WBTC)', async () => {
+	it('replaces Size with Execution Delta on an ANCHORED pair (ETH→WBTC)', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{
@@ -807,7 +831,7 @@ describe('Size row', () => {
 			} as never} />,
 		);
 		expect(html).not.toContain('Size');
-		expect(html).toContain('Spread');
+		expect(html).toContain('>Execution Delta<');
 		expect(html).toContain('Gained');
 		// Token In/Out carry per-side USD notionals.
 		expect(html).toContain('$1,791.14'); // notionalIn (ETH side)
@@ -864,20 +888,20 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		allInCostBps: '-25.53', chainlinkPrice: null,
 	};
 
-	it('renders per-side USD notionals + Spread (Gained), no Size', async () => {
+	it('renders per-side USD notionals + Execution Delta (Gained), no Size', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
-		expect(html).toContain('Spread');
+		expect(html).toContain('>Execution Delta<');
 		expect(html).toContain('Gained');
 		expect(html).toContain('$1,791.14'); // Token In (ETH) notionalIn
 		expect(html).toContain('$1,795.71'); // Token Out (WBTC) notionalOut
-		expect(html).not.toContain('Size');  // Size replaced by Spread when anchored
+		expect(html).not.toContain('Size');  // Size replaced by Execution Delta when anchored
 	});
 
-	it('reconciles: Spread magnitude = per-base delta × base amount', async () => {
+	it('reconciles: Execution Delta magnitude = per-base delta × base amount', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
-		// $159.76 below Market Price per WBTC × 0.02862539 WBTC ≈ $4.57 Spread.
+		// $159.76 below Market Price per WBTC × 0.02862539 WBTC ≈ $4.57 Execution Delta.
 		expect(html).toContain('WBTC bought at $159.76 below Market Price');
 		expect(html).toContain('per 1 WBTC');
 		expect(html).toContain('Gained');
@@ -911,10 +935,10 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		expect(html).not.toContain('text-[10px]');
 	});
 
-	it('colors the Spread VALUE green on a gain, leaving the subvalue secondary', async () => {
+	it('colors the Execution Delta VALUE green on a gain, leaving the subvalue secondary', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
-		expect(html).toContain('Spread');
+		expect(html).toContain('>Execution Delta<');
 		expect(html).toContain('Gained');
 		// The green now sits on the element carrying the dollar magnitude, and the
 		// "Gained" subvalue renders in secondary gray.

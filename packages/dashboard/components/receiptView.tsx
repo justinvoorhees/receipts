@@ -103,10 +103,10 @@ export function Receipt({
 	const deltaUsdPerBase = dollars != null && baseAmount > 0 ? Math.abs(dollars.execResultUsd) / baseAmount : null;
 	const execResult = dollars != null ? formatExecutionResult(dollars.execResultUsd) : null;
 	// Price Delta takes ONE sentence shape everywhere; only the denomination differs.
-	// An anchored pair states the gap in USD (from the same execResultUsd the Spread
-	// row uses); everything else states it in the quote token, since the stored
-	// mid/realized are already quote-per-base. Direction lives in the text now, so
-	// neither path carries a tooltip.
+	// An anchored pair states the gap in USD (from the same execResultUsd the
+	// Execution Delta row uses); everything else states it in the quote token,
+	// since the stored mid/realized are already quote-per-base. Direction lives
+	// in the text now, so neither path carries a tooltip.
 	const priceDelta: PriceDeltaRow | null = !hasMarketPrice
 		? null
 		: dollars != null && deltaUsdPerBase != null
@@ -183,7 +183,7 @@ export function Receipt({
 					{formatTokenOut(row)}
 				</DetailRow>
 				{execResult != null && (
-					<DetailRow label="Spread" subValue={execResult.sub} valueColor={execResult.color}>
+					<DetailRow label="Execution Delta" subValue={execResult.sub} valueColor={execResult.color}>
 						{execResult.text}
 					</DetailRow>
 				)}
@@ -248,6 +248,29 @@ export function Receipt({
 
 			{/* Cost breakdown */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
+				{hasAggFee ? (
+					<>
+						<BkdHeading label="Aggregator Fee" plain />
+						{feeLines.map((line, i) => {
+							const d = formatDialogBps(-line.bps);
+							return (
+								<BkdRow
+									key={`${line.href ?? line.label}-${i}`}
+									label={line.label}
+									href={line.href}
+									value={d.text}
+									color={d.color}
+									secondary
+								/>
+							);
+						})}
+					</>
+				) : (
+					<BkdHeading label="Aggregator Fee" value="0.00bps" plain />
+				)}
+
+				<Divider dashed />
+
 				{legs.length === 0 ? (
 					<>
 						<BkdHeading label="Liquidity Provider Fee" plain />
@@ -290,29 +313,6 @@ export function Receipt({
 							/>
 						))}
 					</>
-				)}
-
-				<Divider dashed />
-
-				{hasAggFee ? (
-					<>
-						<BkdHeading label="Aggregator Fee" plain />
-						{feeLines.map((line, i) => {
-							const d = formatDialogBps(-line.bps);
-							return (
-								<BkdRow
-									key={`${line.href ?? line.label}-${i}`}
-									label={line.label}
-									href={line.href}
-									value={d.text}
-									color={d.color}
-									secondary
-								/>
-							);
-						})}
-					</>
-				) : (
-					<BkdHeading label="Aggregator Fee" value="0.00bps" plain />
 				)}
 
 				<Divider dashed />
@@ -372,7 +372,7 @@ export function Receipt({
 
 						<Divider dashed />
 						<BkdRow
-							label="Total Execution Quality"
+							label="Total Execution Delta"
 							value={accuracy}
 							color={accuracyColor}
 							tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage"

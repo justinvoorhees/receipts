@@ -61,7 +61,7 @@ export function receiptDollars(
 	return { notionalIn, notionalOut, execResultUsd };
 }
 
-// Unsigned execution result (the receipt's "Spread" row): magnitude only. Direction is
+// Unsigned execution result (the receipt's "Execution Delta" row): magnitude only. Direction is
 // the `sub` label (Gained/Lost) + color — never a +/- prefix. `color` applies to the
 // VALUE, not the subvalue. Positive = surplus (green); a loss stays uncolored rather
 // than red, matching formatDialogBps — green marks good, nothing else is marked.

@@ -225,7 +225,8 @@ export function getPriceImpactRows(
 // state the same, current semantics: an rfq leg's price impact and LP fee
 // are null BY DESIGN (off-chain quote, no on-chain mid), never because a mid
 // was "discovered ... implausible or stale" (that failure mode no longer exists).
-export const RFQ_LEG_TOOLTIP = 'Market maker inventory, no L.P. fee or market price available';
+export const RFQ_LEG_TOOLTIP =
+	'Market maker inventory, no L.P. fee or price available for this leg';
 
 /** True when a leg is a market maker's off-chain-quoted fill, not an on-chain pool. */
 export function isMakerLeg(leg: Pick<RouteLeg, 'type' | 'venue'>): boolean {

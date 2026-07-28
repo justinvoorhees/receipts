@@ -52,7 +52,7 @@ function priceDeltaSentence(
 /**
  * Anchored Price Delta: the per-base USD gap vs Market Price. USD, not
  * token-denominated — used only when receiptDollars anchored the pair. Direction is
- * derived from the SAME execResultUsd that drives the Spread row, so the two can
+ * derived from the SAME execResultUsd that drives the Execution Delta row, so the two can
  * never disagree (bought below / sold above are the favorable halves = a gain).
  */
 export function formatPriceDeltaUsd(
@@ -105,7 +105,7 @@ export function fallbackMethodology(pricingStatus: string): string {
  * Where the fill landed relative to the mid. Deliberately NOT direction-aware:
  * this states a fact about the price, so it needs no notion of who was buying.
  * The tooltip pairs it with bought/sold and lets the reader draw the conclusion;
- * Total Execution Quality is the row that renders a verdict. That split is what
+ * Total Execution Delta is the row that renders a verdict. That split is what
  * keeps this safe — an earlier version used above/below AS the verdict, which
  * hard-coded 'higher is better' and inverted on every buy.
  *

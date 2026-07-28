@@ -69,7 +69,7 @@ export function DetailRow({
 	/** Overrides the subvalue color; defaults to secondary. */
 	subValueColor?: string | undefined;
 	/**
-	 * Colors the VALUE itself (e.g. green on a Spread gain). Direction belongs on the
+	 * Colors the VALUE itself (e.g. green on an Execution Delta gain). Direction belongs on the
 	 * number, not on the muted descriptor beneath it — so the subvalue stays secondary
 	 * gray and this carries the signal. Losses pass undefined: the app colors gains
 	 * green and leaves everything else primary (see formatDialogBps).
