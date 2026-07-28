@@ -182,7 +182,9 @@ SHARE). `Built by Fabric.` stays left; four links right-aligned on a 40px gap:
 | Quotebench | `https://benchmark.withfabric.xyz/` |
 | Methodology | `/methodology` |
 
-**Tab title.** `Receipts – Onchain transaction cost analysis` (en dash).
+**Tab title.** `Receipts - Onchain transaction cost analysis` — a plain ASCII
+hyphen `-` (U+002D), **not** an en dash. The original request quoted an en dash;
+superseded 2026-07-28.
 
 **Favicons.** From `~/Downloads/fabric-favicons` → `public/`: `favicon.ico`,
 `favicon-16x16.png`, `favicon-32x32.png`, wired via Next `metadata.icons`. No
@@ -239,3 +241,29 @@ Static prose in one file; no data access, no new dependency.
 - Retiring `execResultUsd`.
 - Any pricing or persistence change. This is render-layer only; no migration, no
   repopulation.
+
+## Earmarked follow-up — the two-path rounding gap
+
+⚠️ **Not fixed here; do not let this pass silently into a future refactor.**
+
+The receipt now renders the same fact twice on one page: `Execution Delta` in USD
+near the top, `Total Execution Delta` in bps at the bottom. §5 shows they are one
+quantity algebraically — but each is reconstructed from a *separately persisted,
+separately rounded* column:
+
+- the bps row reads the stored `all_in_cost_bps`, computed in core from the
+  in-memory mid at analysis time;
+- the USD row reads `execResultUsd`, recomputed in the dashboard from the stored
+  `market_mid` (display-oriented, un-inverted at read time) and the stored raw
+  amounts.
+
+Nothing guarantees the two agree — only that they *would* agree given infinite
+precision. They will match to displayed precision essentially always, and no
+divergence has been observed. The risk is structural, not observed.
+
+Options when this is picked up: persist the dollar result alongside the bps so
+both rows read one column; or derive the bps row from `execResultUsd` at read
+time so the dashboard has a single source. The second needs no migration and is
+the likelier answer.
+
+Newly visible because these two rows never shared a frame before this pass.
