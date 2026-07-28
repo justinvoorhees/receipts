@@ -54,8 +54,12 @@ export function ReceiptView({
 	const failure = trade === null ? diagnosis : undefined;
 
 	return (
-		<div className="flex flex-col gap-[40px] pb-10">
+		<div className="flex flex-col gap-[40px]">
 			<ReceiptSearch hash={hash} {...(failure ? { failure } : {})} />
+			{/* The rule under the input renders in EVERY state, including the empty
+			    page (Figma 544-2386) — which is why it lives here and not at the top
+			    of <Receipt>, where the dialog would also inherit it. */}
+			<Divider />
 			{trade != null && <Receipt row={trade} />}
 		</div>
 	);
@@ -115,8 +119,6 @@ export function Receipt({
 
 	return (
 		<>
-			{onClose == null && <Divider color="primary" />}
-
 			<div className="flex items-center justify-between">
 				<h2 className="w-fit">
 					<a

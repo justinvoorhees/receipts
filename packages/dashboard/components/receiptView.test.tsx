@@ -1178,3 +1178,18 @@ describe('legContext', () => {
 		expect(html).toBe('<div>ETH → WETH</div>');
 	});
 });
+
+describe('ReceiptSearch chrome', () => {
+	it('drops the Transaction Hash label and uses the short placeholder', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={null} hash="" />);
+		expect(html).not.toContain('Transaction Hash');
+		expect(html).toContain('placeholder="Transaction hash"');
+	});
+
+	it('renders the divider under the input even with no receipt', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={null} hash="" />);
+		expect(html).toContain('h-px w-full shrink-0 bg-[var(--color-primary)]');
+	});
+});

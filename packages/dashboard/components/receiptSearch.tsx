@@ -6,7 +6,7 @@ import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
 
 // Shown as greyed placeholder text in the empty search field.
-const PLACEHOLDER_HASH = '0x16e782f7a9dfefc3b84054ec81a366efbd603aea745ee5373ec005568adb360f';
+const PLACEHOLDER_HASH = 'Transaction hash';
 
 // The button's loading label draws a random word from this hat per search.
 const LOADER_WORDS = [
@@ -79,16 +79,9 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	const hasError = failure != null;
 	const borderColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
 	const textColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
-	const labelColor = hasError ? 'var(--color-red)' : 'var(--color-secondary)';
 
 	return (
-		<div className="flex flex-col gap-[10px] w-full">
-			<span
-				className="font-['Sohne_Breit'] text-[12px] leading-[12px]"
-				style={{ color: labelColor }}
-			>
-				Transaction Hash
-			</span>
+		<div className="flex flex-col gap-[20px] w-full">
 			<div
 				className="relative flex h-[40px] w-full items-stretch overflow-hidden rounded-[2px] border transition-colors"
 				style={{
