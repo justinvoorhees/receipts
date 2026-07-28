@@ -1,6 +1,6 @@
 {
 	"_comment": "Router registry per spec §3. `detection: 'to_address'` matches the tx's to field against the address. `detection: 'solver_eoa'` (not yet implemented) requires event-based detection — flag any router whose Basescan check shows an EOA instead of a contract. All addresses below verified as deployed contracts via eth_getCode against Base mainnet.",
-	"_earmark_fee_recipients": "All `fee_recipients` arrays are intentionally empty. Until populated, `aggFeeBps` reads 0 for every promoted swap (LP + gas still attribute correctly; the residual lands in executionQualityBps). Populate per aggregator from public fee-wallet docs or by inspecting Transfer destinations in known trades.",
+	"_earmark_fee_recipients": "VESTIGIAL as of 2026-07-24 — do not populate. The `fee_recipients` arrays are empty and read by nothing (the field survives only as a type in routerRegistry.ts). Fee sinks are now DETECTED from the trace: addresses that retain value are collected per trade, aggFeeBps is split across them proportionally to retained value, and each sink is labelled with its verified contract name. Curating this list would not feed that path.",
 	"routers": [
 		{
 			"name": "Odos",

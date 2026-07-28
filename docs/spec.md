@@ -14,10 +14,12 @@ and the as-built code.
 
 ## Open items
 
-- [ ] Populate fee-recipient registry per aggregator in `configs/routers.json` (currently empty; `aggFeeBps` reads 0 until populated).
-- [ ] Dashboard column lineup + size/time cross-cuts — design pending real data.
+_None._ Both items originally recorded here were superseded rather than completed:
 
-All router addresses (Odos, 0x, KyberSwap, 1inch V5+V6, Velora V6.2+V5, Fabric, Nordstern, Relay) have been verified as deployed contracts on Base via `eth_getCode`. None are solver EOAs; `detection: 'to_address'` is correct for all.
+- ~~Populate a fee-recipient registry per aggregator in `configs/routers.json`~~ — **superseded 2026-07-24.** Fee sinks are detected from the trace (addresses that retain value) instead of curated ahead of time. `buildFeeSinks` splits `aggFeeBps` across the detected sinks proportionally to retained value, and each sink renders as its own line labelled with its verified contract name (Etherscan `getsourcecode`), falling back to a truncated address. `aggFeeBps` no longer reads 0. The `fee_recipients` arrays in `routers.json` were never populated and are now vestigial — the field is declared in `routerRegistry.ts` but read nowhere.
+- ~~Dashboard column lineup + size/time cross-cuts~~ — **superseded by the 2026-07-07 reset.** The size/time cross-cuts belonged to the funnel / trust-matrix framing that the reset removed. The dashboard is two tabs: Receipts (paste a hash) and History (persisted receipts, sortable).
+
+Router coverage has grown past the original list: `configs/routers.json` now holds 15 entries across Odos, 0x, KyberSwap, 1inch, Velora, Fabric, Nordstern, Relay, OpenOcean, and OKX, all verified as deployed contracts on Base via `eth_getCode`. `detection: 'to_address'` is correct for all of them; aggregators that rotate their settlement addresses (0x's Settlers) are resolved separately through `configs/settlers.json`.
 
 ---
 
