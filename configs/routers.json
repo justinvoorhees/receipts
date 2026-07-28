@@ -1,12 +1,11 @@
 {
 	"_comment": "Router registry per spec §3. `detection: 'to_address'` matches the tx's to field against the address. `detection: 'solver_eoa'` (not yet implemented) requires event-based detection — flag any router whose Basescan check shows an EOA instead of a contract. All addresses below verified as deployed contracts via eth_getCode against Base mainnet.",
-	"_earmark_fee_recipients": "VESTIGIAL as of 2026-07-24 — do not populate. The `fee_recipients` arrays are empty and read by nothing (the field survives only as a type in routerRegistry.ts). Fee sinks are now DETECTED from the trace: addresses that retain value are collected per trade, aggFeeBps is split across them proportionally to retained value, and each sink is labelled with its verified contract name. Curating this list would not feed that path.",
+	"_removed_fee_recipients": "The spec's §3 schema includes a per-router `fee_recipients` array. It was never populated and was REMOVED 2026-07-28 — don't re-add it. Fee sinks are detected from the trace instead: addresses that retain value are collected per trade, aggFeeBps is split across them proportionally to retained value, and each sink is labelled with its verified contract name.",
 	"routers": [
 		{
 			"name": "Odos",
 			"address": "0x19cEeAd7105607Cd444F5ad10dd51356436095a1",
 			"version": "V2",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "OdosRouterV2 on Base."
@@ -15,7 +14,6 @@
 			"name": "Odos",
 			"address": "0x0D05a7D3448512B78fa8A9e46c4872C88C4a0D05",
 			"version": "V3",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Surfaced by the DefiLlama odos adapter, then confirmed on-chain 2026-07-15: 17,084-byte contract emitting Swap v3 topic 0x69db20ca 272x in ~9000 blocks. Closes the standing 'deferred: also add Odos V3' comment."
@@ -24,7 +22,6 @@
 			"name": "0x",
 			"address": "0xdef1c0ded9bec7f1a1670819833240f027b25eff",
 			"version": "ExchangeProxy",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "eth_getCode: contract (1.2KB bytecode — proxy)."
@@ -33,7 +30,6 @@
 			"name": "KyberSwap",
 			"address": "0x6131B5fae19EA4f9D964eAc0408E4408b66337b5",
 			"version": "MetaAggregationRouterV2",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "eth_getCode: contract (18.3KB bytecode)."
@@ -42,7 +38,6 @@
 			"name": "1inch",
 			"address": "0x1111111254eeb25477b68fb85ed929f73a960582",
 			"version": "AggregationRouterV5",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "eth_getCode: contract (22.5KB bytecode)."
@@ -51,7 +46,6 @@
 			"name": "1inch",
 			"address": "0x111111125421ca6dc452d289314280a0f8842a65",
 			"version": "AggregationRouterV6",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "eth_getCode: contract (24.2KB bytecode)."
@@ -60,7 +54,6 @@
 			"name": "Velora",
 			"address": "0x6a000f20005980200259b80c5102003040001068",
 			"version": "AugustusV6.2",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "eth_getCode: contract (24.6KB bytecode)."
@@ -69,7 +62,6 @@
 			"name": "Velora",
 			"address": "0x59C7C832e96D2568bea6db468C1aAdcbbDa08A52",
 			"version": "AugustusV5",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "eth_getCode: contract (9.9KB bytecode). Legacy router; include for historical coverage."
@@ -78,7 +70,6 @@
 			"name": "Fabric",
 			"address": "0x7c137a37742437d2212b7bd873ed135b5c4c61da",
 			"version": "v1",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Confirmed as deployed contract via live execution in v1 (smoke-36 et al.)."
@@ -87,7 +78,6 @@
 			"name": "Nordstern",
 			"address": "0xC87De04e2EC1F4282dFF2933A2D58199f688fC3d",
 			"version": "v1",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Confirmed as deployed contract via live execution in v1."
@@ -96,7 +86,6 @@
 			"name": "Nordstern",
 			"address": "0x663dc15d3c1ac63ff12e45ab68fea3f0a883c251",
 			"version": "router-v2",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Second Nordstern router address. Verified on-chain (tx 0xb169b2e5…): calls Nordstern's v1 settlement contract 0xc87de04e… and emits its distinctive event topic 0x97d8fe…. Basescan surfaces the DeBridge>IceCreamSwap liquidity source; settlement is Nordstern."
@@ -105,7 +94,6 @@
 			"name": "Relay",
 			"address": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
 			"version": "RelayApprovalProxyV3",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Verified via Blockscout: RelayApprovalProxyV3 contract (7746 bytes) on Base. All Relay trades in dataset route through this contract."
@@ -114,7 +102,6 @@
 			"name": "OpenOcean",
 			"address": "0x6352a56caadC4F1E25CD6c75970Fa768A3304e64",
 			"version": "OpenOceanExchangeProxy",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Verified on-chain 2026-07-15: Basescan getsourcecode names it OpenOceanExchangeProxy (EIP-1967 proxy, 2161 bytes, dispatcher exposes upgradeTo(address)); impl slot resolves to 0x201263cea08e8f1d6e2fdd1fd2ca44bf6145e2af (9329 bytes). Live: 574 logs across 574 distinct txs in ~9000 blocks (~2700/day), consistent with DefiLlama's ~$326k/day. Confirmed as `to` of tx 0x7169fbb3…3084."
@@ -123,7 +110,6 @@
 			"name": "OKX",
 			"address": "0xc8f6b8ba0dc0f175b568b99440b0867f69a29265",
 			"version": "DexRouter",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "Verified on-chain 2026-07-15. Sourced from Basescan's project directory (basescan.org/directory/detail/68), labeled 'OKX: Dex Router 2'; getsourcecode confirms verified contract 'DexRouter' (24378 bytes, not a proxy). Live: 21210 logs / 5388 distinct txs in ~9000 blocks (~26k/day), the right order for DefiLlama's $11.9M/day. Emits OrderRecord 5445x over those 5388 txs (~1/tx). Sampled 40 recent OrderRecord txs: 31 had `to` == this router; the other 9 arrived via per-user EIP-1167 TradingVaultImplementation clones (0xbb07f41a…, 0xeedbb45f…) — smart accounts, not aggregators, and out of reach of to_address by design."
@@ -132,7 +118,6 @@
 			"name": "OKX",
 			"address": "0x77449ff075c0a385796da0762bcb46fd5cc884c6",
 			"version": "DexRouterExactOut",
-			"fee_recipients": [],
 			"detection": "to_address",
 			"active": true,
 			"_verified": "IDENTITY verified, LIVENESS not. Basescan directory labels it 'OKX: DEX Router (ExactOut)'; getsourcecode confirms verified contract 'DexRouterExactOut' (14314 bytes). But it emitted ZERO logs in ~9000 blocks, so unlike every other entry here its settlement event is unconfirmed — no sample existed to observe. Kept active because identity is solid and `to` is what labels: a trade here is an OKX trade. If it wakes up, expect a correct OKX label; SETTLEMENT_EVENT_SEEN depends on it emitting OrderRecord like DexRouter, which is an assumption, not an observation."
