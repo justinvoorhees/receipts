@@ -1,5 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { resolveContractName, enrichFeeSinkNames } from './contractNames.js';
+
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
 
 const okResp = (name: string) => ({
 	ok: true,
@@ -31,11 +35,24 @@ describe('resolveContractName', () => {
 		expect(fetchImpl).not.toHaveBeenCalled();
 	});
 
-	it('returns null (no throw) when no api key', async () => {
+	// The two tests below pin BOTH sides of the `'apiKey' in deps` branch in
+	// contractNames.ts. Env is stubbed in each so the result never depends on
+	// whether the shell exported ETHERSCAN_API_KEY.
+	it('returns null (no throw) when apiKey is explicitly undefined, even with the env set', async () => {
+		vi.stubEnv('ETHERSCAN_API_KEY', 'env-key');
 		const fetchImpl = vi.fn() as unknown as typeof fetch;
 		const name = await resolveContractName('0x1', { fetchImpl, apiKey: undefined, cache: {} });
 		expect(name).toBeNull();
 		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it('falls back to the env only when apiKey is absent from deps', async () => {
+		vi.stubEnv('ETHERSCAN_API_KEY', 'env-key');
+		const spy = vi.fn().mockResolvedValue(okResp('EnvKeyed'));
+		const name = await resolveContractName('0x3', { fetchImpl: spy as unknown as typeof fetch, cache: {} });
+		expect(name).toBe('EnvKeyed');
+		expect(spy).toHaveBeenCalledTimes(1);
+		expect(spy).toHaveBeenCalledWith(expect.stringContaining('apikey=env-key'));
 	});
 
 	it('returns null (no throw) when fetch rejects', async () => {

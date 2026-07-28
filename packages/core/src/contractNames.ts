@@ -69,7 +69,10 @@ export async function resolveContractName(address: string, deps: NameResolverDep
 	const cache = injected ?? processCache;
 	if (Object.prototype.hasOwnProperty.call(cache, key)) return cache[key] ?? null;
 
-	const apiKey = deps.apiKey ?? process.env.ETHERSCAN_API_KEY;
+	// `in`, not `??`: an explicit `apiKey: undefined` means "no key", and must not
+	// silently fall through to the environment — that would make the injection
+	// seam leak ambient state and the no-key tests env-dependent.
+	const apiKey = 'apiKey' in deps ? deps.apiKey : process.env.ETHERSCAN_API_KEY;
 	const fetchImpl = deps.fetchImpl ?? fetch;
 	if (!apiKey) return null;
 
