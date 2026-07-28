@@ -84,8 +84,8 @@ export function Receipt({
 	const isPartial = row.pricingStatus === 'partial';
 	// Market Price / Price Delta render whenever a mid exists (full OR estimated).
 	const hasMarketPrice = row.marketMid != null;
-	// The methodology descriptor renders as a *-footnote below the price rows,
-	// but only when a mid exists (hasMarketPrice) — the null-mid tier suppresses it.
+	// The methodology descriptor renders as a footnote bound to the Market Price row
+	// (positional, not a *-linkage) on every tier, including the unpriced one.
 	// Rows persisted before the column was populated fall back to a tier-derived string.
 	const methodologyText = row.methodology ?? fallbackMethodology(row.pricingStatus);
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
@@ -196,24 +196,35 @@ export function Receipt({
 						? UNAVAILABLE
 						: formatExecutionPrice(row.realizedPrice, base, quote)}
 				</DetailRow>
-				<DetailRow
-					label={hasMarketPrice ? 'Market Price*' : 'Market Price'}
-					subValue={marketUsdPerBase != null ? formatSubvalueUsd(marketUsdPerBase) : undefined}
-					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
-				>
-					{hasMarketPrice
-						? formatExecutionPrice(row.marketMid, base, quote)
-						: 'n/a'}
-					{hasMarketPrice && row.manipulationFlag ? (
-						<span
-							className="ml-2"
-							style={{ color: 'var(--color-yellow)' }}
-							title="Median pool mid deviates from the reference oracle by more than 0.5% at N-1"
-						>
-							⚠ Possible manipulation
-						</span>
-					) : null}
-				</DetailRow>
+				{/* Market Price + its methodology descriptor are ONE list item: the
+				    footnote sits 10px under the row (Figma 546-687 / 549-3112), which
+				    is why the row hugs and the wrapper owns the gap. The old
+				    `*`-linkage is gone — position carries it now. */}
+				<div className="flex flex-col gap-[10px]">
+					<DetailRow
+						label="Market Price"
+						hug
+						subValue={marketUsdPerBase != null ? formatSubvalueUsd(marketUsdPerBase) : undefined}
+						{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
+					>
+						{hasMarketPrice ? formatExecutionPrice(row.marketMid, base, quote) : 'n/a'}
+						{hasMarketPrice && row.manipulationFlag ? (
+							<span
+								className="ml-2"
+								style={{ color: 'var(--color-yellow)' }}
+								title="Median pool mid deviates from the reference oracle by more than 0.5% at N-1"
+							>
+								⚠ Possible manipulation
+							</span>
+						) : null}
+					</DetailRow>
+					{/* Renders on every tier — the unpriced tier's descriptor is the
+					    "Unavailable: …" string, which the frames show under `n/a`. */}
+					<p className="text-[12px] leading-[18px] text-[var(--color-secondary)]">
+						{methodologyText}
+					</p>
+				</div>
+
 				<DetailRow
 					label="Price Delta"
 					subValue={priceDelta?.sub ?? undefined}
@@ -221,12 +232,6 @@ export function Receipt({
 				>
 					{priceDelta?.text ?? 'n/a'}
 				</DetailRow>
-
-				{hasMarketPrice && (
-					<p className="text-[12px] leading-[18px] text-[var(--color-secondary)]">
-						*{methodologyText}
-					</p>
-				)}
 
 				{/* The descriptor is a property of the row, not of the number: gas is paid
 				    in ETH outside the swap regardless of whether we could price it. */}

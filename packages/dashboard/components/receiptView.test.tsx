@@ -962,25 +962,26 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		expect(html).not.toContain('#fa0b54');
 	});
 
-	it('renders the Market Price descriptor as a *-footnote when a mid exists', async () => {
+	it('renders the Market Price descriptor as a footnote bound to the row on every tier', async () => {
 		const { Receipt } = await import('./receiptView');
-		// The stored methodology wins when present, rendered as a *-prefixed footnote.
+		// The stored methodology wins when present, rendered as a footnote (no `*` linkage).
 		const stored = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, methodology: 'Verified: The direct-pool price and WETH-derived price agree.' } as never} />,
 		);
-		expect(stored).toContain('*Verified: The direct-pool price and WETH-derived price agree.');
-		expect(stored).toContain('Market Price*'); // label carries the asterisk connotation
+		expect(stored).toContain('Verified: The direct-pool price and WETH-derived price agree.');
+		expect(stored).toContain('>Market Price<'); // asterisk is gone; position carries the link now
 
 		// A NULL methodology falls back to the tier string, still as a footnote.
 		const estimated = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, methodology: null } as never} />);
 		expect(estimated).toContain('Estimated:');
 
-		// The null-mid state shows NO asterisk and NO footnote (decision: only when a mid exists).
+		// The null-mid (unpriced) tier now RENDERS the footnote too — it's the tier
+		// `549-2857` shows the "Unavailable: …" string under `n/a`.
 		const partial = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, pricingStatus: 'partial', marketMid: null, methodology: null, allInCostBps: null } as never} />,
 		);
 		expect(partial).not.toContain('Market Price*');
-		expect(partial).not.toContain('Unavailable: No reliable market price could be calculated.');
+		expect(partial).toContain('Unavailable: No reliable market price could be calculated.');
 
 		// The hardcoded tooltip copy stays gone.
 		for (const html of [stored, estimated]) {
@@ -1253,5 +1254,34 @@ describe('list item heights', () => {
 		expect(lpHeading).toBeGreaterThan(-1);
 		const gridBefore = html.lastIndexOf('grid grid-cols-', lpHeading);
 		expect(html.slice(gridBefore, lpHeading)).not.toContain('min-h-[34px]');
+	});
+});
+
+describe('Market Price composite', () => {
+	const partialRow = { ...fullUsdcWethRow, pricingStatus: 'partial', marketMid: null, allInCostBps: null };
+
+	it('places the methodology footnote between Market Price and Price Delta', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		const market = html.indexOf('>Market Price<');
+		const note = html.indexOf('Verified:');
+		const delta = html.indexOf('>Price Delta<');
+		expect(market).toBeGreaterThan(-1);
+		expect(note).toBeGreaterThan(market);
+		expect(delta).toBeGreaterThan(note);
+	});
+
+	it('drops the asterisk from the label and the footnote', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		expect(html).toContain('>Market Price<');
+		expect(html).not.toContain('Market Price*');
+		expect(html).not.toContain('>*');
+	});
+
+	it('renders the footnote on the unpriced tier too', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={partialRow as never} />);
+		expect(html).toContain('Unavailable: No reliable market price could be calculated.');
 	});
 });
