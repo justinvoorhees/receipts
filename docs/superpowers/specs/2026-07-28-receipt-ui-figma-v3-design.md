@@ -111,28 +111,44 @@ Execution Delta   WBTC bought at $4.57 below Market Price
                                             Per 1 ETH
 ```
 
-- **Magnitude:** `notionalIn × |allInCostBps| / 10_000` — "dollarized allInBps".
-  This welds the row to the `Total Execution Delta` bps row at the bottom; the two
-  are one fact in USD and bps and can never disagree.
-- **Direction:** gain ⟺ `allInCostBps < 0` (the column is a *cost*; the bottom row
-  already renders `-costBps` to get `+25.53bps` green). Combined with
-  `baseIsOutput` exactly as `formatPriceDeltaUsd` does, so bought-below and
-  sold-above remain the favorable halves.
+- **Magnitude:** `Math.abs(dollars.execResultUsd)` — today's source, unchanged
+  (user decision). "Dollarized allInBps" is not a second candidate: it is the
+  same number reached by another route.
+
+  ```
+  core:      allInCostBps = signedDeviationBps(mid, realized) = (mid − realized)/mid × 10⁴   [cost > 0]
+  dashboard: qualityBps   = (realized/mid − 1) × 10⁴                                          [surplus > 0]
+             execResultUsd = notionalIn × qualityBps / 10⁴
+  ⇒ allInCostBps = −qualityBps
+  ⇒ |execResultUsd| = notionalIn × |allInCostBps| / 10⁴
+  ```
+
+  Both divide the same deviation by the same mid; `receiptDollars` un-inverts the
+  stored display mid back to output-per-input (via core's `baseIsOutputLeg`)
+  exactly so this identity holds. The row is therefore already welded to the
+  `Total Execution Delta` bps row — one fact in USD and in bps — with no new
+  computation. Only rounding on persistence separates the two paths.
+
+- **Direction:** `dollars.execResultUsd > 0` (gain), as today, combined with
+  `baseIsOutput` exactly as `formatPriceDeltaUsd` does — so bought-below and
+  sold-above remain the favorable halves, and Execution Delta can never disagree
+  with Price Delta, which reads the same sign.
 - **Subvalue:** `Per {formatTokenIn(row)}` → `Per 1 ETH`. Capital `P`, matching
   `546-677`; Price Delta's `per 1 {base}` stays lowercase, matching `546-695`.
 - **No color, no Gained/Lost** (user decision). Direction lives in the prose, as
   it already does on Price Delta. Green stays on the bps rows, where the frames
   do show it.
-- **Gate:** renders only when the pair is anchored *and* `allInCostBps` is
-  non-null — stricter than today's anchored-only gate. Drop the row rather than
-  print a bare `$0.00` when the column is null. The token-priced and unpriced
-  frames both omit the row, consistent with this.
+- **Gate:** unchanged — `dollars != null`, i.e. the pair anchors and a usable mid
+  exists. Since the magnitude no longer reads `allInCostBps`, no null-column case
+  arises and no stricter gate is needed. The token-priced and unpriced frames both
+  omit the row, consistent with this: neither anchors.
 
-`formatExecutionResult` becomes unused and is deleted, along with its tests.
+`formatExecutionResult` becomes unused and is deleted, along with its tests — the
+`$X` + Gained/Lost shape has no remaining caller once the row becomes a sentence.
 
 `execResultUsd` is **not** touched — an earlier note to retire it was retracted.
 It remains load-bearing for `notionalOut` (Token Out's USD subvalue), the Price
-Delta magnitude, and the Price Delta direction.
+Delta magnitude, the Price Delta direction, and now this row.
 
 ## 6. Chrome
 
