@@ -6,9 +6,9 @@
  * `receiptDollars` below is the single-ruler USD helper: one stored anchor
  * notional (`notionalUsd`) + one `marketMid`, no second (oracle-derived) ruler.
  *
- * This module imports only leaf modules (receipt/symbols, receipt/usdFormat) and
- * a type-only import from lib/queries — never TradesTable or ReceiptView — so it
- * stays genuinely importable in isolation from the client component tree.
+ * This module imports only leaf modules (receipt/symbols) and a type-only
+ * import from lib/queries — never TradesTable or ReceiptView — so it stays
+ * genuinely importable in isolation from the client component tree.
  */
 import type { ReceiptRow } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';

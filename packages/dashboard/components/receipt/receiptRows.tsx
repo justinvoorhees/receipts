@@ -37,13 +37,8 @@ function TooltipBubble({ align, children }: { align: 'left' | 'right'; children:
 // One form only: a solid full-width rule in the theme's primary color. The
 // dotted `dashed` variant was retired in the Figma v3 pass — no frame contains
 // an internal table rule.
-export function Divider({ color }: { color?: string }) {
-	return (
-		<div
-			className="h-px w-full shrink-0 bg-[var(--color-primary)]"
-			style={color ? { backgroundColor: `var(--color-${color})` } : undefined}
-		/>
-	);
+export function Divider() {
+	return <div className="h-px w-full shrink-0 bg-[var(--color-primary)]" />;
 }
 
 export function DetailRow({
@@ -54,7 +49,6 @@ export function DetailRow({
 	valueTooltip,
 	subValue,
 	subValueColor,
-	valueColor,
 	hug = false,
 }: {
 	label: string;
@@ -62,22 +56,18 @@ export function DetailRow({
 	underscored?: boolean;
 	tooltip?: string;
 	valueTooltip?: string;
-	/** Second line under the value (e.g. a USD subvalue, or Gained/Lost). */
+	/** Second line under the value (e.g. a USD subvalue). */
 	subValue?: React.ReactNode;
 	/** Overrides the subvalue color; defaults to secondary. */
 	subValueColor?: string | undefined;
-	/**
-	 * Colors the VALUE itself (e.g. green on an Execution Delta gain). Direction belongs on the
-	 * number, not on the muted descriptor beneath it — so the subvalue stays secondary
-	 * gray and this carries the signal. Losses pass undefined: the app colors gains
-	 * green and leaves everything else primary (see formatDialogBps).
-	 */
-	valueColor?: string | undefined;
 	/**
 	 * Opts this row out of the 34px floor so it hugs its content. Only the Market
 	 * Price row uses it: its methodology footnote sits 10px below the row inside a
 	 * shared wrapper, so a floor here would push the footnote off its mark
 	 * (Figma 546-687 = 34+10+36; 549-3112 = 12+10+36 when there is no subvalue).
+	 * The opposite polarity of `standalone` on BkdHeading/BkdRow below, which opts
+	 * IN to the same floor — `hug` starts floored and opts out, `standalone` starts
+	 * unfloored and opts in.
 	 */
 	hug?: boolean;
 }) {
@@ -99,16 +89,14 @@ export function DetailRow({
 			</div>
 			<div className="flex min-w-0 flex-col gap-[10px]">
 				{valueTooltip ? (
-					<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
+					<span className="min-w-0 text-right">
 						<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
 							{children}
 							<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
 						</span>
 					</span>
 				) : (
-					<span className="min-w-0 text-right" style={valueColor ? { color: valueColor } : undefined}>
-						{children}
-					</span>
+					<span className="min-w-0 text-right">{children}</span>
 				)}
 				{subValue != null && (
 					<span
@@ -200,6 +188,9 @@ export function BkdHeading({
 	 * A row that is not part of a heading+children group takes the 34px floor.
 	 * Group members (fee sinks, legs, and the headings that own them) stay at
 	 * 12px on the container's 20px gap — Figma 546-713.
+	 * The opposite polarity of `hug` on DetailRow above, which opts OUT of the
+	 * same floor — `standalone` starts unfloored and opts in, `hug` starts
+	 * floored and opts out.
 	 */
 	standalone?: boolean;
 }) {
@@ -260,6 +251,9 @@ export function BkdRow({
 	 * A row that is not part of a heading+children group takes the 34px floor.
 	 * Group members (fee sinks, legs, and the headings that own them) stay at
 	 * 12px on the container's 20px gap — Figma 546-713.
+	 * The opposite polarity of `hug` on DetailRow above, which opts OUT of the
+	 * same floor — `standalone` starts unfloored and opts in, `hug` starts
+	 * floored and opts out.
 	 */
 	standalone?: boolean;
 }) {

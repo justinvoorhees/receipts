@@ -697,7 +697,7 @@ describe('Price Delta row', () => {
 		expect(html).not.toContain('At Market');
 	});
 
-	it('flips to "Bought … above" (Lost) when the fill received fewer than the mid', async () => {
+	it('flips to "Bought … above" when the fill received fewer than the mid', async () => {
 		const { Receipt } = await import('./receiptView');
 		// Consistent loss: received 0.0284 WBTC (< the ~0.028552 the mid implies for 1 ETH),
 		// so realizedPrice = 1/0.0284 ≈ 35.2113 ETH/WBTC (paid more ETH per WBTC than the mid).
@@ -787,10 +787,10 @@ describe('Price Delta row', () => {
 		expect(html).toContain('per 1 LFI');
 	});
 
-	it('reads "Bought … above" (Lost) for a USDC→WETH buy over the mid (this was once inverted)', async () => {
+	it('reads "Bought … above" for a USDC→WETH buy over the mid (this was once inverted)', async () => {
 		const { Receipt } = await import('./receiptView');
 		// base = WETH (output, rank 1 < USDC's 2) → the user BOUGHT the base.
-		// Paid 3005 USDC/WETH against a 3000 mid → a $5/ETH overpay → bought above → Lost.
+		// Paid 3005 USDC/WETH against a 3000 mid → a $5/ETH overpay → the fill lands above Market Price.
 		// ReceiptView.test.tsx:470 once asserted this was "better".
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...fullUsdcWethRow, marketMid: '3000', realizedPrice: '3005' } as never} />,
