@@ -1332,6 +1332,20 @@ describe('MethodologyText', () => {
 			expect(html).toMatch(re);
 		}
 	});
+
+	it('links the USDC/WETH fast-path liquidity phrase alongside oracle reference', async () => {
+		// The exact sentence packages/core/src/pricing.ts:466 emits — previously
+		// only "oracle reference" linked, leaving "three WETH/USDC pool prices"
+		// inert next to it.
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Verified: The median of three WETH/USDC pool prices agrees with the oracle reference." />,
+		);
+		for (const phrase of ['three WETH/USDC pool prices', 'oracle reference']) {
+			const re = new RegExp(`<a[^>]*href="/methodology"[^>]*>${phrase}</a>`);
+			expect(html).toMatch(re);
+		}
+	});
 });
 
 describe('formatExecutionDelta', () => {
