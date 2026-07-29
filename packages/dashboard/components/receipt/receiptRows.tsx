@@ -41,6 +41,46 @@ export function Divider() {
 	return <div className="h-px w-full shrink-0 bg-[var(--color-primary)]" />;
 }
 
+const METHODOLOGY_TERMS = [
+	'direct-pool price',
+	'WETH-derived price',
+	'oracle reference',
+	'three WETH/USDC pool prices',
+] as const;
+const METHODOLOGY_PATTERN = new RegExp(`(${METHODOLOGY_TERMS.join('|')})`, 'g');
+
+/**
+ * Renders a Market Price methodology sentence (packages/core/src/pricing.ts
+ * `methodologyFor`) with its fixed phrases turned into dotted-underline
+ * links to /methodology, opening in a new tab (Figma 546-694). The fourth term
+ * covers the USDC/WETH fast-path sentence only (pricing.ts:465-466), which
+ * names its liquidity source differently from the general-path sentences.
+ * The phrase list is exhaustive — every sentence `methodologyFor` can produce
+ * is built only from these literal strings plus fixed prose — so a single
+ * non-overlapping split is sufficient; no priority/longest-match logic needed.
+ */
+export function MethodologyText({ text }: { text: string }) {
+	return (
+		<>
+			{text.split(METHODOLOGY_PATTERN).map((part, i) =>
+				(METHODOLOGY_TERMS as readonly string[]).includes(part) ? (
+					<a
+						key={i}
+						href="/methodology"
+						target="_blank"
+						rel="noreferrer"
+						className="underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+					>
+						{part}
+					</a>
+				) : (
+					part
+				),
+			)}
+		</>
+	);
+}
+
 export function DetailRow({
 	label,
 	children,

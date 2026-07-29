@@ -1,4 +1,3 @@
-import { NavTabs } from './navTabs';
 import { ThemePicker } from './ThemePicker';
 
 // Native aspect ratio of the RECEIPTS wordmark is 120.505:40 (~3.013).
@@ -31,8 +30,7 @@ export function Header() {
 					}}
 				/>
 			</a>
-			<div className="ml-auto flex items-center gap-[40px]">
-				<NavTabs />
+			<div className="ml-auto flex items-center">
 				<ThemePicker />
 			</div>
 		</header>

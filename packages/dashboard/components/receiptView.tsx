@@ -40,7 +40,15 @@ import {
 	BkdRow,
 	LegRow,
 	legContext,
+	MethodologyText,
 } from './receipt/receiptRows';
+
+// A Cost Breakdown section (heading + its rows) gets 22px of extra bottom
+// padding — but only when it actually has rows beneath the heading (Figma
+// 546-713). A bare standalone heading (e.g. Aggregator Fee with no fee
+// lines, or the unpriced Price Impact/Slippage pair) stays on the plain
+// 20px rhythm and is never wrapped in this.
+const GROUP_SECTION = 'flex flex-col gap-[20px] pb-[22px]';
 
 export function ReceiptView({
 	trade,
@@ -225,9 +233,11 @@ export function Receipt({
 						) : null}
 					</DetailRow>
 					{/* Renders on every tier — the unpriced tier's descriptor is the
-					    "Unavailable: …" string, which the frames show under `n/a`. */}
+					    "Unavailable: …" string, which the frames show under `n/a`. Each
+					    of the three methodology phrases (if present) links to
+					    /methodology in a new tab (Figma 546-694). */}
 					<p className="text-[12px] leading-[18px] text-[var(--color-secondary)]">
-						{methodologyText}
+						<MethodologyText text={methodologyText} />
 					</p>
 				</div>
 
@@ -258,7 +268,7 @@ export function Receipt({
 			{/* Cost breakdown */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
 				{hasAggFee ? (
-					<>
+					<div className={GROUP_SECTION}>
 						<BkdHeading label="Aggregator Fee" plain />
 						{feeLines.map((line, i) => {
 							const d = formatDialogBps(-line.bps);
@@ -273,18 +283,18 @@ export function Receipt({
 								/>
 							);
 						})}
-					</>
+					</div>
 				) : (
 					<BkdHeading label="Aggregator Fee" value="0.00bps" plain standalone />
 				)}
 
 				{legs.length === 0 ? (
-					<>
+					<div className={GROUP_SECTION}>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						<BkdRow label="No Route Found" value="–" secondary />
-					</>
+					</div>
 				) : hasCostedLeg ? (
-					<>
+					<div className={GROUP_SECTION}>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						{legs.map((leg, index) => {
 							const { text: lpText, color: lpColor } = isMakerLeg(leg)
@@ -304,9 +314,9 @@ export function Receipt({
 								/>
 							);
 						})}
-					</>
+					</div>
 				) : (
-					<>
+					<div className={GROUP_SECTION}>
 						<BkdHeading label="Pools Touched" plain />
 						{legs.map((leg, index) => (
 							<LegRow
@@ -319,7 +329,7 @@ export function Receipt({
 								requirePair
 							/>
 						))}
-					</>
+					</div>
 				)}
 
 				{isPartial || (legs.length > 0 && !hasCostedLeg) ? (
@@ -341,26 +351,28 @@ export function Receipt({
 					</>
 				) : (
 					<>
-						<BkdHeading
-							label="Price Impact"
-							tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
-						/>
-						{priceImpactRows.length > 0 ? (
-							priceImpactRows.map((impact, index) => (
-								<BkdRow
-									key={`${impact.href ?? impact.label}-${index}`}
-									label={impact.label}
-									href={impact.href}
-									context={legContext(impact.context, impact.router, false)}
-									value={impact.value}
-									color={impact.color}
-									valueTooltip={impact.valueTooltip}
-									secondary
-								/>
-							))
-						) : (
-							<BkdRow label="No Route Found" value="–" secondary />
-						)}
+						<div className={GROUP_SECTION}>
+							<BkdHeading
+								label="Price Impact"
+								tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
+							/>
+							{priceImpactRows.length > 0 ? (
+								priceImpactRows.map((impact, index) => (
+									<BkdRow
+										key={`${impact.href ?? impact.label}-${index}`}
+										label={impact.label}
+										href={impact.href}
+										context={legContext(impact.context, impact.router, false)}
+										value={impact.value}
+										color={impact.color}
+										valueTooltip={impact.valueTooltip}
+										secondary
+									/>
+								))
+							) : (
+								<BkdRow label="No Route Found" value="–" secondary />
+							)}
+						</div>
 
 						<BkdHeading
 							label="Slippage"

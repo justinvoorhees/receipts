@@ -971,7 +971,10 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		const stored = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, methodology: 'Verified: The direct-pool price and WETH-derived price agree.' } as never} />,
 		);
-		expect(stored).toContain('Verified: The direct-pool price and WETH-derived price agree.');
+		expect(stored).toMatch(/<a[^>]*href="\/methodology"[^>]*>direct-pool price<\/a>/);
+		expect(stored).toMatch(/<a[^>]*href="\/methodology"[^>]*>WETH-derived price<\/a>/);
+		expect(stored).toContain('Verified: The ');
+		expect(stored).toContain(' agree.');
 		expect(stored).toContain('>Market Price<'); // asterisk is gone; position carries the link now
 
 		// A NULL methodology falls back to the tier string, still as a footnote.
@@ -1264,6 +1267,118 @@ describe('list item heights', () => {
 	});
 });
 
+describe('group section bottom padding (Figma 546-713)', () => {
+	// The pb-[22px] wrapper's opening tag precedes its heading's own label text
+	// (the wrapper is the heading's PARENT), so a plain lastIndexOf search for
+	// the nearest preceding wrapper-shaped tag is ambiguous: an EARLIER
+	// section's wrapper (already closed by the time we reach this label) sits
+	// textually nearer than "no wrapper at all" would suggest, and gets picked
+	// up as a false positive. A real ancestor check needs actual div-depth
+	// tracking, not text proximity — so walk every <div>/</div> up to the
+	// label with a stack and ask whether any div still OPEN at that point
+	// carries pb-[22px].
+	function hasPb22Ancestor(html: string, labelIndex: number): boolean {
+		const tagRe = /<div\b([^>]*)>|<\/div>/g;
+		const stack: string[] = [];
+		let match: RegExpExecArray | null;
+		while ((match = tagRe.exec(html)) && match.index < labelIndex) {
+			if (match[0] === '</div>') {
+				stack.pop();
+			} else {
+				const classMatch = /class="([^"]*)"/.exec(match[1] ?? '');
+				stack.push(classMatch?.[1] ?? '');
+			}
+		}
+		return stack.some((cls) => cls.includes('pb-[22px]'));
+	}
+
+	it('adds pb-[22px] to the Aggregator Fee section only when it has fee lines', async () => {
+		const { Receipt } = await import('./receiptView');
+		const withFee = {
+			...fullUsdcWethRow,
+			aggregator: 'Nordstern',
+			aggFeeBps: '22',
+			feeSinks: [
+				{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null },
+			],
+		};
+		const htmlWithFee = renderToStaticMarkup(<Receipt row={withFee as never} />);
+		const withFeeLabel = htmlWithFee.indexOf('>Aggregator Fee<');
+		expect(withFeeLabel).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(htmlWithFee, withFeeLabel)).toBe(true);
+
+		const htmlStandalone = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		const standaloneLabel = htmlStandalone.indexOf('>Aggregator Fee<');
+		expect(standaloneLabel).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(htmlStandalone, standaloneLabel)).toBe(false);
+	});
+
+	it('adds pb-[22px] to the Liquidity Provider Fee section when it falls back to "No Route Found"', async () => {
+		const { Receipt } = await import('./receiptView');
+		// routeLegs: [] (fullUsdcWethRow default) renders the "No Route Found"
+		// fallback row — still a sub-item under the heading.
+		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		const label = html.indexOf('>Liquidity Provider Fee<');
+		expect(label).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(html, label)).toBe(true);
+	});
+
+	it('adds pb-[22px] to the Liquidity Provider Fee section when it has real leg rows', async () => {
+		const { Receipt } = await import('./receiptView');
+		const row = {
+			...fullUsdcWethRow,
+			routeLegs: [
+				{
+					venue: '0x1111111111111111111111111111111111111111', type: 'univ3',
+					tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+					tokenOut: '0x4200000000000000000000000000000000000006',
+					feeTierBps: 5, notionalUsdc: 1000, lpFeeBps: 5, priceImpactBps: 1,
+				},
+			],
+		};
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		const label = html.indexOf('>Liquidity Provider Fee<');
+		expect(label).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(html, label)).toBe(true);
+	});
+
+	it('adds pb-[22px] to the "Pools Touched" fallback (LP Fee section, unpriced legs)', async () => {
+		const { Receipt } = await import('./receiptView');
+		const row = {
+			...fullUsdcWethRow,
+			routeLegs: [
+				{
+					venue: '0x1111111111111111111111111111111111111111', type: 'univ3',
+					tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+					tokenOut: '0x4200000000000000000000000000000000000006',
+					feeTierBps: 5, notionalUsdc: 1000, lpFeeBps: null, priceImpactBps: null,
+				},
+			],
+		};
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		const label = html.indexOf('>Pools Touched<');
+		expect(label).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(html, label)).toBe(true);
+	});
+
+	it('adds pb-[22px] to the priced Price Impact section but not the unpriced standalone pair', async () => {
+		const { Receipt } = await import('./receiptView');
+		// routeLegs: [] still renders a priced Price Impact section (the "No Route
+		// Found" fallback row is a sub-item), since pricingStatus is 'full' here.
+		const htmlPriced = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
+		const pricedLabel = htmlPriced.indexOf('>Price Impact<');
+		expect(pricedLabel).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(htmlPriced, pricedLabel)).toBe(true);
+
+		const htmlPartial = renderToStaticMarkup(
+			<Receipt row={{ ...fullUsdcWethRow, pricingStatus: 'partial', marketMid: null, allInCostBps: null } as never} />,
+		);
+		const partialLabel = htmlPartial.indexOf('>Price Impact<');
+		expect(partialLabel).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(htmlPartial, partialLabel)).toBe(false);
+	});
+});
+
 describe('Market Price composite', () => {
 	const partialRow = { ...fullUsdcWethRow, pricingStatus: 'partial', marketMid: null, allInCostBps: null };
 
@@ -1290,6 +1405,58 @@ describe('Market Price composite', () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={partialRow as never} />);
 		expect(html).toContain('Unavailable: No reliable market price could be calculated.');
+	});
+});
+
+describe('MethodologyText', () => {
+	it('wraps each of the three methodology phrases in a new-tab /methodology link', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Estimated: The direct-pool price and WETH-derived price disagree, and the oracle reference does not confirm their median." />,
+		);
+		for (const phrase of ['direct-pool price', 'WETH-derived price', 'oracle reference']) {
+			const re = new RegExp(`<a[^>]*href="/methodology"[^>]*>${phrase}</a>`);
+			expect(html).toMatch(re);
+		}
+		expect(html).toContain('target="_blank"');
+		expect(html).toContain('rel="noreferrer"');
+		// Surrounding prose survives untouched, outside any anchor.
+		expect(html).toContain('Estimated: The ');
+		expect(html).toContain(' does not confirm their median.');
+	});
+
+	it('renders text with no matching phrase as plain text, with no anchors', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Unavailable: No reliable market price could be calculated." />,
+		);
+		expect(html).toBe('Unavailable: No reliable market price could be calculated.');
+		expect(html).not.toContain('<a');
+	});
+
+	it('links every phrase in a three-way agreement sentence', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Verified: The direct-pool price, WETH-derived price, and oracle reference agree." />,
+		);
+		for (const phrase of ['direct-pool price', 'WETH-derived price', 'oracle reference']) {
+			const re = new RegExp(`<a[^>]*href="/methodology"[^>]*>${phrase}</a>`);
+			expect(html).toMatch(re);
+		}
+	});
+
+	it('links the USDC/WETH fast-path liquidity phrase alongside oracle reference', async () => {
+		// The exact sentence packages/core/src/pricing.ts:466 emits — previously
+		// only "oracle reference" linked, leaving "three WETH/USDC pool prices"
+		// inert next to it.
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Verified: The median of three WETH/USDC pool prices agrees with the oracle reference." />,
+		);
+		for (const phrase of ['three WETH/USDC pool prices', 'oracle reference']) {
+			const re = new RegExp(`<a[^>]*href="/methodology"[^>]*>${phrase}</a>`);
+			expect(html).toMatch(re);
+		}
 	});
 });
 
