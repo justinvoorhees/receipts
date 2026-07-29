@@ -236,7 +236,7 @@ export function Receipt({
 					    "Unavailable: …" string, which the frames show under `n/a`. Each
 					    of the three methodology phrases (if present) links to
 					    /methodology in a new tab (Figma 546-694). */}
-					<p className="text-[12px] leading-[18px] text-[var(--color-secondary)]">
+					<p className="text-[10px] leading-[16px] text-[var(--color-secondary)]">
 						<MethodologyText text={methodologyText} />
 					</p>
 				</div>

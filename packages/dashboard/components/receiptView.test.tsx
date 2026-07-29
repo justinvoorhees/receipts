@@ -939,8 +939,12 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 	it('sizes detail-row subvalues at 12px, matching the rest of the list', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
-		// The 10px subvalue/sublabel treatment is gone from the detail table.
-		expect(html).not.toContain('text-[10px]');
+		// The 10px subvalue/sublabel treatment is gone from the detail table: every
+		// subvalue is 12px, and the ONLY 10px text left is the Market Price
+		// methodology footnote (10/16, Figma 546-694).
+		expect(html).toContain('class="text-[12px] leading-[12px] text-right"');
+		expect(html).toContain('class="text-[10px] leading-[16px] text-[var(--color-secondary)]"');
+		expect(html.match(/text-\[10px\]/g)).toHaveLength(1);
 	});
 
 	it('renders the Execution Delta sentence uncolored on a gain, with the Per subvalue in secondary gray', async () => {
