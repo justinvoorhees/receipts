@@ -20,7 +20,7 @@ describe('getAggregatorFeeLines', () => {
 		expect(lines).toEqual([{ label: 'Nordstern Fee', href: BASE + '0x3dbe', bps: 19.02 }]);
 	});
 
-	it('multiple sinks: first follows the flow, rest are truncated addresses', () => {
+	it('multiple sinks: a named subsequent sink uses its name', () => {
 		const lines = getAggregatorFeeLines({
 			aggregator: 'Nordstern', aggFeeBps: 22,
 			feeSinks: [
@@ -29,8 +29,34 @@ describe('getAggregatorFeeLines', () => {
 			],
 		});
 		expect(lines[0]!.label).toBe('Nordstern Fee');
-		expect(lines[1]!.label).toBe('0x5f69…d431'); // truncated, even though it has a name
+		expect(lines[1]!.label).toBe('Vault');
 		expect(lines[1]!.href).toBe(BASE + '0x5f6900000000000000000000000000000000d431');
+	});
+
+	it('multiple sinks: an UNNAMED subsequent sink stays a truncated address', () => {
+		const lines = getAggregatorFeeLines({
+			aggregator: 'Nordstern', aggFeeBps: 22,
+			feeSinks: [
+				{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null },
+				{ address: '0x3912760000000000000000000000000000d24600', feeBps: 2.98, source: 'retained_balance', name: null },
+			],
+		});
+		expect(lines[0]!.label).toBe('Nordstern Fee');
+		expect(lines[1]!.label).toBe('0x3912…4600'); // curation cue survives for genuinely unknown sinks
+	});
+
+	it('Clanker derivatives on receipt 371 render as three distinct labels', () => {
+		const lines = getAggregatorFeeLines({
+			aggregator: '0x', aggFeeBps: 10.901872046818054,
+			feeSinks: [
+				{ address: '0xad01c20d5886137e056775af56915de824c8fce5', feeBps: 5.001914524202447, source: 'retained_balance', name: null },
+				{ address: '0xf3622742b1e446d92e45e22923ef11c2fcd55d68', feeBps: 4.916631268846352, source: 'retained_balance', name: 'ClankerFeeLocker' },
+				{ address: '0xe85a59c628f7d27878aceb4bf3b35733630083a9', feeBps: 0.9833262537692553, source: 'retained_balance', name: 'Clanker' },
+			],
+		});
+		expect(lines.map(l => l.label)).toEqual(['0x Fee', 'ClankerFeeLocker', 'Clanker']);
+		expect(lines[1]!.href).toBe(BASE + '0xf3622742b1e446d92e45e22923ef11c2fcd55d68');
+		expect(lines[2]!.href).toBe(BASE + '0xe85a59c628f7d27878aceb4bf3b35733630083a9');
 	});
 
 	it('fabric with a fee keeps the Integrator Fee label', () => {

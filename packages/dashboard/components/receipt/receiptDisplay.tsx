@@ -402,11 +402,12 @@ function genericFeeLabel(aggregator: string): string {
 	return `${formatProvider(aggregator.toLowerCase())} Fee`;
 }
 
-// One clickable line per aggregator fee sink. The dominant (first) sink is
-// named by its verified Basescan contract name, falling back to the generic
-// "[Aggregator] Fee". Every subsequent sink is labeled by its truncated address
-// — a deliberate visual cue that it needs curation/investigation. All sinks
-// link to their Basescan address page.
+// One clickable line per aggregator fee sink. A sink with a verified Basescan
+// contract name is labeled with it, wherever it sits in the list. An UNNAMED
+// sink falls back to the generic "[Aggregator] Fee" if it's the dominant
+// (first) one, otherwise to its truncated address — a deliberate visual cue
+// that the sink still needs curation/investigation. All sinks link to their
+// Basescan address page.
 export function getAggregatorFeeLines(row: {
 	aggregator: string;
 	aggFeeBps: string | number | null;
@@ -429,7 +430,7 @@ export function getAggregatorFeeLines(row: {
 	}
 
 	return sinks.map((s, i) => ({
-		label: i === 0 ? (s.name ?? genericFeeLabel(row.aggregator)) : shortTxHash(s.address),
+		label: s.name ?? (i === 0 ? genericFeeLabel(row.aggregator) : shortTxHash(s.address)),
 		href: `https://basescan.org/address/${s.address}`,
 		bps: s.feeBps,
 	}));
