@@ -42,11 +42,19 @@ export function ShareButton({ path, large = false }: { path?: string; large?: bo
 		? 'h-[69px] text-[40px] leading-[40px] px-[20px]'
 		: 'h-[40px] text-[20px] leading-[20px] px-[8px]';
 
+	// Hover dims the LABEL to quaternary and leaves the fill alone (Mochromat
+	// 1564-977, `type=primary, state=hover`). The design-system node binds its
+	// fill to `focus` where this button uses `primary` — a pre-existing token
+	// difference, and not one to "fix" here: they are near-identical in the
+	// light theme but diverge hard in others (terminal: #00fa9a vs #0afa4a), so
+	// swapping the resting fill would be a visible cross-theme change, not a
+	// hover state. The colour swap is deliberately instant — no `transition-colors`
+	// here, even though the table rows carry one.
 	return (
 		<button
 			type="button"
 			onClick={handleClick}
-			className={`flex w-full shrink-0 cursor-pointer items-center justify-center rounded-[2px] bg-[var(--color-primary)] font-['Sohne_Breit'] font-medium text-[var(--color-surface-base)] ${sizing}`}
+			className={`flex w-full shrink-0 cursor-pointer items-center justify-center rounded-[2px] bg-[var(--color-primary)] font-['Sohne_Breit'] font-medium text-[var(--color-surface-base)] hover:text-[var(--color-quaternary)] ${sizing}`}
 			style={{ fontFeatureSettings: '"calt" 0' }}
 		>
 			{large ? (copied ? 'COPIED' : 'SHARE') : copied ? 'Copied' : 'Share'}

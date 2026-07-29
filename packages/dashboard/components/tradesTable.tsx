@@ -18,7 +18,10 @@ import { receiptPairTitle } from './receipt/priceFormat';
 export * from './receipt/receiptDisplay';
 
 const COL = 'p-0 py-[10px] pl-[28px] align-baseline';
-const COL_FIRST = 'p-0 py-[10px] align-baseline';
+// The Aggregator cell is the one left-aligned, variable-width column, so it is
+// the first to wrap when the table is tight — nowrap makes it push the table
+// wider (the wrapper below is sized to fit) instead of stacking onto two lines.
+const COL_FIRST = 'p-0 py-[10px] align-baseline whitespace-nowrap';
 
 const ACCESSORS: Record<TradesSortColumn, (r: ReceiptRow) => string | number> = {
 	block: (r) => r.blockNumber,
@@ -108,22 +111,37 @@ export function TradesTable({
 		}
 	};
 
+	// The table deliberately breaks out of <main>'s 720px column so the
+	// Aggregator cell never wraps. `w-max` sizes the wrapper to the widest row;
+	// `left-1/2` + `-translate-x-1/2` re-centers it on the viewport (main is
+	// itself centered, so its center line IS the viewport's). `min-w-full` keeps
+	// a short table from collapsing narrower than the 720px column, and the
+	// 100vw clamp stops the breakout from scrolling the page sideways on a
+	// small window.
 	return (
-		<div className="mt-[40px]">
-			<table className="w-full font-['Sohne_Mono'] text-[12px] leading-[12px]">
-				<thead>
-					<HeaderRow sort={sort} onSort={onSort} />
-				</thead>
-				<tbody>
-					{sortedRows.map((r) => (
-						<DataRow key={r.id} row={r} onOpen={setSelectedRow} />
-					))}
-				</tbody>
-			</table>
+		<>
+			<div className="relative left-1/2 mt-[40px] w-max min-w-full max-w-[calc(100vw-40px)] -translate-x-1/2">
+				<table className="w-full font-['Sohne_Mono'] text-[12px] leading-[12px]">
+					<thead>
+						<HeaderRow sort={sort} onSort={onSort} />
+					</thead>
+					<tbody>
+						{sortedRows.map((r) => (
+							<DataRow key={r.id} row={r} onOpen={setSelectedRow} />
+						))}
+					</tbody>
+				</table>
+			</div>
+			{/* DO NOT move the dialog inside the breakout <div> above. Its scrim is
+			    `fixed inset-0`, and that div carries a transform (-translate-x-1/2)
+			    — a transformed ancestor becomes the containing block for `fixed`
+			    descendants, so nesting it there re-anchors the scrim to the table's
+			    box instead of the viewport and the modal renders off-center and
+			    clipped. It must stay a sibling, outside the transform. */}
 			{selectedRow != null && (
 				<TransactionDetailsDialog row={selectedRow} onClose={() => setSelectedRow(null)} onDelete={handleDelete} />
 			)}
-		</div>
+		</>
 	);
 }
 
