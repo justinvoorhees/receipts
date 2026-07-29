@@ -12,6 +12,7 @@ describe('Footer', () => {
 		expect(html).toContain('https://spandex.sh/');
 		expect(html).toContain('https://benchmark.withfabric.xyz/');
 		expect(html).toContain('href="/methodology"');
+		expect(html).toContain('>Docs<');
 		expect(html.indexOf('>Docs<')).toBeLessThan(html.indexOf('>spanDEX<'));
 		expect(html.indexOf('>spanDEX<')).toBeLessThan(html.indexOf('>Quotebench<'));
 		expect(html.indexOf('>Quotebench<')).toBeLessThan(html.indexOf('>Methodology<'));

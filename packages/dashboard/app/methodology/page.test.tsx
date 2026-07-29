@@ -10,6 +10,10 @@ describe('Methodology page', () => {
 		const html = renderToStaticMarkup(<Page />);
 		expect(html).toContain('>Methodology<');
 		expect(html).toContain('v0.1');
+		expect(html).toContain('>Market Price<');
+		for (const label of ['WETH/USDC Price:', 'Direct-Pool Price:', 'WETH-Derived Price:', 'Oracle Reference:']) {
+			expect(html).toContain(label);
+		}
 		expect(html.indexOf('WETH/USDC Price:')).toBeLessThan(html.indexOf('Direct-Pool Price:'));
 		expect(html.indexOf('Direct-Pool Price:')).toBeLessThan(html.indexOf('WETH-Derived Price:'));
 		expect(html.indexOf('WETH-Derived Price:')).toBeLessThan(html.indexOf('Oracle Reference:'));
