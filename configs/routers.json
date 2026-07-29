@@ -80,7 +80,8 @@
 			"version": "v1",
 			"detection": "to_address",
 			"active": true,
-			"_verified": "Confirmed as deployed contract via live execution in v1."
+			"_verified": "Confirmed as deployed contract via live execution in v1.",
+			"_basescan_tag": "Basescan public name tag is 'IcecreamSwap v2: AggregatorGuard' (verified contract name AggregatorGuard, creator 0xF574ff2b…). Noted 2026-07-28 — NOT reconciled with the 'Nordstern' name here, which was assigned from the distinctive settlement topic 0x97d8fe…. Re-check before trusting either label; see docs/positive-slippage-capture.md."
 		},
 		{
 			"name": "Nordstern",
@@ -88,7 +89,8 @@
 			"version": "router-v2",
 			"detection": "to_address",
 			"active": true,
-			"_verified": "Second Nordstern router address. Verified on-chain (tx 0xb169b2e5…): calls Nordstern's v1 settlement contract 0xc87de04e… and emits its distinctive event topic 0x97d8fe…. Basescan surfaces the DeBridge>IceCreamSwap liquidity source; settlement is Nordstern."
+			"_verified": "Second Nordstern router address. Verified on-chain (tx 0xb169b2e5…): calls Nordstern's v1 settlement contract 0xc87de04e… and emits its distinctive event topic 0x97d8fe…. Basescan surfaces the DeBridge>IceCreamSwap liquidity source; settlement is Nordstern.",
+			"_basescan_tag": "Basescan public name tag is 'deBridge: Crosschain Forwarder Proxy'. Noted 2026-07-28 — consistent with the DeBridge note above, but it means this address is deBridge's entry point, not a Nordstern-owned router. It also appears as the `recipient` argument of the payout adapter 0x9a972d8c… on cross-chain fills; see docs/positive-slippage-capture.md."
 		},
 		{
 			"name": "Relay",

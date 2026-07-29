@@ -32,6 +32,13 @@ export interface NameResolverDeps {
 }
 
 // Curated last resort. Empty by design — see spec. Keyed by lowercased address.
+//
+// Deliberately NOT listed here: the payout adapter
+// 0x9a972d8c3a8dd27e5811cbcb75ebdac924fb53a1. It is unverified, it is redeployed
+// every few weeks by the same EOA, and its Basescan internal txns are dominated
+// by Mayan — which makes "Mayan" the tempting and WRONG label, since Mayan is
+// only the payout `recipient`. It renders as a truncated address on purpose.
+// Investigation: docs/positive-slippage-capture.md.
 const MANUAL_OVERRIDES: Record<string, string> = {};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
