@@ -150,7 +150,7 @@ export function AggregatorValue({ row }: { row: ReceiptRow }) {
  */
 export function FillerRow({ address }: { address: string }) {
 	return (
-		<div className="grid grid-cols-[180px_1fr] gap-x-[24px]">
+		<div className="grid grid-cols-[180px_1fr] gap-x-[24px] min-h-[34px]">
 			<div className="flex flex-col gap-[10px]">
 				<span className="text-[var(--color-primary)]">Filler</span>
 				<span className="text-[var(--color-secondary)]">via UniswapX</span>

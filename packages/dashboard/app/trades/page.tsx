@@ -51,6 +51,13 @@ export default async function TradesPage({
 			) : (
 				<TradesTable rows={rows} initialSort={sort} />
 			)}
+
+			{/* Mirrors the top rule: the footer's border-t was removed in the Figma
+			    v3 pass, so /trades renders its own rule above it to keep the same
+			    separation the layout used to provide. */}
+			<div className="mt-[40px]">
+				<Divider />
+			</div>
 		</div>
 	);
 }
