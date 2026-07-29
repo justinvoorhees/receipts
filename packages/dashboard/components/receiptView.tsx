@@ -40,6 +40,7 @@ import {
 	BkdRow,
 	LegRow,
 	legContext,
+	MethodologyText,
 } from './receipt/receiptRows';
 
 export function ReceiptView({
@@ -225,9 +226,11 @@ export function Receipt({
 						) : null}
 					</DetailRow>
 					{/* Renders on every tier — the unpriced tier's descriptor is the
-					    "Unavailable: …" string, which the frames show under `n/a`. */}
+					    "Unavailable: …" string, which the frames show under `n/a`. Each
+					    of the three methodology phrases (if present) links to
+					    /methodology in a new tab (Figma 546-694). */}
 					<p className="text-[12px] leading-[18px] text-[var(--color-secondary)]">
-						{methodologyText}
+						<MethodologyText text={methodologyText} />
 					</p>
 				</div>
 

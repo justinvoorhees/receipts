@@ -971,7 +971,10 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		const stored = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, methodology: 'Verified: The direct-pool price and WETH-derived price agree.' } as never} />,
 		);
-		expect(stored).toContain('Verified: The direct-pool price and WETH-derived price agree.');
+		expect(stored).toMatch(/<a[^>]*href="\/methodology"[^>]*>direct-pool price<\/a>/);
+		expect(stored).toMatch(/<a[^>]*href="\/methodology"[^>]*>WETH-derived price<\/a>/);
+		expect(stored).toContain('Verified: The ');
+		expect(stored).toContain(' agree.');
 		expect(stored).toContain('>Market Price<'); // asterisk is gone; position carries the link now
 
 		// A NULL methodology falls back to the tier string, still as a footnote.
