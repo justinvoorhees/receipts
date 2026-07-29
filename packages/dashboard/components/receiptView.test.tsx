@@ -1293,6 +1293,44 @@ describe('Market Price composite', () => {
 	});
 });
 
+describe('MethodologyText', () => {
+	it('wraps each of the three methodology phrases in a new-tab /methodology link', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Estimated: The direct-pool price and WETH-derived price disagree, and the oracle reference does not confirm their median." />,
+		);
+		for (const phrase of ['direct-pool price', 'WETH-derived price', 'oracle reference']) {
+			const re = new RegExp(`<a[^>]*href="/methodology"[^>]*>${phrase}</a>`);
+			expect(html).toMatch(re);
+		}
+		expect(html).toContain('target="_blank"');
+		expect(html).toContain('rel="noreferrer"');
+		// Surrounding prose survives untouched, outside any anchor.
+		expect(html).toContain('Estimated: The ');
+		expect(html).toContain(' does not confirm their median.');
+	});
+
+	it('renders text with no matching phrase as plain text, with no anchors', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Unavailable: No reliable market price could be calculated." />,
+		);
+		expect(html).toBe('Unavailable: No reliable market price could be calculated.');
+		expect(html).not.toContain('<a');
+	});
+
+	it('links every phrase in a three-way agreement sentence', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Verified: The direct-pool price, WETH-derived price, and oracle reference agree." />,
+		);
+		for (const phrase of ['direct-pool price', 'WETH-derived price', 'oracle reference']) {
+			const re = new RegExp(`<a[^>]*href="/methodology"[^>]*>${phrase}</a>`);
+			expect(html).toMatch(re);
+		}
+	});
+});
+
 describe('formatExecutionDelta', () => {
 	it('mirrors the Price Delta sentence with a Per {tokenIn} subvalue', async () => {
 		const { formatExecutionDelta } = await import('./receipt/priceFormat');
