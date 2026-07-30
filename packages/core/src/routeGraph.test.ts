@@ -77,9 +77,9 @@ describe('buildRouteGraph', () => {
     // it — this is the id 207 / id 211 shape (several fee tiers, one pair).
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa' },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb' },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
 
@@ -97,7 +97,7 @@ describe('buildRouteGraph', () => {
     // duplicate, exactly as before this change.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 3_000000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xaaa' },
+        amountInRaw: 3_000000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs).toHaveLength(2);
@@ -111,9 +111,9 @@ describe('buildRouteGraph', () => {
     // counting extraLegs instead of poolIds would misfire here.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa' },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xaaa' },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
@@ -125,21 +125,21 @@ describe('buildRouteGraph', () => {
     // `undefined` would otherwise look like one pool, or worse.
     const extraLegs: Leg[] = [
       { venue: 'v4:x', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n },
+        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
       { venue: 'v4:y', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n },
+        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
   });
 
-  it('extraLegs: a second, unrelated univ4 leg on a different pair survives replacement', () => {
+  it('extraLegs: a second, unrelated univ4 leg at a DIFFERENT address survives replacement', () => {
     // routeVenueScan tags `univ4` by Swap topic0, which is shared across V4
     // forks — so a route can touch one multi-pool V4 contract (replaced) and a
-    // separate, legitimately single-pool V4-topic contract on another pair
-    // (not replaced, no synthesized counterpart). Scoping the drop to only the
-    // pairs the replacement legs cover prevents deleting that second leg
-    // outright.
+    // separate, legitimately single-pool V4-topic contract at another address
+    // (not replaced, no synthesized counterpart there). Scoping the drop to
+    // only the EMITTER address the replacement legs came from — not the token
+    // pair — prevents deleting that second leg outright.
     const FINAL = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const v4c = '0x498581ff718922c3f8e6a244956af099b2652b2d';
     const t3 = [
@@ -151,17 +151,46 @@ describe('buildRouteGraph', () => {
     const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa' },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb' },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
     ];
     const g = buildRouteGraph({ transfers: t3, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
 
-    // The collapsed VIRTUAL→WETH leg (on `v4`) is replaced by the two per-pool
-    // legs, but the unrelated WETH→FINAL leg (on `v4c`) has no synthesized
-    // counterpart and must survive.
+    // The collapsed VIRTUAL→WETH leg (emitted by `v4`) is replaced by the two
+    // per-pool legs, but the unrelated WETH→FINAL leg (emitted by the
+    // DIFFERENT address `v4c`) has no synthesized counterpart and must survive.
     expect(g.legs.some((l) => l.venue === v4)).toBe(false);
     expect(g.legs.some((l) => l.tokenIn === WETH && l.tokenOut === FINAL)).toBe(true);
+  });
+
+  it('extraLegs: a multi-hop V4 collapse replaces the endpoints leg (id 55 / id 207 shape)', () => {
+    // id 55 (USDC→CLAWD) and id 207 (USDC→WETH) both collapse a MULTI-HOP route
+    // through the V4 singleton into one leg whose pair is the route's
+    // ENDPOINTS, not any individual pool's pair — the hub token never leaves
+    // the singleton as an ERC-20 Transfer, so buildLegs only ever sees
+    // USDC-in / WETH-out. A pair-scoped drop can never match that leg (no
+    // individual pool trades USDC→WETH directly), so it survived alongside the
+    // replacements and double-counted the flow — this is the round-2 fix.
+    // Matching on the emitter ADDRESS instead removes it correctly.
+    const HUB2 = '0xffffffffffffffffffffffffffffffffffffffff';
+    const t4 = [
+      { token: USDC, from: trader, to: v4, value: 2_000000n },
+      { token: WETH, from: v4, to: trader, value: 1_000000000000000n },
+    ];
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: USDC, tokenOut: HUB2,
+        amountInRaw: 2_000000n, amountOutRaw: 1_500000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: HUB2, tokenOut: WETH,
+        amountInRaw: 1_500000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers: t4, trader, venues: new Map([[v4, { type: 'univ4' as const }]]), denylist: new Set(), extraLegs });
+
+    expect(g.legs.some((l) => l.tokenIn === USDC && l.tokenOut === WETH)).toBe(false);
+    expect(g.legs.some((l) => l.tokenIn === USDC && l.tokenOut === HUB2)).toBe(true);
+    expect(g.legs.some((l) => l.tokenIn === HUB2 && l.tokenOut === WETH)).toBe(true);
+    expect(g.legs).toHaveLength(2);
+    expect(g.reconstructed).toBe(true);
   });
 
   it('extraLegs: an undefined poolId is not counted as a distinct pool', () => {
@@ -171,9 +200,9 @@ describe('buildRouteGraph', () => {
     // pins the filter.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa' },
+        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa', v4Emitter: v4 },
       { venue: 'v4:none', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n },
+        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);

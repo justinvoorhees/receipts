@@ -23,6 +23,8 @@ export interface Leg {
   amountsNetted?: boolean;
   v4PoolId?: string;        // for univ4 (from Swap event id)
   v4FeeRaw?: number;        // for univ4 (from Swap event fee)
+  v4Emitter?: string;       // for univ4 (address that emitted this Swap log, so the
+                            // collapsed singleton leg at that address can be identified)
 }
 
 export type RouteShape = 'single' | 'linear' | 'split' | 'complex';
@@ -514,19 +516,22 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   // per-pool legs are strictly better information, so they REPLACE it.
   //
   // With one pool (or none) the address-derived leg is trustworthy and the
-  // extra is a duplicate — keep the original pair-based guard, which is what
-  // stops a single-pool V4 route double-counting.
+  // extra is a duplicate — no drop fires, and the pair-based dedup guard below
+  // (existingUniv4Pairs) is what stops a single-pool V4 route double-counting.
   const extraPoolIds = new Set(
     (args.extraLegs ?? []).map((l) => l.v4PoolId).filter((id): id is string => id != null),
   );
-  // Replace only where we have a replacement. The collapsed leg's pair is by
-  // definition covered by the per-pool legs (that is why the pair guard below
-  // was discarding them); a DIFFERENT univ4 leg on another pair has no
-  // synthesized counterpart and must survive untouched.
-  const extraPairs = new Set((args.extraLegs ?? []).map((l) => `${l.tokenIn}>${l.tokenOut}`));
+  // The collapsed leg sits at the ADDRESS that emitted these Swap logs. Match on
+  // that, not on the token pair: a multi-hop through V4 collapses to a leg whose
+  // pair is the route's ENDPOINTS (USDC→CLAWD), which no individual pool covers,
+  // so a pair-scoped drop would leave it in place and double-count the flow. A
+  // different univ4-tagged contract has a different address and survives.
+  const extraV4Emitters = new Set(
+    (args.extraLegs ?? []).map((l) => l.v4Emitter).filter((a): a is string => a != null),
+  );
   const legsAfterV4 =
     extraPoolIds.size > 1
-      ? legs.filter((l) => !(l.type === 'univ4' && extraPairs.has(`${l.tokenIn}>${l.tokenOut}`)))
+      ? legs.filter((l) => !(l.type === 'univ4' && extraV4Emitters.has(l.venue)))
       : legs;
   const existingUniv4Pairs = new Set(
     legsAfterV4.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),

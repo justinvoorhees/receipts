@@ -58,6 +58,7 @@ const WETH = '0x4200000000000000000000000000000000000006';
 const NATIVE = '0x0000000000000000000000000000000000000000';
 const TOKEN_A = '0x000000000000000000000000000000000000aaaa';
 const TOKEN_B = '0x000000000000000000000000000000000000bbbb';
+const POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
 
 describe('synthesizeV4Legs', () => {
   it('builds a univ4 leg with tokenIn=negative-amount token per the pinned convention', () => {
@@ -66,7 +67,7 @@ describe('synthesizeV4Legs', () => {
     // one is paid out (tokenOut). Here amount0 = +100 (token0 out), amount1 =
     // -90 (token1 in).
     const swaps: V4Swap[] = [
-      { poolId: '0xpool1', fee: 3000, amount0: 100n, amount1: -90n, sqrtPriceX96: 1n },
+      { poolId: '0xpool1', fee: 3000, amount0: 100n, amount1: -90n, sqrtPriceX96: 1n, emitter: POOL_MANAGER },
     ];
     const keys = new Map([['0xpool1', { currency0: TOKEN_A, currency1: TOKEN_B }]]);
     const legs = synthesizeV4Legs(swaps, keys, WETH);
@@ -84,7 +85,7 @@ describe('synthesizeV4Legs', () => {
 
   it('maps native currency0 (address(0)) to the WETH sentinel', () => {
     const swaps: V4Swap[] = [
-      { poolId: '0xpool2', fee: 500, amount0: -5n, amount1: 42n, sqrtPriceX96: 1n },
+      { poolId: '0xpool2', fee: 500, amount0: -5n, amount1: 42n, sqrtPriceX96: 1n, emitter: POOL_MANAGER },
     ];
     const keys = new Map([['0xpool2', { currency0: NATIVE, currency1: TOKEN_B }]]);
     const legs = synthesizeV4Legs(swaps, keys, WETH);
@@ -95,13 +96,13 @@ describe('synthesizeV4Legs', () => {
   });
 
   it('drops swaps whose poolId has no resolved key', () => {
-    const swaps: V4Swap[] = [{ poolId: '0xunknown', fee: 3000, amount0: 1n, amount1: -1n, sqrtPriceX96: 1n }];
+    const swaps: V4Swap[] = [{ poolId: '0xunknown', fee: 3000, amount0: 1n, amount1: -1n, sqrtPriceX96: 1n, emitter: POOL_MANAGER }];
     expect(synthesizeV4Legs(swaps, new Map(), WETH)).toEqual([]);
   });
 });
 
 const swap = (poolId: string, fee = 500): V4Swap => ({
-  poolId, fee, amount0: 1n, amount1: -1n, sqrtPriceX96: 1n,
+  poolId, fee, amount0: 1n, amount1: -1n, sqrtPriceX96: 1n, emitter: POOL_MANAGER,
 });
 
 describe('shouldAttemptV4Rescue', () => {

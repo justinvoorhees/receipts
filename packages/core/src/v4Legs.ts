@@ -55,6 +55,7 @@ export interface V4Swap {
   amount0: bigint; // signed
   amount1: bigint; // signed
   sqrtPriceX96: bigint;
+  emitter: string; // lowercase address that emitted this Swap log
 }
 
 const V4_SWAP_TOPIC = toEventSelector(V4_SWAP_EVENT_ABI[0]).toLowerCase();
@@ -85,6 +86,7 @@ export function collectV4Swaps(logs: readonly LogLike[]): V4Swap[] {
         amount0: a.amount0,
         amount1: a.amount1,
         sqrtPriceX96: a.sqrtPriceX96,
+        emitter: log.address.toLowerCase(),
       });
     } catch {
       // malformed V4 log — skip
@@ -136,6 +138,7 @@ export function synthesizeV4Legs(
       amountOutRaw,
       v4PoolId: s.poolId,
       v4FeeRaw: s.fee,
+      v4Emitter: s.emitter,
     });
   }
   return out;
