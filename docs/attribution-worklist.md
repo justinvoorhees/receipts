@@ -285,13 +285,29 @@ unclamps first ships a −13-billion-bps row. Fix the averaging, then repopulate
 - **id 219** — `ROUTE_NOT_DECOMPOSED: shape=complex, reconstructed=false`,
   5 legs, $41. Reconstruction failure, different root cause.
 
-**Delivered 2026-07-30.** `shouldAttemptV4Rescue` (`v4Legs.ts`) widens the
-rescue gate to routes that reconstruct over more than one distinct V4 poolId,
-and `routeGraph.ts` now lets per-pool legs REPLACE the collapsed PoolManager leg
-instead of deduping them away by token pair — the second half was load-bearing,
-since every affected route is a split across fee tiers of one pair. Receipts 55,
-59, 207, 211 and 249 repopulated; backup at
-`docs/receipts-v4-multipool-prerepop-backup.json`.
+**Delivered 2026-07-30.** Two halves. `shouldAttemptV4Rescue` (`v4Legs.ts`)
+widens the rescue gate to routes that RECONSTRUCT over more than one distinct V4
+poolId — previously the rescue only ran when the graph *failed*, so a route that
+chained perfectly well on a collapsed leg never qualified. And `routeGraph.ts`
+now lets the per-pool legs REPLACE that collapsed leg, discriminating it by the
+**address that emitted the V4 Swap logs** (`v4Emitter`), not by token pair.
+
+⚠️ The emitter-address rule is load-bearing and was learned the hard way. A
+pair-scoped version shipped first and corrupted two receipts in production: ids
+55 and 207 are multi-HOP through V4 (`USDC→CLAWD` collapsed against `USDC→WETH`
++ `WETH→CLAWD` synthesized), so the collapsed leg's pair is the route's
+ENDPOINTS, which no individual pool covers — it survived alongside its own
+replacements and the same flow was counted twice (`lp_fee_bps` 100.971→104.058
+on id 55). Match on the emitter address: it identifies the collapsed leg
+regardless of pair, while an unrelated V4-topic contract at a different address
+still survives. Do not "simplify" this back to a pair or a type check.
+
+Receipts 55, 59, 207, 211 and 249 repopulated. Every per-pool `feeTierBps` now
+reproduces its raw Swap-event fee exactly — id 211's six pools read
+10.02/10.06/10.00/10.04/5.00/10.03 against raw 1002/1006/1000/1004/500/1003.
+The averaged tier was materially wrong: id 211's LP fee drops 10.019→5.747 and
+id 59's slippage corrects −183.68→−37.21. Backup at
+`docs/receipts-v4-multipool-prerepop-backup.json` (true pre-repop state).
 
 ⚠️ Still open, and deliberately not touched here: `decomposeTrade.ts:342-358`
 still averages V4 fees for the route-level rollup, and ids 329/330/402/403
