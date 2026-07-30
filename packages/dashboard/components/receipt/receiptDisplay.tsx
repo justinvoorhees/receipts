@@ -253,6 +253,17 @@ export function isMakerLeg(leg: Pick<RouteLeg, 'type' | 'venue'>): boolean {
 // same everywhere it's not the market-maker-specific case above.
 export const NULL_PRICE_TOOLTIP = 'No market price available';
 
+// A fee tier core could not read. Distinct from the null/rfq cases above: the
+// pool DOES charge an LP fee, we just failed to resolve it — so the cell must
+// not render "0.00bps", which would assert the pool was free. Reads as the
+// fee-side counterpart to LEG_NULL_PRICE_TOOLTIP.
+export const UNRESOLVED_FEE_TOOLTIP = 'No fee available for this leg';
+
+/** True when core explicitly marked this leg's fee tier unresolved. */
+export function hasUnresolvedFee(leg: Pick<RouteLeg, 'feeResolved'>): boolean {
+	return leg.feeResolved === false;
+}
+
 // Per-leg null-pricing cells (a specific route leg's Price Impact) get a
 // leg-scoped explanation, distinct from the receipt-level NULL_PRICE_TOOLTIP
 // used by Market Price / Price Delta / Slippage.

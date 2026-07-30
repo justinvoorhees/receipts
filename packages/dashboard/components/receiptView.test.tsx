@@ -465,6 +465,59 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html.indexOf('Liquidity Provider Fee')).toBeLessThan(html.indexOf('Price Impact'));
 	});
 
+	// A fee we could not read must not render as "0.00bps" — that asserts the pool
+	// was free. Only an explicit feeResolved:false means unresolved; rows written
+	// before the flag existed (key absent) keep rendering their fee as before.
+	describe('unresolved LP fee', () => {
+		const legWith = (over: Record<string, unknown>) => ({
+			venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
+			tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+			tokenOut: '0x4200000000000000000000000000000000000006',
+			feeTierBps: 0, notionalUsdc: 100, lpFeeBps: 0, priceImpactBps: 2, ...over,
+		});
+		const render = async (over: Record<string, unknown>) => {
+			const { ReceiptView } = await import('./receiptView');
+			const row = { ...base, pricingStatus: 'full', routeLegs: [legWith(over)] };
+			return renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		};
+
+		// Counted, not just "contains": 0.00bps also appears on the Aggregator Fee
+		// row, so a bare toContain would pass for the wrong reason.
+		const zeroBpsCells = (html: string) => (html.match(/>0\.00bps</g) ?? []).length;
+
+		it('explains an unresolved fee instead of claiming the pool was free', async () => {
+			const html = await render({ feeResolved: false });
+			expect(html).toContain('No fee available for this leg');
+			expect(html).toContain('>n/a<');
+		});
+
+		it('drops the 0.00bps fee cell when the fee is unresolved', async () => {
+			const resolved = await render({ feeResolved: true });
+			const unresolved = await render({ feeResolved: false });
+			expect(zeroBpsCells(unresolved)).toBe(zeroBpsCells(resolved) - 1);
+		});
+
+		it('still renders a genuine 0.00bps fee when the flag is absent (pre-flag rows)', async () => {
+			const html = await render({});
+			expect(zeroBpsCells(html)).toBeGreaterThan(0);
+			expect(html).not.toContain('No fee available for this leg');
+		});
+
+		it('still renders a genuine 0.00bps fee when the fee resolved cleanly', async () => {
+			const html = await render({ feeResolved: true });
+			expect(zeroBpsCells(html)).toBeGreaterThan(0);
+			expect(html).not.toContain('No fee available for this leg');
+		});
+
+		// The unresolved fee must not suppress the leg's price impact — they are
+		// independent measurements and only the fee is in question. formatDialogBps
+		// strips the sign, so a -2 impact renders as the cell text "2.00bps".
+		it('leaves the leg price impact rendering when only the fee is unresolved', async () => {
+			const html = await render({ feeResolved: false });
+			expect(html).toContain('>2.00bps<');
+		});
+	});
+
 	it('renders a Pools Touched section when no leg is costed', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, pricingStatus: 'partial', routeLegs: [

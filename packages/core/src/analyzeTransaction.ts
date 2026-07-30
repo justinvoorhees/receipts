@@ -94,6 +94,45 @@ export function toDisplayPrice(price: number | null, baseIsOutput: boolean): num
  * dashboard falls back to its own resolution (endpoint map → static map → short
  * address). Pure over the resolver so it's unit-testable without RPC.
  */
+/**
+ * Flatten one decomposed leg into the shape persisted in `receipts.route_legs`.
+ *
+ * Two fields are OMITTED rather than nulled when absent, so a row written before
+ * they existed reads identically to a row where they legitimately do not apply:
+ *   - `frameChain` — absent means "no router attribution"
+ *   - `feeResolved` — absent means "the fee tier resolved"; only an explicit
+ *     `false` marks a tier we could not read. Without it a 0 bps fee is
+ *     indistinguishable from a genuinely free pool and the receipt renders a
+ *     confident "0.00bps" (see routeReaders' `unresolvedFee`).
+ *
+ * Pure over its inputs so the persist contract is unit-testable without RPC.
+ */
+export function toPersistedLeg(
+	l: {
+		leg: { venue: string; type: string; tokenIn: string; tokenOut: string };
+		feeTierBps: number;
+		notionalUsdc: number;
+		lpFeeBps: number | null;
+		priceImpactBps: number | null;
+		feeResolved?: boolean;
+	},
+	frameChain: string[] | undefined,
+	midReliable: boolean,
+) {
+	return {
+		venue: l.leg.venue,
+		type: l.leg.type,
+		tokenIn: l.leg.tokenIn,
+		tokenOut: l.leg.tokenOut,
+		feeTierBps: l.feeTierBps,
+		notionalUsdc: l.notionalUsdc,
+		lpFeeBps: l.lpFeeBps,
+		priceImpactBps: midReliable ? l.priceImpactBps : null,
+		...(frameChain ? { frameChain } : {}),
+		...(l.feeResolved === false ? { feeResolved: false as const } : {}),
+	};
+}
+
 export function attachLegSymbols<T extends { tokenIn: string; tokenOut: string }>(
 	legs: T[],
 	symbolFor: (address: string) => string | undefined,
@@ -353,22 +392,9 @@ export async function analyzeTransaction(
 		const venueAddresses = new Set(route.legs.map((l) => l.leg.venue.toLowerCase()));
 		const frameChains = extractFrameChains(trace, venueAddresses);
 
-		const routeLegsBase = route.legs.map((l) => {
-			const frameChain = frameChains.get(l.leg.venue.toLowerCase());
-			return {
-				venue: l.leg.venue,
-				type: l.leg.type,
-				tokenIn: l.leg.tokenIn,
-				tokenOut: l.leg.tokenOut,
-				feeTierBps: l.feeTierBps,
-				notionalUsdc: l.notionalUsdc,
-				lpFeeBps: l.lpFeeBps,
-				priceImpactBps: midReliable ? l.priceImpactBps : null,
-				// Omitted (not null) when absent, matching attachLegSymbols' contract:
-				// an absent key reads as "no attribution" on old and new rows alike.
-				...(frameChain ? { frameChain } : {}),
-			};
-		});
+		const routeLegsBase = route.legs.map((l) =>
+			toPersistedLeg(l, frameChains.get(l.leg.venue.toLowerCase()), midReliable),
+		);
 
 		// Resolve a display symbol for every leg token — including intermediate hops
 		// (e.g. USDT) that are neither an endpoint nor in the dashboard's static map,

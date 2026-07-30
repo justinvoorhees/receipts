@@ -552,6 +552,7 @@ export async function decomposeRoute(
 			feeTierBps,
 			notionalUsdc,
 			notionalApprox: approx,
+			feeResolved: !feeResult.defaulted,
 		});
 	}
 

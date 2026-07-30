@@ -147,6 +147,46 @@ describe('decomposeRoute', () => {
     expect(result.legs[0]!.leg.type).toBe('sushiv3');
   });
 
+  // An unresolved fee tier must stay distinguishable from a pool that is
+  // genuinely free all the way to the leg, or the receipt renders a confident
+  // "0.00bps" — a false claim rather than a missing one.
+  describe('per-leg fee provenance', () => {
+    const runWithFee = async (fee: { bps: number; defaulted: boolean }) => {
+      const sushiPool = '0x5f0f9d3d4b1b0a5c9b0e0a0f0a0e0a0f0a0e0a0f' as `0x${string}`;
+      const trader = '0x1111111111111111111111111111111111111111';
+      const trace = {
+        type: 'CALL', from: trader, to: sushiPool, input: '0x', logs: [
+          transferLog(USDC as `0x${string}`, trader as `0x${string}`, sushiPool, 1_000000n),
+          transferLog(WETH as `0x${string}`, sushiPool, trader as `0x${string}`, 500_000000000000n),
+          v3SwapLog(sushiPool),
+        ],
+      };
+      const input: DecomposeTradeInput = {
+        trace: trace as any,
+        txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        trader, allInCostBps: -1, notionalUsdc: 1, realizedPrice: 2000, gasCostUsd: 0,
+        aggregator: 'Fabric', blockNumber: 47379575n, rpcUrl: 'unused', dustUsdc: 1e-6,
+        structuralFloorUsd: 0, structuralFloorBps: 0.5,
+        recognizeV3Forks: true, impureOnVenueThirdToken: true,
+      };
+      return decomposeRoute(input, {
+        trace: trace as any,
+        v3FactoryReader: async () => '0xc35DADB65012eC5796536bD9864eD8773aBc74C4',
+        feeReader: async () => fee,
+      });
+    };
+
+    it('marks a leg feeResolved:false when the fee reader could not resolve the tier', async () => {
+      const result = await runWithFee({ bps: 0, defaulted: true });
+      expect(result.legs[0]!.feeResolved).toBe(false);
+    });
+
+    it('does not mark a leg feeResolved:false when the tier was genuinely read as 0', async () => {
+      const result = await runWithFee({ bps: 0, defaulted: false });
+      expect(result.legs[0]!.feeResolved).not.toBe(false);
+    });
+  });
+
   // Curve pools are recognised by the `TokenExchange` event every StableSwap pool
   // emits, so a pool that has never been seen before still tags correctly. The
   // address below is deliberately NOT one of the previously hardcoded pools.

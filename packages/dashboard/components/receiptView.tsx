@@ -15,6 +15,8 @@ import {
 	getAggregatorFeeLines,
 	ShareButton,
 	isMakerLeg,
+	hasUnresolvedFee,
+	UNRESOLVED_FEE_TOOLTIP,
 	NULL_PRICE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
@@ -297,7 +299,11 @@ export function Receipt({
 					<div className={GROUP_SECTION}>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						{legs.map((leg, index) => {
-							const { text: lpText, color: lpColor } = isMakerLeg(leg)
+							// An unresolved tier outranks the numeric format: core fell
+							// back to 0 bps without reading the pool, so "0.00bps" would
+							// claim it was free rather than admit we could not read it.
+							const unresolvedFee = hasUnresolvedFee(leg);
+							const { text: lpText, color: lpColor } = isMakerLeg(leg) || unresolvedFee
 								? { text: 'n/a', color: undefined }
 								: leg.lpFeeBps == null
 									? { text: '–', color: undefined }
@@ -311,6 +317,7 @@ export function Receipt({
 									row={row}
 									value={lpText}
 									color={lpColor}
+									valueTooltip={unresolvedFee ? UNRESOLVED_FEE_TOOLTIP : undefined}
 								/>
 							);
 						})}

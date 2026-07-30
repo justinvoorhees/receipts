@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
-import { analyzeTransaction, toDisplayPrice, splitFabricFee, attachLegSymbols, deriveFillerAddress } from './analyzeTransaction.js';
+import { analyzeTransaction, toDisplayPrice, splitFabricFee, attachLegSymbols, deriveFillerAddress, toPersistedLeg } from './analyzeTransaction.js';
 import { baseIsOutputLeg } from './receiptPure.js';
 
 const RPC = process.env.TCA_RPC_URL;
@@ -82,6 +82,47 @@ describe('deriveFillerAddress', () => {
 
 	it('returns null for a net-flow-anchored trade (generic relayer, not UniswapX)', () => {
 		expect(deriveFillerAddress({ kind: 'beneficiary', method: 'net-flow' }, TXFROM)).toBeNull();
+	});
+});
+
+// The persisted leg is the contract between core and the receipt. `feeResolved`
+// follows the same "omit when absent" rule as frameChain, so rows written before
+// this existed read identically to a leg whose fee resolved cleanly — only an
+// explicit `false` means "we could not read this pool's fee".
+describe('toPersistedLeg', () => {
+	const leg = (over: Record<string, unknown> = {}) => ({
+		leg: { venue: '0xpool', type: 'univ3', tokenIn: '0xusdc', tokenOut: '0xweth' },
+		feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2, ...over,
+	});
+
+	it('omits feeResolved when the fee tier resolved cleanly', () => {
+		const out = toPersistedLeg(leg({ feeResolved: true }) as never, undefined, true);
+		expect('feeResolved' in out).toBe(false);
+	});
+
+	it('omits feeResolved when core did not record provenance at all (old shape)', () => {
+		const out = toPersistedLeg(leg() as never, undefined, true);
+		expect('feeResolved' in out).toBe(false);
+	});
+
+	it('persists feeResolved:false when the fee tier could not be read', () => {
+		const out = toPersistedLeg(leg({ feeResolved: false }) as never, undefined, true);
+		expect(out).toMatchObject({ feeResolved: false });
+	});
+
+	it('carries the leg fields through unchanged', () => {
+		const out = toPersistedLeg(leg({ feeResolved: false }) as never, ['0xrouter'], true);
+		expect(out).toMatchObject({
+			venue: '0xpool', type: 'univ3', tokenIn: '0xusdc', tokenOut: '0xweth',
+			feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2,
+			frameChain: ['0xrouter'],
+		});
+	});
+
+	it('nulls priceImpactBps when the mid was unreliable, independent of fee provenance', () => {
+		const out = toPersistedLeg(leg({ feeResolved: false }) as never, undefined, false);
+		expect(out.priceImpactBps).toBeNull();
+		expect(out).toMatchObject({ feeResolved: false });
 	});
 });
 

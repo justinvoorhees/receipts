@@ -63,6 +63,12 @@ export interface RouteLeg {
 	// by resolveLegRouter so registry growth applies retroactively. Absent on
 	// rows persisted before 2026-07-27 and on legs whose chain was ambiguous.
 	frameChain?: string[];
+	// False when core could not READ this pool's fee tier (the reader fell back
+	// to 0). Omitted when the tier resolved, and absent on rows persisted before
+	// 2026-07-30 — so only an explicit `false` suppresses the fee cell. Without
+	// it a 0 bps fee would render as a confident "0.00bps", asserting the pool
+	// was free rather than admitting we could not read it.
+	feeResolved?: boolean;
 	// Resolved from `frameChain` on read (never persisted) — see
 	// enrichLegRouters. Present only when another curated aggregator executed
 	// this leg.
