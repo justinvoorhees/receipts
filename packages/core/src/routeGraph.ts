@@ -519,7 +519,15 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   const extraPoolIds = new Set(
     (args.extraLegs ?? []).map((l) => l.v4PoolId).filter((id): id is string => id != null),
   );
-  const legsAfterV4 = extraPoolIds.size > 1 ? legs.filter((l) => l.type !== 'univ4') : legs;
+  // Replace only where we have a replacement. The collapsed leg's pair is by
+  // definition covered by the per-pool legs (that is why the pair guard below
+  // was discarding them); a DIFFERENT univ4 leg on another pair has no
+  // synthesized counterpart and must survive untouched.
+  const extraPairs = new Set((args.extraLegs ?? []).map((l) => `${l.tokenIn}>${l.tokenOut}`));
+  const legsAfterV4 =
+    extraPoolIds.size > 1
+      ? legs.filter((l) => !(l.type === 'univ4' && extraPairs.has(`${l.tokenIn}>${l.tokenOut}`)))
+      : legs;
   const existingUniv4Pairs = new Set(
     legsAfterV4.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),
   );

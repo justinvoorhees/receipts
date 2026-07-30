@@ -133,6 +133,52 @@ describe('buildRouteGraph', () => {
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
   });
 
+  it('extraLegs: a second, unrelated univ4 leg on a different pair survives replacement', () => {
+    // routeVenueScan tags `univ4` by Swap topic0, which is shared across V4
+    // forks — so a route can touch one multi-pool V4 contract (replaced) and a
+    // separate, legitimately single-pool V4-topic contract on another pair
+    // (not replaced, no synthesized counterpart). Scoping the drop to only the
+    // pairs the replacement legs cover prevents deleting that second leg
+    // outright.
+    const FINAL = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const v4c = '0x498581ff718922c3f8e6a244956af099b2652b2d';
+    const t3 = [
+      { token: USDC, from: trader, to: pcs, value: 2_000000n },
+      { token: VIRTUAL, from: pcs, to: v4, value: 3_000000000000000000n },
+      { token: WETH, from: v4, to: v4c, value: 1_000000000000000n },
+      { token: FINAL, from: v4c, to: trader, value: 500_000000000000n },
+    ];
+    const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa' },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb' },
+    ];
+    const g = buildRouteGraph({ transfers: t3, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
+
+    // The collapsed VIRTUAL→WETH leg (on `v4`) is replaced by the two per-pool
+    // legs, but the unrelated WETH→FINAL leg (on `v4c`) has no synthesized
+    // counterpart and must survive.
+    expect(g.legs.some((l) => l.venue === v4)).toBe(false);
+    expect(g.legs.some((l) => l.tokenIn === WETH && l.tokenOut === FINAL)).toBe(true);
+  });
+
+  it('extraLegs: an undefined poolId is not counted as a distinct pool', () => {
+    // One real pool + one leg with no poolId. WITH the null filter that is one
+    // distinct pool (no replacement); WITHOUT it the Set holds {'0xaaa',
+    // undefined} = 2 and replacement fires wrongly. This is the only shape that
+    // pins the filter.
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa' },
+      { venue: 'v4:none', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1n, amountOutRaw: 1n },
+    ];
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
+    expect(g.legs.some((l) => l.venue === v4)).toBe(true);
+  });
+
   it('classifies an unrecognized 1-in-1-out venue (no Swap event) as unknown', () => {
     // A clean 1-in-1-out address with no Swap event is NOT assumed to be a
     // genuine RFQ filler: probing showed these are real AMM pools we failed to
