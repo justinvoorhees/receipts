@@ -7,18 +7,33 @@ measured against the 62 persisted receipts that carry `route_legs`.
 its README. Every figure in this document can be reproduced by running them, and
 should be re-measured rather than quoted as the corpus grows.
 
-**Read this first:** three of the four items below move **almost no basis points**.
-That is the finding, not a shortfall. The unattributed residual on a receipt is
+**Read this first:** the items below move **almost no basis points**. That is
+the finding, not a shortfall. The unattributed residual on a receipt is
 *reference-pool-vs-traded-pool divergence*, which is structural — it is not
-recoverable measurement sitting in an unread fee. Measured blast radius of
-everything on this list combined:
+recoverable measurement sitting in an unread fee.
 
-| item | direction | receipts | notional | effect on Slippage |
-|---|---|---:|---:|---|
-| V4 PoolManager reader + stray nulls | Slippage → Price Impact | 4 | $2,913 | ~1.7 bps each |
-| Twin venues fee tier | Price Impact → LP Fee | 2 | $27,319 | **exactly zero** |
-| PancakeSwap Infinity | Price Impact → LP Fee | 1 | $3 | ~zero |
-| (RFQ relabel — not in this doc) | none | 10 | $74,969 | zero, label only |
+⚠️ **§1 is DONE (2026-07-30) and it changed how to value the rest.** The
+residual is now labelled **Unattributed** whenever we did not price every leg,
+so the old framing — "§2 is the only item that moves bps *out of Slippage*" —
+is stale. Those bps already stopped being mislabelled. What remains is making
+the numbers *more accurate*, not making the receipt *more honest*.
+
+Measured blast radius, re-measured 2026-07-30:
+
+| item | receipts | notional | what it is |
+|---|---:|---:|---|
+| **§2 V4 multi-pool fee averaging** | 5 (3 unflagged) | $4,497 | a real bug; 3 receipts silently wrong today |
+| §3 Twin venues fee tier | 2 | $53,884 | **exactly zero bps**; identification work |
+| §4 PancakeSwap Infinity | 1 | $3 | generalizable root cause, negligible value |
+| (RFQ relabel — not in this doc) | 10 | $74,969 | zero, label only |
+
+**Recommended order: §2, then §4, then §3.** §2 is the only one that corrects a
+displayed number, and its fix reuses machinery that already exists and passes
+tests. §4 is cheap and its root cause generalizes to any future singleton DEX.
+§3 carries by far the most notional but provably cannot move a basis point, and
+since the fee-provenance and price-impact-caveat work its legs already render
+honestly (`–` on LP Fee, a caveat on Price Impact) — so it is the least urgent
+despite looking like the biggest.
 
 Do these for **correctness**. Do not expect them to shrink the residual.
 
@@ -43,6 +58,17 @@ clean if that branch is headed for a PR as a UI change.
 
 Verified: repo **595/595** with `.env` exported, `tsc --build` exit 0, eslint exit 0.
 
+**Since then (2026-07-30), §1 shipped** on the same branch —
+`35d0f82..aa6d4a7`, still unpushed. Coverage primitives in
+`@fabric-tca/core/pure`, the Unattributed row on the receipt, the trades table's
+three-way Slippage split, and the analysis scripts folded onto the shared
+definition. Plus one follow-up not in the original plan: a leg whose fee tier
+failed to resolve now caveats its **Price Impact** cell too
+(`IMPACT_ABSORBS_FEE_TOOLTIP`), because the unread fee is sitting inside that
+number. Repo **624/624** with `.env` exported, 621 + 3 skipped without.
+Spec and plan: `docs/superpowers/specs/` and `docs/superpowers/plans/`,
+both dated 2026-07-30.
+
 ⚠️ `configs/contractNames.json` was already modified before this work began (the
 dev server mutates it). Not part of this change.
 
@@ -52,7 +78,12 @@ file: `docs/receipts-75-78-prerepop-backup.json`.
 
 ---
 
-## 1. Internal attribution-coverage metric  ← do this first
+## 1. Internal attribution-coverage metric  ✅ DONE 2026-07-30
+
+> Kept in full because the reasoning below still governs the shipped code — the
+> two-dimension split, the `feeTierBps > 0` trap, and why `decompConfidence`
+> does not substitute for coverage. See the "Delivered" note at the end of this
+> section for what changed, including the one reversal.
 
 **Why first:** it makes everything else measurable instead of faith-based, it
 needs no RPC, and it is the only item that finds problems rather than fixing one
@@ -167,39 +198,85 @@ claim that was wrong. Anyone regression-checking the table needs to expect it.
 
 ---
 
-## 2. V4 PoolManager reader + stray nulls
+## 2. V4 multi-pool fee averaging
 
-**Value:** the only item that moves bps out of Slippage — ~1.7 bps each on 4
-receipts, $2,913 combined. Small, but it is a genuinely broken reader.
+> ⚠️ **Rewritten 2026-07-30 after re-measurement. The previous diagnosis on this
+> item was WRONG** and would have sent its reader down a dead end. It claimed
+> "a systematically wrong mid **and** fee read" and prescribed reading
+> `getSlot0(poolId)` to find which half was broken. Neither half is broken. Of
+> 23 Uniswap V4 legs in the corpus, most read fine — tiers of 0.07, 0.1, 5, 100
+> with sensible price impact. Do not go reader-hunting.
 
-### The bug
+### The actual bug
 
-Every `PI_IMPLAUSIBLE` instance in the corpus is the **same venue** —
-`0x498581ff718922c3f8e6a244956af099b2652b2b`, the Uniswap V4 PoolManager — with
-impacts of **6881.8, 5335.9, 9999.0, and −13,149,914,232 bps**, alongside
-`LEG_FEE_IMPLAUSIBLE: contributes 2000.00 bps` (a 20% fee tier).
+Uniswap V4 is a **singleton**: one address (`0x498581ff…`) emits `Swap` for
+every pool. When a route touches several V4 pools, `decomposeTrade.ts:336-362`
+collapses that flow into ONE synthetic leg and **averages the fee tiers**:
 
-That is a systematically wrong mid **and** fee read, not implausible markets.
-The clamp (`PI_IMPLAUSIBLE_CAP_BPS`, `decomposeRoute.ts:635`) nulls it and the
-loss disappears into the residual.
+```
+id  55  multiple V4 Swap fees detected (500, 10000)              → average=52.50 bps
+id  59  multiple V4 Swap fees detected (3000, 500, 10003)        → average=45.01 bps
+id 249  multiple V4 Swap fees detected (21222, 10000, 29500)     → average=202.41 bps
+id 211  multiple V4 Swap fees (1002,1006,1000,1004,500,1003)     → average=9.19 bps
+id 207  multiple V4 Swap fees detected (49, 500)                 → average=2.75 bps
+```
+
+The averaged tier is wrong for every pool it covers. Because core derives
+`priceImpact = (legTotalCost − feeTier) × share` (`:374`, `:632`) from that same
+tier, the impact goes with it — id 55 lands at **−92,096 bps**.
+
+### The fix already exists in-repo, behind a gate that is too narrow
+
+`decomposeRoute.ts:450` has a **V4 multi-pool RESCUE** that synthesizes one leg
+per `poolId` from the Swap events. It works: receipts **56, 251, 408** carry
+clean `v4:<poolId>` legs with correct per-pool tiers and sane impacts.
+
+It is gated on **`!graph.reconstructed`** — it only fires when the first pass
+*fails* (`orphan_token` / `fee_on_transfer`). The five receipts above
+reconstruct *successfully but wrongly*, on a leg whose fee is a garbage average,
+so the rescue never runs. **The gate cannot distinguish "reconstructed well"
+from "reconstructed wrong."**
+
+⇒ Widen it: also attempt the rescue when `decomposeTrade` averaged more than one
+distinct V4 fee. Keep the existing "adopt only if the V4-augmented graph
+reconstructs" safety, so a failed rescue changes nothing.
+
+### The clamp is hiding only the worst of it — 3 receipts are silently wrong
+
+Of the 8 receipts that averaged, 3 were rescued (56, 251, 408) and **5 were
+not**. Only two of those five tripped `PI_IMPLAUSIBLE`:
+
+| id | notional | averaged tier | outcome |
+|---|---:|---|---|
+| 55 | $1,446 | 52.50 bps | clamped, PI nulled → shows Unattributed |
+| 59 | $637 | 45.01 bps | clamped, PI nulled → shows Unattributed |
+| **249** | **$2,220** | **202.41 bps** | **NOT clamped — wrong LP fee + wrong PI, unflagged** |
+| **211** | **$193** | **9.19 bps** | **NOT clamped — same** |
+| **207** | **$1** | **2.75 bps** | **NOT clamped — same** |
+
+The three unclamped rows are the real find: they display confident LP Fee and
+Price Impact numbers built on an averaged tier, with nothing warning anyone.
+The clamp only catches the extremes.
 
 ### ⚠️ Do NOT raise the cap to "see the impact"
 
 The clamped values are wrong — that is *why* the clamp fired. Anyone who
-unclamps first ships a −13-billion-bps row. Fix the reader, then repopulate.
+unclamps first ships a −13-billion-bps row. Fix the averaging, then repopulate.
 
-### How
+### Two things previously filed here that do NOT belong
 
-Same shape as the trap in the QuickSwap v4 work: a venue needs BOTH a working
-fee reader and a working mid reader, or tagging it nulls its price impact.
-Start by reading `getSlot0(poolId)` for the affected legs at `blockNumber - 1`
-and comparing against the realized price to find which half is wrong.
-
-**Affected:** 8 legs / 8 receipts / $3,087 notional. Only 4 have a non-null
-`slippage_bps` to shift out of (402, 59, 215, 55); the other 6 (219, 329, 330,
-396, 399, 403) have `slippage_bps` NULL — `tier=none`, two are $0 junk rows —
-so there is nothing to move and you would be creating a number where the
-receipt currently shows `n/a` on both rows.
+- **id 215 is not a V4 problem.** Its `PI_IMPLAUSIBLE` names leg
+  `0x53ab4c60…` — **Hydrex**, not the V4 PoolManager. The old text asserted
+  "every `PI_IMPLAUSIBLE` instance is the same venue"; that is false. Separate
+  investigation.
+- **ids 329, 330, 402, 403 are a different failure mode.** They carry
+  `PI_IMPLAUSIBLE` on `0x498581ff…` but **no averaging flag** — a *single* V4
+  pool whose impact is still implausible (6881.8, 5335.9, 9999.0,
+  −13,149,914,232 bps), with `LEG_FEE_IMPLAUSIBLE: contributes 2000.00 bps` on
+  329/330. A 20% tier is plausible for a hooked memecoin pool, so this may not
+  be a bug at all. All four are `tier=none` with `slippage_bps` NULL, and two
+  are $0 rows — nothing to move. Diagnose separately, and only after the
+  averaging fix, which may change what is left.
 
 ### Also in scope: the stray nulls
 
