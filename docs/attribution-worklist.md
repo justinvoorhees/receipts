@@ -198,7 +198,7 @@ claim that was wrong. Anyone regression-checking the table needs to expect it.
 
 ---
 
-## 2. V4 multi-pool fee averaging
+## 2. V4 multi-pool fee averaging  ✅ DONE 2026-07-30
 
 > ⚠️ **Rewritten 2026-07-30 after re-measurement. The previous diagnosis on this
 > item was WRONG** and would have sent its reader down a dead end. It claimed
@@ -284,6 +284,19 @@ unclamps first ships a −13-billion-bps row. Fix the averaging, then repopulate
   Diagnose before assuming it is the same cause.
 - **id 219** — `ROUTE_NOT_DECOMPOSED: shape=complex, reconstructed=false`,
   5 legs, $41. Reconstruction failure, different root cause.
+
+**Delivered 2026-07-30.** `shouldAttemptV4Rescue` (`v4Legs.ts`) widens the
+rescue gate to routes that reconstruct over more than one distinct V4 poolId,
+and `routeGraph.ts` now lets per-pool legs REPLACE the collapsed PoolManager leg
+instead of deduping them away by token pair — the second half was load-bearing,
+since every affected route is a split across fee tiers of one pair. Receipts 55,
+59, 207, 211 and 249 repopulated; backup at
+`docs/receipts-v4-multipool-prerepop-backup.json`.
+
+⚠️ Still open, and deliberately not touched here: `decomposeTrade.ts:342-358`
+still averages V4 fees for the route-level rollup, and ids 329/330/402/403
+(single V4 pool, implausible PI, no averaging flag) and id 215 (Hydrex) remain
+undiagnosed.
 
 ---
 
