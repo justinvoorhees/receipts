@@ -101,13 +101,22 @@ so the number the receipt shows and the number the worklist quotes cannot drift.
   defect is about summing a partial set, and that is true regardless of how
   little notional the unpriced leg carried.
 - **The displayed percentage** is `priceImpactCoverage` — notional-weighted,
-  matching the metric definition in the worklist. Id 210 reads **77%**, where a
-  leg count would say 83%.
+  matching the metric definition in the worklist. Id 210 is 76.5480%, so it
+  reads **76%**, where a leg count would say 83%.
 
 These can disagree: a route with an unpriced zero-notional leg is *not* fully
 priced but computes to 100.0% coverage. Displaying "pricing coverage is 100%
 complete" next to an `n/a` would be absurd, so the formatter **floors to an
-integer and caps at 99% whenever `isFullyPriced` is false.**
+integer and caps at 99% whenever `isFullyPriced` is false.** Flooring rather
+than rounding is deliberate: it can never overstate how much we priced.
+
+**An empty route (`routeLegs: []`) is not fully priced.** `priceImpactCoverage`
+returns `null` there (0/0 is undefined), `isFullyPriced` returns `false`, and the
+display floor turns the null into **0%**. This is a real behavior change: today
+a receipt with no decomposed legs prints "No Route Found" under Price Impact and
+*still* prints a confident Slippage number. That is the same overclaim this work
+exists to remove, so it gets the same treatment. No receipt in the current
+corpus has empty `route_legs`, so the change is invisible today.
 
 ### 3. `getExecutionBreakdown` gains three fields
 
