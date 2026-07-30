@@ -1679,4 +1679,22 @@ describe('Receipt Unattributed row', () => {
 		// partial adds: 1 unpriced leg row + Slippage + Positive Slippage = 3.
 		expect(count(html) - count(baseline)).toBe(3);
 	});
+
+	it('omits the row when the route is unpriced AND there is no residual at all', async () => {
+		// Reachable today — receipt id 219 is pricingStatus 'full' with a NULL
+		// slippage_bps. Without the residualRawBps guard the row renders a bare
+		// '–' under a tooltip promising a "residual cost or benefit", i.e. it
+		// announces a quantity that does not exist. The Slippage / Positive
+		// Slippage rows above already say n/a; a third empty row adds nothing.
+		const { ReceiptView } = await import('./receiptView');
+		const noResidualRow = { ...partialRow, slippageBps: null };
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={noResidualRow as never} hash={noResidualRow.txHash} />,
+		);
+		expect(html).not.toContain('>Unattributed<');
+		// ...and the coverage gate is still what suppressed the Slippage number,
+		// so this is the no-residual case and not some unrelated early return.
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Positive Slippage<');
+	});
 });

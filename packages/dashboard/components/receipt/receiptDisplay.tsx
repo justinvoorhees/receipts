@@ -114,6 +114,17 @@ const NOT_AVAILABLE = { text: 'n/a', color: undefined };
 export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };
+	/**
+	 * @deprecated Do NOT render this. It is the UNGATED residual — the signed
+	 * `slippage − Σ legPI` with no check that every leg was actually priced.
+	 * Displaying it re-introduces exactly the overclaim this module exists to
+	 * remove: on a partially-priced route it reads as a precise measurement of
+	 * a quantity we never measured. Use `slippageDisplay` /
+	 * `positiveSlippageDisplay` / `unattributedDisplay`, which are gated on
+	 * `fullyPriced`. Retained only because a unit test still pins its value;
+	 * it has had no production consumer since the trades table split its
+	 * Slippage column in three.
+	 */
 	marketForcesDisplay: { text: string; color: string | undefined };
 	slippageDisplay: { text: string; color: string | undefined };
 	positiveSlippageDisplay: { text: string; color: string | undefined };

@@ -120,11 +120,13 @@ export function TradesTable({
 	// `left-1/2` + `-translate-x-1/2` re-centers it on the viewport (main is
 	// itself centered, so its center line IS the viewport's). `min-w-full` keeps
 	// a short table from collapsing narrower than the 720px column, and the
-	// 100vw clamp stops the breakout from scrolling the page sideways on a
-	// small window.
+	// 100vw clamp bounds the wrapper's own width; `overflow-x-auto` scrolls the
+	// table WITHIN that bounded box, so wide content (10 columns at ~1022px
+	// natural width, wider than the clamp below ~1024px viewports) scrolls in
+	// its own container instead of the page body.
 	return (
 		<>
-			<div className="relative left-1/2 mt-[40px] w-max min-w-full max-w-[calc(100vw-40px)] -translate-x-1/2">
+			<div className="relative left-1/2 mt-[40px] w-max min-w-full max-w-[calc(100vw-40px)] -translate-x-1/2 overflow-x-auto">
 				<table className="w-full font-['Sohne_Mono'] text-[12px] leading-[12px]">
 					<thead>
 						<HeaderRow sort={sort} onSort={onSort} />
@@ -188,7 +190,7 @@ function HeaderRow({
 				<SortHeader col="unattributed" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-unattributed', text: 'Residual cost or benefit that could not be completely attributed, because some legs of this route were not priced' }}>Unattributed</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage' }}>EX. QUALITY</SortHeader>
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage (or Unattributed)' }}>EX. QUALITY</SortHeader>
 			</th>
 		</tr>
 	);

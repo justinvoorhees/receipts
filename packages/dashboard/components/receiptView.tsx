@@ -409,7 +409,7 @@ export function Receipt({
 						  never measured every leg's price impact. One signed row — it is not split
 						  into cost/benefit halves the way Slippage is (Figma 577-1232).
 						*/}
-						{!execution.fullyPriced && (
+						{!execution.fullyPriced && execution.residualRawBps != null && (
 							<BkdHeading
 								label="Unattributed"
 								value={execution.unattributedDisplay.text}
@@ -423,7 +423,7 @@ export function Receipt({
 							label="Total Execution Delta"
 							value={accuracy}
 							color={accuracyColor}
-							tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage"
+							tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage (or Unattributed)"
 							standalone
 						/>
 					</>

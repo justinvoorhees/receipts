@@ -152,7 +152,18 @@ receipt's numeric rows.
 
 ⚠️ The `.some()` defect was a **labelling** bug, not an arithmetic one. The
 residual `slippage_bps − Σ(measured legPI)` was and is correct; it simply was
-not entitled to the name "Slippage". No displayed digit changed.
+not entitled to the name "Slippage".
+
+⚠️ **"No displayed digit changed" is true of the RECEIPT only** — don't carry it
+across to the trades table. On the receipt, every value is byte-identical: the
+`Unattributed` row prints the exact string the `Slippage` row used to, colour
+included. But the table replaced one cell that rendered the **signed** residual
+with a cost/benefit split, so a **fully-priced** row whose residual is a benefit
+now shows `0.00bps` under Slippage with the number relocated to `Pos. Slippage`.
+That is **28 of 62 receipts** (16 above $100 notional) — e.g. id 307 ($147,653,
+residual −0.36), id 253 ($37,984, −639.50), id 248 ($13,125, −26.09). The change
+is intended and makes the table agree with the receipt; it is the unqualified
+claim that was wrong. Anyone regression-checking the table needs to expect it.
 
 ---
 

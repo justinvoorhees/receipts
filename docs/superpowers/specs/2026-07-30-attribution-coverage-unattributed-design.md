@@ -29,7 +29,17 @@ This is the point that is easy to get backwards, so it is stated first.
 `executionDelta − Σ(measured price impact)` is a correct, well-defined quantity.
 Every leg we *could* price is attributed and shown in the Price Impact section;
 what remains genuinely is unattributed. Nothing about that sum needs
-recomputing, and this design does not change a single displayed digit of it.
+recomputing, and **on the receipt** this design does not change a single
+displayed digit of it — the `Unattributed` row prints the exact string, colour
+included, that the `Slippage` row used to.
+
+⚠️ That guarantee covers the receipt, **not the trades table.** §5 replaces one
+table cell that rendered the *signed* residual with a cost/benefit split, so a
+**fully-priced** row whose residual is a benefit moves its number from
+`Slippage` (which now reads `0.00bps`) to the new `Pos. Slippage` column. That
+is 28 of the 62 persisted receipts. Intended — it makes the table agree with the
+receipt — but it is a real change to what the table displays, so don't quote the
+"no digit moved" line at it.
 
 What is wrong is the **name**. "Slippage" asserts *"we accounted for price
 impact, and this is what was left over."* When coverage is below 100% the honest

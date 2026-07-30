@@ -129,6 +129,43 @@ describe('getExecutionBreakdown coverage gating', () => {
 		expect(r.unattributedDisplay.text).toBe(legacySlippage.text);
 	});
 
+	it('THE REGRESSION GUARD, BENEFIT SIGN: matches what Positive Slippage used to print', async () => {
+		// The guard above only covers a residual that is a COST. When the residual
+		// is a BENEFIT the old code populated positiveSlippageDisplay instead, and
+		// that is a genuinely different branch — Math.min vs Math.max. Real row:
+		// receipt id 236 (KyberSwap, $1,457), 6 legs = 1 wrap + 5 costed, of which
+		// the rfq leg is unpriced. Residual −17.561717… − 1.379457… = −18.941175…,
+		// which renders "+18.94bps" in green because formatDialogBps negates for
+		// display, strips the sign, and prefixes '+' on a benefit.
+		const { getExecutionBreakdown, formatDialogBps } = await import('./receiptDisplay');
+		const id236 = {
+			slippageBps: -17.56171729419208,
+			routeLegs: [
+				{ type: 'wrap', notionalUsdc: 0, priceImpactBps: null },
+				{ type: 'univ4', notionalUsdc: 76.09571262441439, priceImpactBps: 0.338318289217868 },
+				{ type: 'aerodrome_cl', notionalUsdc: 331.6565639769648, priceImpactBps: 0.5273604145160479 },
+				{ type: 'univ3', notionalUsdc: 1049.423401227888, priceImpactBps: 0.4149244874839112 },
+				{ type: 'aerodrome_cl', notionalUsdc: 1125.252255, priceImpactBps: 0.09885414605025682 },
+				{ type: 'rfq', notionalUsdc: 1125.252255, priceImpactBps: null },
+			],
+		};
+		const r = getExecutionBreakdown(id236 as never);
+		expect(r.fullyPriced).toBe(false);
+
+		// Derived the same way as the cost-sign guard, so it cannot be self-fulfilling.
+		const sumPi = id236.routeLegs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0);
+		const residual = id236.slippageBps - sumPi;
+		expect(residual).toBeLessThan(0); // this test is worthless if the sign flips
+		const legacyPositiveSlippage = formatDialogBps(-Math.min(residual, 0));
+		expect(r.unattributedDisplay.text).toBe(legacyPositiveSlippage.text);
+		expect(r.unattributedDisplay.color).toBe(legacyPositiveSlippage.color);
+
+		// Pinned literally too — a bug that broke BOTH the code and the derivation
+		// above would otherwise cancel out and pass.
+		expect(r.unattributedDisplay.text).toBe('+18.94bps');
+		expect(r.unattributedDisplay.color).toBe('#117d45');
+	});
+
 	it('a fully-priced route keeps Slippage and blanks Unattributed', async () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
 		const r = getExecutionBreakdown(fullyPricedRow as never);

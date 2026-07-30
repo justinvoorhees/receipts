@@ -389,7 +389,7 @@ describe('TradesTable', () => {
 			/>,
 		);
 
-		expect(html).toContain('Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage');
+		expect(html).toContain('Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage (or Unattributed)');
 		expect(html).toContain('Fees paid to liquidity providers');
 		expect(html).toContain('Fees paid to aggregators');
 		expect(html).toContain('Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee');
