@@ -115,7 +115,8 @@ export function enrichLegRouters(row: ReceiptRow): ReceiptRow {
 export const TRADES_SORT_COLUMN_KEYS = {
 	block: 'blockNumber', aggregator: 'aggregator', side: 'direction',
 	size: 'notionalUsd', accuracy: 'allInCostBps', lpFee: 'lpFeeBps',
-	aggFee: 'aggFeeBps', impact: 'slippageBps', slippage: 'slippageBps', gas: 'gasCostUsd',
+	aggFee: 'aggFeeBps', impact: 'slippageBps', slippage: 'slippageBps',
+	posSlippage: 'slippageBps', unattributed: 'slippageBps', gas: 'gasCostUsd',
 } as const;
 export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMN_KEYS;
 // Keep TRADES_SORT_COLUMNS as an alias for the trades page's VALID_SORT_COLUMNS check:

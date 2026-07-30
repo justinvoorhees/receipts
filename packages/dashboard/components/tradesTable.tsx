@@ -38,12 +38,16 @@ const ACCESSORS: Record<TradesSortColumn, (r: ReceiptRow) => string | number> = 
 		return hasPriceImpact ? -legs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0) : 0;
 	},
 	slippage: (r) => {
-		const slip = r.slippageBps == null ? null : Number(r.slippageBps);
-		const legs = normalizeRouteLegs(r.routeLegs);
-		const hasPriceImpact = legs.some((l) => l.priceImpactBps != null);
-		const impact = hasPriceImpact ? legs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0) : null;
-		const residual = slip != null && impact != null ? slip - impact : slip;
-		return -(residual ?? 0);
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? Math.min(-(e.residualRawBps ?? 0), 0) : 0;
+	},
+	posSlippage: (r) => {
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? Math.max(-(e.residualRawBps ?? 0), 0) : 0;
+	},
+	unattributed: (r) => {
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? 0 : -(e.residualRawBps ?? 0);
 	},
 	gas: (r) => Number(r.gasCostUsd ?? 0),
 };
@@ -175,7 +179,13 @@ function HeaderRow({
 				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: 'Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee' }}>P. IMPACT</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
+				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual cost after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
+			</th>
+			<th className={TH}>
+				<SortHeader col="posSlippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-pos-slippage', text: 'Residual benefit after L.P. Fee, Agg. Fee, and P. Impact' }}>Pos. Slippage</SortHeader>
+			</th>
+			<th className={TH}>
+				<SortHeader col="unattributed" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-unattributed', text: 'Residual cost or benefit that could not be completely attributed, because some legs of this route were not priced' }}>Unattributed</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage' }}>EX. QUALITY</SortHeader>
@@ -266,7 +276,6 @@ function DataRow({
 	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
 	const execution = getExecutionBreakdown(row);
 	const impact = execution.priceImpactDisplay;
-	const slip = execution.marketForcesDisplay;
 
 	return (
 		<tr
@@ -282,7 +291,9 @@ function DataRow({
 			<td className={`${COL} text-right`} style={!lpNotApplicable && lp.color ? { color: lp.color } : undefined}>{lpNotApplicable ? '–' : stripSign(lp.text)}</td>
 			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
-			<td className={`${COL} text-right`} style={slip.color ? { color: slip.color } : undefined}>{slip.text}</td>
+			<td className={`${COL} text-right`} style={execution.slippageDisplay.color ? { color: execution.slippageDisplay.color } : undefined}>{execution.fullyPriced ? execution.slippageDisplay.text : '–'}</td>
+			<td className={`${COL} text-right`} style={execution.positiveSlippageDisplay.color ? { color: execution.positiveSlippageDisplay.color } : undefined}>{execution.fullyPriced ? execution.positiveSlippageDisplay.text : '–'}</td>
+			<td className={`${COL} text-right`} style={execution.unattributedDisplay.color ? { color: execution.unattributedDisplay.color } : undefined}>{execution.fullyPriced ? '–' : execution.unattributedDisplay.text}</td>
 			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{costBps == null ? '–' : formatAccuracySigned(costBps)}</td>
 		</tr>
 	);
