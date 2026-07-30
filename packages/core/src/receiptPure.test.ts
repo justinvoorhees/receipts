@@ -71,14 +71,22 @@ describe('attribution coverage', () => {
   });
 
   it('priceImpactCoverage matches the measured value for receipt id 210', () => {
-    // Real row: 6 costed legs, 5 priced. Notional-weighted: 20754.93 / 26882.37
-    // = 77.2065% (verified via `node -e`; the formula, not this number, is the spec).
+    // The REAL persisted route_legs of receipt 210 (Velora, $13,094), copied
+    // from the database. 7 legs: 1 wrap (excluded) + 6 costed, of which the
+    // rfq leg is unpriced. Notional-weighted coverage is 76.5480%.
     const legs = [
-      leg(13094.06, 4.19), leg(3061.23, 2.11), leg(2044.98, 5.02),
-      leg(1533.11, 3.90), leg(1021.55, 4.15), leg(6127.44, null),
+      leg(0, null, 'wrap'),
+      leg(4971.412665, null, 'rfq'),
+      leg(262.18974219197634, 0.020898202205538393, 'aerodrome_cl'),
+      leg(3665.7859929998917, 0.09839290965261527, 'univ3'),
+      leg(1047.1355028719797, 0.03968021578582681, 'univ3'),
+      leg(3142.2182415639018, 0.026166874292076724, 'pancakev3'),
+      leg(8109.494037, 19.183571888765734, 'curve_stableng'),
     ];
     const cov = priceImpactCoverage(legs)!;
-    expect(Math.floor(100 * cov)).toBe(77);
+    expect(cov * 100).toBeCloseTo(76.5480, 3);
+    expect(Math.floor(100 * cov)).toBe(76);
+    expect(isFullyPriced(legs)).toBe(false);
   });
 
   it('priceImpactCoverage excludes wrap/unwrap from the denominator', () => {
