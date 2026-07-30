@@ -3,6 +3,10 @@
 Handoff written 2026-07-30. Four workstreams, ordered by value. All figures are
 measured against the 62 persisted receipts that carry `route_legs`.
 
+**Measurement scripts for everything below live in `scripts/analysis/`** — see
+its README. Every figure in this document can be reproduced by running them, and
+should be re-measured rather than quoted as the corpus grows.
+
 **Read this first:** three of the four items below move **almost no basis points**.
 That is the finding, not a shortfall. The unattributed residual on a receipt is
 *reference-pool-vs-traded-pool divergence*, which is structural — it is not
@@ -14,17 +18,20 @@ everything on this list combined:
 | V4 PoolManager reader + stray nulls | Slippage → Price Impact | 4 | $2,913 | ~1.7 bps each |
 | Twin venues fee tier | Price Impact → LP Fee | 2 | $27,319 | **exactly zero** |
 | PancakeSwap Infinity | Price Impact → LP Fee | 1 | $3 | ~zero |
-| (RFQ relabel — not in this doc) | none | 10 | $80,333 | zero, label only |
+| (RFQ relabel — not in this doc) | none | 10 | $74,969 | zero, label only |
 
 Do these for **correctness**. Do not expect them to shrink the residual.
 
 ---
 
-## 0. Uncommitted work on the current branch
+## 0. Where the code stands
 
-`ui/receipt-footnote-and-trades-width`, 12 modified files, nothing committed.
-This is the completed unresolved-fee fix (all three halves). Commit or stash
-before starting anything below.
+Committed on `ui/receipt-footnote-and-trades-width` (unpushed) as `adf0f00`,
+`5128489`, `ae1acba`. This is the completed unresolved-fee fix, all three halves.
+⚠️ The branch name no longer matches its contents — these three commits are core
+fee-provenance work sitting on top of three unrelated UI commits. They touch
+nothing the UI commits touch, so cherry-picking them onto their own branch is
+clean if that branch is headed for a PR as a UI change.
 
 - `routeReaders.ts` — two silent fee sites now return `defaulted: true` and warn
   via a shared `unresolvedFee()` helper
