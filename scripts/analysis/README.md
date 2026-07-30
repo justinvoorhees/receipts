@@ -42,3 +42,7 @@ reference pool  in the route only ~20% of the time
 - **Test `feeTierBps > 0`, never `!= null`.** A zero tier passes a null check and
   reads as "measured" — that artifact once produced a false "coverage is
   saturated" conclusion. Prefer the persisted `feeResolved` flag where present.
+- **Coverage is defined in core, not here.** `priceImpactCoverage` and
+  `isFullyPriced` live in `packages/core/src/receiptPure.ts` and are re-exported
+  through `_env.mjs`, so these scripts and the receipt UI can never disagree.
+  Run `npx tsc --build packages/core` after editing them.

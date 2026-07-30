@@ -30,8 +30,13 @@ export const median = (xs) => {
 /** Quantile helper over an already-sorted array. */
 export const quantile = (sorted, p) => sorted[Math.floor(p * (sorted.length - 1))];
 
-/** Cost-bearing legs only — wrap/unwrap are informational and carry no notional. */
-export const costedLegs = (row) =>
-	(row.route_legs ?? []).filter((l) => l.type !== 'wrap' && l.type !== 'unwrap');
+/**
+ * Cost-bearing legs only — wrap/unwrap are informational and carry no notional.
+ * Re-exported from core so the scripts and the receipt UI share ONE definition.
+ * Takes a DB row; core's takes the leg array.
+ */
+const pure = await import(new URL('../../packages/core/dist/receiptPure.js', import.meta.url));
+export const costedLegs = (row) => pure.costedLegs(row.route_legs ?? []);
+export const { priceImpactCoverage, isFullyPriced } = pure;
 
 export const num = (v) => (v == null ? null : Number(v));

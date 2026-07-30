@@ -21,7 +21,7 @@
  *
  *   node scripts/analysis/attributionCoverage.mjs
  */
-import { connect, costedLegs, num } from './_env.mjs';
+import { connect, costedLegs, priceImpactCoverage, num } from './_env.mjs';
 
 const sql = await connect();
 const rows = await sql`
@@ -41,11 +41,10 @@ for (const r of rows) {
 
 	// Prefer explicit provenance where core recorded it; fall back to the value.
 	const feeOk = legs.filter((l) => (l.feeResolved === false ? false : Number(l.feeTierBps) > 0));
-	const piOk = legs.filter((l) => l.priceImpactBps != null);
 
 	out.push({
 		id: r.id, tier: r.tier, agg: r.aggregator, notional: num(r.notional_usd) ?? 0,
-		nlegs: legs.length, feeCov: share(feeOk), piCov: share(piOk),
+		nlegs: legs.length, feeCov: share(feeOk), piCov: priceImpactCoverage(legs) ?? 0,
 		rfq: share(legs.filter((l) => l.type === 'rfq')),
 		unknown: share(legs.filter((l) => l.type === 'unknown')),
 		conf: r.decomp_confidence, slip: num(r.slippage_bps),

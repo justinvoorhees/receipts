@@ -137,9 +137,22 @@ On id 210 we subtracted 77% of the route's impact and called the remaining 23%
 zero. The displayed Slippage is wrong by an unknown amount, reads as precise,
 and `decompConfidence` says **high**.
 
-**Deliverable:** coverage computed internally; when it is not 100%, the Slippage
-row must not print a bare number. Percentage goes in a script or `/methodology`,
-never the receipt face.
+**Delivered 2026-07-30.** Coverage lives in `@fabric-tca/core/pure`
+(`priceImpactCoverage`, `isFullyPriced`) and gates the receipt: below 100% the
+Slippage and Positive Slippage rows render `n/a` and a single signed
+**Unattributed** row carries the residual. The trades table splits its one
+Slippage column into three. 20 of 62 receipts are below 100%; 13 of them
+previously printed a number.
+
+⚠️ **The "never ship it as a user-facing percentage" guidance above is
+superseded** (decision 2026-07-30). The percentage appears in the `n/a` cells'
+tooltip — "pricing coverage is n% complete" — because a trader benefits from
+knowing how much of their transaction we actually priced. It stays out of the
+receipt's numeric rows.
+
+⚠️ The `.some()` defect was a **labelling** bug, not an arithmetic one. The
+residual `slippage_bps − Σ(measured legPI)` was and is correct; it simply was
+not entitled to the name "Slippage". No displayed digit changed.
 
 ---
 

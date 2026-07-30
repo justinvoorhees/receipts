@@ -8,7 +8,7 @@
  *
  *   node scripts/analysis/coverageEstimate.mjs
  */
-import { connect, costedLegs, num } from './_env.mjs';
+import { connect, costedLegs, isFullyPriced, priceImpactCoverage, num } from './_env.mjs';
 
 const sql = await connect();
 const rows = await sql`
@@ -33,12 +33,13 @@ for (const r of rows) {
 		notional: num(r.notional_usd) ?? 0,
 		slip: num(r.slippage_bps),
 		status: r.pricing_status,
-		cov: priced.length / legs.length,
+		cov: priceImpactCoverage(legs) ?? 0,
+		fullyPriced: isFullyPriced(legs),
 		nlegs: legs.length,
 		rfqOnly: legs.every((l) => l.type === 'rfq'),
 		conf: r.decomp_confidence,
 	};
-	if (priced.length === legs.length) buckets.full.push(rec);
+	if (rec.fullyPriced) buckets.full.push(rec);
 	else if (priced.length > 0) buckets.partial.push(rec);
 	else buckets.none.push(rec);
 }
