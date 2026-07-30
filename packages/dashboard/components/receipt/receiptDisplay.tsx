@@ -11,6 +11,7 @@
  * module is marked 'use client'.
  */
 import { useState } from 'react';
+import { isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
 import { formatProvider, shortTxHash } from '../../lib/formatters';
 import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
@@ -95,12 +96,31 @@ export function formatDialogBps(value: number | null): { text: string; color: st
 	return { text, color };
 }
 
+/**
+ * Copy for the Slippage / Positive Slippage cells when we could not price every
+ * leg. The percentage is deliberately user-facing: a trader should be able to
+ * see how much of their transaction we actually priced.
+ */
+export function noSlippageTooltip(coveragePercent: number): string {
+	return `No slippage calculation available, pricing coverage is ${coveragePercent}% complete`;
+}
+
+/** Copy for the Unattributed row's label. */
+export const UNATTRIBUTED_TOOLTIP =
+	'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact';
+
+const NOT_AVAILABLE = { text: 'n/a', color: undefined };
+
 export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };
 	marketForcesDisplay: { text: string; color: string | undefined };
 	slippageDisplay: { text: string; color: string | undefined };
 	positiveSlippageDisplay: { text: string; color: string | undefined };
+	unattributedDisplay: { text: string; color: string | undefined };
+	coveragePercent: number;
+	fullyPriced: boolean;
+	residualRawBps: number | null;
 } {
 	const executionRaw =
 		row.slippageBps == null || !Number.isFinite(Number(row.slippageBps))
@@ -119,12 +139,37 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	const slippageCostRaw = marketForcesRaw == null ? null : Math.max(marketForcesRaw, 0);
 	const slippageBenefitRaw = marketForcesRaw == null ? null : Math.min(marketForcesRaw, 0);
 
+	// The residual above is CORRECT arithmetic either way — it is what is left
+	// after every leg we could price. What changes below is only what we are
+	// entitled to CALL it. "Slippage" claims we accounted for price impact; when
+	// a leg went unpriced, the honest claim is "we could not attribute this".
+	const fullyPriced = isFullyPriced(legs);
+	const coverage = priceImpactCoverage(legs);
+	// Floor, never round, so we cannot overstate coverage; and cap at 99 so a
+	// route that is 100.0% by notional but still has an unpriced (zero-notional)
+	// leg never reads "100% complete" next to an n/a. A null coverage means
+	// nothing to weigh at all, which is 0% priced.
+	const coveragePercent = fullyPriced ? 100 : Math.min(99, Math.floor(100 * (coverage ?? 0)));
+
+	const residualDisplay = formatDialogBps(marketForcesRaw == null ? null : -marketForcesRaw);
+
 	return {
 		executionDisplay: formatDialogBps(executionRaw == null ? null : -executionRaw),
 		priceImpactDisplay: formatDialogBps(priceImpactRaw == null ? null : -priceImpactRaw),
-		marketForcesDisplay: formatDialogBps(marketForcesRaw == null ? null : -marketForcesRaw),
-		slippageDisplay: formatDialogBps(slippageCostRaw == null ? null : -slippageCostRaw),
-		positiveSlippageDisplay: formatDialogBps(slippageBenefitRaw == null ? null : -slippageBenefitRaw),
+		marketForcesDisplay: residualDisplay,
+		slippageDisplay: fullyPriced
+			? formatDialogBps(slippageCostRaw == null ? null : -slippageCostRaw)
+			: NOT_AVAILABLE,
+		positiveSlippageDisplay: fullyPriced
+			? formatDialogBps(slippageBenefitRaw == null ? null : -slippageBenefitRaw)
+			: NOT_AVAILABLE,
+		unattributedDisplay: fullyPriced ? NOT_AVAILABLE : residualDisplay,
+		coveragePercent,
+		fullyPriced,
+		// Unnegated (positive = cost to the user). Exposed because the display
+		// strings above have had their sign stripped by formatDialogBps and the
+		// trades-table sort needs it back. Callers negate for display polarity.
+		residualRawBps: marketForcesRaw,
 	};
 }
 
