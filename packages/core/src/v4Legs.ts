@@ -140,3 +140,36 @@ export function synthesizeV4Legs(
   }
   return out;
 }
+
+/**
+ * Should we try synthesizing per-pool V4 legs for this route?
+ *
+ * Two independent reasons, and the second is easy to miss:
+ *
+ *  1. The first-pass graph FAILED in a way a hidden V4 pool explains — a token
+ *     consumed but never produced (`orphan_token`), or an intermediate whose
+ *     captured legs under-account for it (`fee_on_transfer` classification).
+ *     Other break reasons (cyclic, disconnected) are not V4 problems and
+ *     synthesizing there would be guesswork.
+ *
+ *  2. The graph RECONSTRUCTED, but over more than one distinct V4 pool. The V4
+ *     PoolManager is a singleton and routeVenueScan keys venues by emitter
+ *     address, so several pools collapse into ONE leg that keeps only the last
+ *     pool's fee tier and poolId. Such a route chains perfectly well — it is
+ *     simply wrong. Reconstruction success is NOT evidence of correctness here.
+ *
+ * Distinctness, not swap count: two Swap events through the same pool are a
+ * single pool and need no rescue.
+ */
+export function shouldAttemptV4Rescue(args: {
+  reconstructed: boolean;
+  breakReason?: { kind: string } | undefined;
+  v4Swaps: readonly V4Swap[];
+}): boolean {
+  const { reconstructed, breakReason, v4Swaps } = args;
+  if (v4Swaps.length === 0) return false;
+  if (!reconstructed) {
+    return breakReason?.kind === 'orphan_token' || breakReason?.kind === 'fee_on_transfer';
+  }
+  return new Set(v4Swaps.map((s) => s.poolId)).size > 1;
+}

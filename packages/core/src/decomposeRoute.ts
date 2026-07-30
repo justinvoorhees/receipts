@@ -37,7 +37,7 @@ import {
 	type V4PoolKeyReader,
 } from './routeReaders.js';
 import { isCuratedMaker } from './makerRegistry.js';
-import { collectV4Swaps, synthesizeV4Legs } from './v4Legs.js';
+import { collectV4Swaps, shouldAttemptV4Rescue, synthesizeV4Legs } from './v4Legs.js';
 
 // ─── Fee sinks ───
 
@@ -447,42 +447,43 @@ export async function decomposeRoute(
 	// double-count and BREAK them. And we adopt the V4-augmented graph ONLY if it
 	// then reconstructs, so a genuine fee-on-transfer token (no V4 orphan, e.g.
 	// id 219's SWARM) never gets a spurious rescue.
+	const v4Swaps = collectV4Swaps(logs);
 	if (
-		!graph.reconstructed &&
-		(graph.breakReason?.kind === 'orphan_token' || graph.breakReason?.kind === 'fee_on_transfer')
+		shouldAttemptV4Rescue({
+			reconstructed: graph.reconstructed,
+			breakReason: graph.breakReason,
+			v4Swaps,
+		})
 	) {
-		const v4Swaps = collectV4Swaps(logs);
-		if (v4Swaps.length > 0) {
-			const pmTokens = new Set<string>();
-			for (const t of transfers) {
-				const from = t.from.toLowerCase();
-				const to = t.to.toLowerCase();
-				if (from === UNISWAP_V4_POOL_MANAGER || to === UNISWAP_V4_POOL_MANAGER) {
-					pmTokens.add(t.token.toLowerCase());
-				}
+		const pmTokens = new Set<string>();
+		for (const t of transfers) {
+			const from = t.from.toLowerCase();
+			const to = t.to.toLowerCase();
+			if (from === UNISWAP_V4_POOL_MANAGER || to === UNISWAP_V4_POOL_MANAGER) {
+				pmTokens.add(t.token.toLowerCase());
 			}
-			if (pmTokens.size > 1) {
-				const keyReader = deps?.v4PoolKeyReader
-					?? createDefaultV4PoolKeyReader(input.rpcUrl, input.blockNumber);
-				const poolKeys = new Map<string, { currency0: string; currency1: string }>();
-				for (const s of v4Swaps) {
-					if (poolKeys.has(s.poolId)) continue;
-					const key = await keyReader(s.poolId);
-					if (key) poolKeys.set(s.poolId, key);
-				}
-				const extraV4Legs = synthesizeV4Legs(v4Swaps, poolKeys, WETH);
-				if (extraV4Legs.length > 0) {
-					const v4Graph = buildRouteGraph({
-						transfers,
-						trader: input.trader,
-						venues,
-						denylist: extendedDenylist,
-						extraLegs: extraV4Legs,
-					});
-					if (v4Graph.reconstructed) {
-						graph = v4Graph;
-						routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
-					}
+		}
+		if (pmTokens.size > 1) {
+			const keyReader = deps?.v4PoolKeyReader
+				?? createDefaultV4PoolKeyReader(input.rpcUrl, input.blockNumber);
+			const poolKeys = new Map<string, { currency0: string; currency1: string }>();
+			for (const s of v4Swaps) {
+				if (poolKeys.has(s.poolId)) continue;
+				const key = await keyReader(s.poolId);
+				if (key) poolKeys.set(s.poolId, key);
+			}
+			const extraV4Legs = synthesizeV4Legs(v4Swaps, poolKeys, WETH);
+			if (extraV4Legs.length > 0) {
+				const v4Graph = buildRouteGraph({
+					transfers,
+					trader: input.trader,
+					venues,
+					denylist: extendedDenylist,
+					extraLegs: extraV4Legs,
+				});
+				if (v4Graph.reconstructed) {
+					graph = v4Graph;
+					routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
 				}
 			}
 		}

@@ -86,7 +86,14 @@ export function scanVenues(logs: readonly LogLike[], recognizeForks: boolean): M
 				});
 				const poolId = decoded.args.id as string;
 				const fee = Number(decoded.args.fee);
-				// V4 PoolManager can host multiple pools; use the latest fee info
+				// ⚠️ The V4 PoolManager is a SINGLETON: it emits Swap for every pool it
+				// hosts, and this map is keyed by emitter address, so a multi-pool route
+				// leaves only the LAST pool's fee and poolId here. That is not a
+				// preference — it is a lossy collapse, and it corrupts both the LP fee
+				// (v4FeeRaw) and the mid read (v4PoolId) for every pool but one.
+				// Do not "fix" it by re-keying: legs are matched to venues by emitter
+				// address throughout. The repair is decomposeRoute's V4 rescue, which
+				// synthesizes one leg per poolId — see shouldAttemptV4Rescue.
 				venues.set(addr, {
 					type: 'univ4',
 					v4PoolId: poolId,

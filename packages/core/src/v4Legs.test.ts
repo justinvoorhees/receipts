@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decodeEventLog } from 'viem';
-import { V4_SWAP_EVENT_ABI, collectV4Swaps, synthesizeV4Legs, type V4Swap } from './v4Legs.js';
+import { V4_SWAP_EVENT_ABI, collectV4Swaps, shouldAttemptV4Rescue, synthesizeV4Legs, type V4Swap } from './v4Legs.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const swaps = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__/v4-id56-swaps.json'), 'utf-8'));
@@ -97,5 +97,64 @@ describe('synthesizeV4Legs', () => {
   it('drops swaps whose poolId has no resolved key', () => {
     const swaps: V4Swap[] = [{ poolId: '0xunknown', fee: 3000, amount0: 1n, amount1: -1n, sqrtPriceX96: 1n }];
     expect(synthesizeV4Legs(swaps, new Map(), WETH)).toEqual([]);
+  });
+});
+
+const swap = (poolId: string, fee = 500): V4Swap => ({
+  poolId, fee, amount0: 1n, amount1: -1n, sqrtPriceX96: 1n,
+});
+
+describe('shouldAttemptV4Rescue', () => {
+  it('fires on the original path: a failed graph with an orphan token', () => {
+    expect(shouldAttemptV4Rescue({
+      reconstructed: false, breakReason: { kind: 'orphan_token' }, v4Swaps: [swap('0xa')],
+    })).toBe(true);
+  });
+
+  it('fires on the original path: a failed graph blamed on fee-on-transfer', () => {
+    expect(shouldAttemptV4Rescue({
+      reconstructed: false, breakReason: { kind: 'fee_on_transfer' }, v4Swaps: [swap('0xa')],
+    })).toBe(true);
+  });
+
+  it('does NOT fire on a failed graph with an unrelated break reason', () => {
+    // A cyclic/disconnected route is not a hidden-V4-pool problem; synthesizing
+    // legs there would be guesswork.
+    expect(shouldAttemptV4Rescue({
+      reconstructed: false, breakReason: { kind: 'unreconstructed' }, v4Swaps: [swap('0xa')],
+    })).toBe(false);
+  });
+
+  it('THE NEW PATH: fires on a graph that reconstructed over >1 distinct pool', () => {
+    // ids 55/59/207/211/249 — the route chains fine, but on ONE leg that
+    // collapsed several pools and took an arbitrary pool's fee tier.
+    expect(shouldAttemptV4Rescue({
+      reconstructed: true, breakReason: undefined,
+      v4Swaps: [swap('0xa', 49), swap('0xb', 500)],
+    })).toBe(true);
+  });
+
+  it('does NOT fire on a reconstructed single-pool route', () => {
+    // The regression guard: 21 of 26 V4 receipts are correct today.
+    expect(shouldAttemptV4Rescue({
+      reconstructed: true, breakReason: undefined, v4Swaps: [swap('0xa')],
+    })).toBe(false);
+  });
+
+  it('counts DISTINCT pools, not swap events', () => {
+    // Two swaps through one pool is not a collapsed multi-pool leg.
+    expect(shouldAttemptV4Rescue({
+      reconstructed: true, breakReason: undefined,
+      v4Swaps: [swap('0xa', 500), swap('0xa', 500)],
+    })).toBe(false);
+  });
+
+  it('never fires without V4 swaps', () => {
+    expect(shouldAttemptV4Rescue({
+      reconstructed: false, breakReason: { kind: 'orphan_token' }, v4Swaps: [],
+    })).toBe(false);
+    expect(shouldAttemptV4Rescue({
+      reconstructed: true, breakReason: undefined, v4Swaps: [],
+    })).toBe(false);
   });
 });
