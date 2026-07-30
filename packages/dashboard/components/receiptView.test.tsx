@@ -1209,6 +1209,42 @@ describe('getPriceImpactRows router attribution', () => {
 		const rows = getPriceImpactRows([leg({ router: ROUTER })] as never, baseRow as never);
 		expect(typeof rows[0]!.context).toBe('string');
 	});
+
+	// An unread fee tier books as 0, and decomposeRoute derives price impact as
+	// (legTotalCost − feeTier) × share (decomposeRoute.ts:374/632) while LP fee is
+	// feeTier × the SAME share (:566). So a leg whose fee failed to resolve has
+	// its missing fee sitting INSIDE its price impact, which then renders as a
+	// bare confident number. Real case: receipt id 408, leg 0x238a3588… (the
+	// PancakeSwap Infinity vault), price impact 2.88bps.
+	// NB this does NOT move the Slippage/Unattributed residual — slippage is
+	// overstated by exactly the same amount ΣPI is, so `slippage − ΣPI` is
+	// invariant. The defect is confined to this one cell.
+	it('caveats a leg whose price impact absorbs an unresolved L.P. fee', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ feeResolved: false })] as never, baseRow as never);
+		expect(rows[0]!.value).toBe('3.00bps'); // the number still shows
+		expect(rows[0]!.valueTooltip).toBe('Includes the unavailable L.P. fee for this leg');
+	});
+
+	it('leaves a resolved-fee leg uncaveated', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		// Both the explicit-true and the absent (pre-2026-07-30 rows) cases.
+		expect(getPriceImpactRows([leg({ feeResolved: true })] as never, baseRow as never)[0]!.valueTooltip)
+			.toBeUndefined();
+		expect(getPriceImpactRows([leg()] as never, baseRow as never)[0]!.valueTooltip).toBeUndefined();
+	});
+
+	it('keeps the null-price explanation when there is no impact to caveat', async () => {
+		const { getPriceImpactRows, LEG_NULL_PRICE_TOOLTIP } = await import('./receipt/receiptDisplay');
+		// Unresolved fee AND null impact: there is no number to be contaminated,
+		// so the null explanation wins rather than promising a value that isn't there.
+		const rows = getPriceImpactRows(
+			[leg({ feeResolved: false, priceImpactBps: null })] as never,
+			baseRow as never,
+		);
+		expect(rows[0]!.value).toBe('n/a');
+		expect(rows[0]!.valueTooltip).toBe(LEG_NULL_PRICE_TOOLTIP);
+	});
 });
 
 describe('legContext', () => {

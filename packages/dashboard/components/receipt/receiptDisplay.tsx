@@ -249,7 +249,7 @@ export function legPairContext(
 }
 
 export function getPriceImpactRows(
-	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol' | 'router'>[],
+	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol' | 'router' | 'feeResolved'>[],
 	row?: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
 ): {
 	label: string;
@@ -285,7 +285,15 @@ export function getPriceImpactRows(
 				: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
 			value: impact.text,
 			color: impact.color,
-			valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
+			// A null impact keeps its own explanation — there is no number to
+			// caveat. Otherwise, if this leg's fee tier never resolved, the number
+			// shown here has ABSORBED that unread fee (see IMPACT_ABSORBS_FEE_TOOLTIP)
+			// and must not read as a clean price-impact measurement.
+			valueTooltip: isNullImpact
+				? getNullPriceImpactTooltip(leg)
+				: hasUnresolvedFee(leg)
+					? IMPACT_ABSORBS_FEE_TOOLTIP
+					: undefined,
 			router: leg.router,
 		};
 	});
@@ -314,6 +322,21 @@ export const NULL_PRICE_TOOLTIP = 'No market price available';
 // not render "0.00bps", which would assert the pool was free. Reads as the
 // fee-side counterpart to LEG_NULL_PRICE_TOOLTIP.
 export const UNRESOLVED_FEE_TOOLTIP = 'No fee available for this leg';
+
+// The SAME unresolved fee, seen from the Price Impact row. An unread tier books
+// as 0, and core derives price impact as (legTotalCost − feeTier) × share
+// (decomposeRoute.ts:374, :632) while LP fee is feeTier × the SAME share (:566).
+// So the fee we failed to read has not vanished — it is sitting inside this
+// leg's price impact, which would otherwise render as a clean measurement.
+//
+// ⚠️ This does NOT reach the Slippage / Unattributed residual. Core computes
+// `slippage = allIn − lpFee − aggFee` (:577), so an understated lpFee overstates
+// slippage by exactly the amount it overstates ΣPI — and the displayed residual
+// `slippage − ΣPI` is invariant. Do not extend the coverage gate to fee
+// provenance on the strength of this: the residual really is fully attributed;
+// it is only the LP-Fee-vs-Price-Impact SPLIT that is wrong, and both of those
+// rows are on screen.
+export const IMPACT_ABSORBS_FEE_TOOLTIP = 'Includes the unavailable L.P. fee for this leg';
 
 /** True when core explicitly marked this leg's fee tier unresolved. */
 export function hasUnresolvedFee(leg: Pick<RouteLeg, 'feeResolved'>): boolean {
