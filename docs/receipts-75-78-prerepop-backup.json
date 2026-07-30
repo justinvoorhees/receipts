@@ -1,0 +1,282 @@
+[
+  {
+    "id": 75,
+    "tx_hash": "0x89628ee8e6b3a1b7c4c8ab8af5a5752c6de2ba7024ea0ff78a155a044c59aa8c",
+    "chain_id": 8453,
+    "user_id": null,
+    "created_at": "2026-07-07T22:25:39.559Z",
+    "aggregator": "Odos",
+    "trader": "0x65da0970b9a0153db222056b50a84a46d8cf40b5",
+    "direction": "USDC->ETH",
+    "input_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    "output_token": "native",
+    "input_symbol": "USDC",
+    "output_symbol": "ETH",
+    "input_amount": "25400",
+    "output_amount": "15.032582871488026",
+    "notional_usd": "25400",
+    "realized_price": "1689.6630617068226",
+    "market_mid": "1686.0337072914906",
+    "all_in_cost_bps": "21.479752369480334",
+    "pricing_status": "full",
+    "block_number": 47205551,
+    "execution_bps": "21.479752369480334",
+    "lp_fee_bps": "0.12848490174045007",
+    "agg_fee_bps": "0",
+    "slippage_bps": "21.351267467739884",
+    "gas_cost_usd": "0.04028157429729343",
+    "route_pure": false,
+    "route_shape": "split",
+    "hop_count": 1,
+    "route_legs": [
+      {
+        "type": "curve_stableng",
+        "venue": "0xe093c7056f1d5f46f88de7bf366b3569e1839778",
+        "tokenIn": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "lpFeeBps": 0.07509259866141732,
+        "tokenOut": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+        "feeTierBps": 6,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 317.892001,
+        "tokenInSymbol": "USDC",
+        "priceImpactBps": 0.09420799427292263,
+        "tokenOutSymbol": "USDT"
+      },
+      {
+        "type": "unknown",
+        "venue": "0x0fcbb3f9aecc556de81ee756f01191d94a3d085e",
+        "tokenIn": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "lpFeeBps": 0,
+        "tokenOut": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+        "feeTierBps": 0,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 25082.107999,
+        "tokenInSymbol": "USDC",
+        "priceImpactBps": 13.248987839081572,
+        "tokenOutSymbol": "cbBTC"
+      },
+      {
+        "type": "pancakev3",
+        "venue": "0x526d54cd4fac2e6b2ddcb6bc98b9292603061f85",
+        "tokenIn": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+        "lpFeeBps": 0.0004263106346484301,
+        "tokenOut": "0x4200000000000000000000000000000000000006",
+        "feeTierBps": 1,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 10.828290120070125,
+        "tokenInSymbol": "USDT",
+        "priceImpactBps": 0.002580673383527793,
+        "tokenOutSymbol": "WETH"
+      },
+      {
+        "type": "aerodrome_cl",
+        "venue": "0x9785ef59e2b499fb741674ecf6faf912df7b3c1b",
+        "tokenIn": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+        "lpFeeBps": 0.04735847182787292,
+        "tokenOut": "0x4200000000000000000000000000000000000006",
+        "feeTierBps": 4.33,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 277.8072019464139,
+        "tokenInSymbol": "USDT",
+        "priceImpactBps": 0.01989512118528872,
+        "tokenOutSymbol": "WETH"
+      },
+      {
+        "type": "univ3",
+        "venue": "0xd92e0767473d1e3ff11ac036f2b1db90ad0ae55f",
+        "tokenIn": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+        "lpFeeBps": 0.005607520616511399,
+        "tokenOut": "0x4200000000000000000000000000000000000006",
+        "feeTierBps": 5,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 28.486204731877905,
+        "tokenInSymbol": "USDT",
+        "priceImpactBps": 0.0019214961636062607,
+        "tokenOutSymbol": "WETH"
+      },
+      {
+        "type": "unknown",
+        "venue": "0xef05e733970c37b6a2f863de0db9378ea49447cc",
+        "tokenIn": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+        "lpFeeBps": 0,
+        "tokenOut": "0x4200000000000000000000000000000000000006",
+        "feeTierBps": 0,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 24964.542412128736,
+        "tokenInSymbol": "cbBTC",
+        "priceImpactBps": -10.818909386450882,
+        "tokenOutSymbol": "WETH"
+      },
+      {
+        "type": "unwrap",
+        "venue": "0x4200000000000000000000000000000000000006",
+        "tokenIn": "0x4200000000000000000000000000000000000006",
+        "lpFeeBps": null,
+        "tokenOut": "native",
+        "feeTierBps": 0,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 0,
+        "tokenInSymbol": "WETH",
+        "priceImpactBps": null,
+        "tokenOutSymbol": "ETH"
+      }
+    ],
+    "recon_residual_bps": "18.802583730103848",
+    "decomp_confidence": "medium",
+    "settlement_event_name": null,
+    "settlement_event_topic0": "0x823eaf01002d7353fbcadb2ea3305cc46fa35d799cb0914846d185ac06f8ad05",
+    "settlement_event_seen": true,
+    "normalize_flags": [
+      "VENUE (third-token gate): 0xe093c7056f1d5f46f88de7bf366b3569e1839778 moved 0xfde4...9bb2 — reclassified as venue, not fee sink (USDC retained=317.8920)",
+      "VENUE (third-token gate): 0x0fcbb3f9aecc556de81ee756f01191d94a3d085e moved 0xcbb7...33bf — reclassified as venue, not fee sink (USDC retained=25082.1080)",
+      "VENUE (third-token gate): 0xef05e733970c37b6a2f863de0db9378ea49447cc moved 0xcbb7...33bf — reclassified as venue, not fee sink (USDC retained=0.0000)",
+      "MULTI-HOP: route touches 0xfde4...9bb2 via venue 0x526d...1f85 — LP/slippage not separable",
+      "AGGREGATOR_DETECTED_VIA: address"
+    ],
+    "chainlink_price": null,
+    "chainlink_dev_bps": null,
+    "pool_divergence_bps": null,
+    "manipulation_flag": false,
+    "offchain_price": null,
+    "offchain_dev_bps": null,
+    "chainlink_staleness_secs": null,
+    "fee_recipient": null,
+    "fee_sink_source": null,
+    "integrator_fee_bps": null,
+    "fabric_fee_bps": null,
+    "router_address": "0x19ceead7105607cd444f5ad10dd51356436095a1",
+    "filler_address": null,
+    "tier": "full",
+    "methodology": "Verified: The WETH-derived price and oracle reference agree.",
+    "market_price_flags": [],
+    "fee_sinks": []
+  },
+  {
+    "id": 78,
+    "tx_hash": "0xd7fdac7dc0ebb071be9d19329b057b6cf8a18cdb3bc2ed35870c7a1083ad700e",
+    "chain_id": 8453,
+    "user_id": null,
+    "created_at": "2026-07-07T23:09:01.975Z",
+    "aggregator": "Odos",
+    "trader": "0x42cfa18acd1c441270588848f40e64bb1a6772b4",
+    "direction": "USDC->ETH",
+    "input_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    "output_token": "native",
+    "input_symbol": "USDC",
+    "output_symbol": "ETH",
+    "input_amount": "1918.799033",
+    "output_amount": "0.8992417930504403",
+    "notional_usd": "1918.799033",
+    "realized_price": "2133.796547078824",
+    "market_mid": "2130.5910446634207",
+    "all_in_cost_bps": "15.022530708430711",
+    "pricing_status": "full",
+    "block_number": 46312740,
+    "execution_bps": "15.022530708430711",
+    "lp_fee_bps": "0",
+    "agg_fee_bps": "0",
+    "slippage_bps": "15.022530708430711",
+    "gas_cost_usd": "0.008591149376279862",
+    "route_pure": false,
+    "route_shape": "linear",
+    "hop_count": 2,
+    "route_legs": [
+      {
+        "type": "unknown",
+        "venue": "0x0fcbb3f9aecc556de81ee756f01191d94a3d085e",
+        "tokenIn": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "lpFeeBps": 0,
+        "tokenOut": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+        "feeTierBps": 0,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 1918.799033,
+        "tokenInSymbol": "USDC",
+        "priceImpactBps": 4.3318408348848285,
+        "tokenOutSymbol": "cbBTC"
+      },
+      {
+        "type": "unknown",
+        "venue": "0xef05e733970c37b6a2f863de0db9378ea49447cc",
+        "tokenIn": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+        "lpFeeBps": 0,
+        "tokenOut": "0x4200000000000000000000000000000000000006",
+        "feeTierBps": 0,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 1918.4626537094298,
+        "tokenInSymbol": "cbBTC",
+        "priceImpactBps": -16.304475439503744,
+        "tokenOutSymbol": "WETH"
+      },
+      {
+        "type": "unwrap",
+        "venue": "0x4200000000000000000000000000000000000006",
+        "tokenIn": "0x4200000000000000000000000000000000000006",
+        "lpFeeBps": null,
+        "tokenOut": "native",
+        "feeTierBps": 0,
+        "frameChain": [
+          "0x19ceead7105607cd444f5ad10dd51356436095a1",
+          "0xe6151691ff20684426d5dc017c0a3c4e1e533dee"
+        ],
+        "notionalUsdc": 0,
+        "tokenInSymbol": "WETH",
+        "priceImpactBps": null,
+        "tokenOutSymbol": "ETH"
+      }
+    ],
+    "recon_residual_bps": "26.995165313049625",
+    "decomp_confidence": "low",
+    "settlement_event_name": null,
+    "settlement_event_topic0": "0x823eaf01002d7353fbcadb2ea3305cc46fa35d799cb0914846d185ac06f8ad05",
+    "settlement_event_seen": true,
+    "normalize_flags": [
+      "VENUE (third-token gate): 0x0fcbb3f9aecc556de81ee756f01191d94a3d085e moved 0xcbb7...33bf — reclassified as venue, not fee sink (USDC retained=1918.7990)",
+      "VENUE (third-token gate): 0xef05e733970c37b6a2f863de0db9378ea49447cc moved 0xcbb7...33bf — reclassified as venue, not fee sink (USDC retained=0.0000)",
+      "AGGREGATOR_DETECTED_VIA: address"
+    ],
+    "chainlink_price": null,
+    "chainlink_dev_bps": null,
+    "pool_divergence_bps": null,
+    "manipulation_flag": false,
+    "offchain_price": null,
+    "offchain_dev_bps": null,
+    "chainlink_staleness_secs": null,
+    "fee_recipient": null,
+    "fee_sink_source": null,
+    "integrator_fee_bps": null,
+    "fabric_fee_bps": null,
+    "router_address": "0x19ceead7105607cd444f5ad10dd51356436095a1",
+    "filler_address": null,
+    "tier": "full",
+    "methodology": "Verified: The WETH-derived price and oracle reference agree.",
+    "market_price_flags": [],
+    "fee_sinks": []
+  }
+]
