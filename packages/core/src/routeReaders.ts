@@ -127,6 +127,23 @@ const EIP1967_IMPL_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a
 
 // ─── Default fee reader (live RPC) ───
 
+/**
+ * Report a fee we could not resolve, then let the caller fall back to 0 bps.
+ *
+ * `defaulted: true` is the load-bearing part: a 0 bps fee reported as RESOLVED
+ * is indistinguishable from a pool that is genuinely free, and renders on the
+ * receipt as a confident "0.00bps" — a false claim rather than a missing one.
+ * The warn names the consequence, mirroring `resolveAggregator.ts` /
+ * `settlementDecoders.ts`, so a systematically broken reader cannot stay silent.
+ */
+function unresolvedFee(addr: string, type: VenueType, cause: string): { bps: number; defaulted: boolean } {
+	console.warn(
+		`[createDefaultFeeReader] could not resolve the fee tier for ${type} pool ${addr} — ` +
+		`its LP fee will read 0 bps and be reported as unresolved: ${cause}`,
+	);
+	return { bps: 0, defaulted: true };
+}
+
 export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> {
 	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
 
@@ -149,8 +166,8 @@ export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (ad
 						blockNumber,
 					});
 					return { bps: Number(fee) / 100, defaulted: false };
-				} catch {
-					return { bps: 0, defaulted: false };
+				} catch (err) {
+					return unresolvedFee(addr, type, err instanceof Error ? err.message : String(err));
 				}
 			}
 			case 'aerodrome_cl': {
@@ -211,7 +228,12 @@ export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (ad
 			case 'unipool':
 				return { bps: 0, defaulted: true };
 			case 'univ4':
-				return { bps: v4FeeRaw !== undefined ? v4FeeRaw / 100 : 0, defaulted: false };
+				// The fee rides on the V4 Swap event. When it is absent the event was
+				// malformed (routeVenueScan sets `{type:'univ4'}` with no v4FeeRaw),
+				// so there is nothing to read on-chain — report it, do not imply free.
+				return v4FeeRaw !== undefined
+					? { bps: v4FeeRaw / 100, defaulted: false }
+					: unresolvedFee(addr, type, 'the V4 Swap event carried no fee (v4FeeRaw undefined)');
 			case 'univ2':
 				// 30 bps is the canonical V2 fee, not a guess
 				return { bps: 30, defaulted: false };

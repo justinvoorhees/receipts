@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { makeV4PoolKeyReader, createDefaultV4PoolKeyReader } from './routeReaders.js';
+import { makeV4PoolKeyReader, createDefaultV4PoolKeyReader, createDefaultFeeReader } from './routeReaders.js';
 
 describe('makeV4PoolKeyReader', () => {
   const POOL = '0xAbC123';
@@ -37,5 +37,85 @@ describe('createDefaultV4PoolKeyReader', () => {
   it('returns a no-op reader (always null) when rpcUrl is empty', async () => {
     const reader = createDefaultV4PoolKeyReader('', 1000n);
     expect(await reader('0xabc')).toBeNull();
+  });
+});
+
+// An UNRESOLVED fee must never be indistinguishable from a pool that is
+// genuinely free: a 0 bps result reported as `defaulted: false` renders on the
+// receipt as a confident "0.00bps", i.e. a false claim rather than a missing
+// one. Both silent paths below returned exactly that.
+describe('createDefaultFeeReader — unresolved fees are reported, not disguised', () => {
+  // A syntactically valid but dead endpoint: readContract rejects (ECONNREFUSED)
+  // so we exercise the real catch path rather than mocking the client.
+  const DEAD_RPC = 'http://127.0.0.1:1';
+  const POOL = '0x1111111111111111111111111111111111111111';
+
+  it('flags a univ4 leg whose Swap event carried no fee (v4FeeRaw undefined) as defaulted', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'univ4', undefined);
+      expect(result).toEqual({ bps: 0, defaulted: true });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('warns, naming the consequence, when a univ4 fee is unresolved', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'univ4', undefined);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toMatch(/\[createDefaultFeeReader\]/);
+      expect(warn.mock.calls[0]![0]).toMatch(/LP fee will read 0 bps/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does NOT flag or warn for a univ4 leg whose fee came through on the event', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'univ4', 500);
+      expect(result).toEqual({ bps: 5, defaulted: false });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each(['univ3', 'sushiv3', 'baseswapv3', 'pancakev3', 'hydrex', 'quickswapv4'] as const)(
+    'flags a %s leg as defaulted when the fee() read fails',
+    async (type) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, type);
+        expect(result).toEqual({ bps: 0, defaulted: true });
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0]![0]).toMatch(/LP fee will read 0 bps/);
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+
+  it('leaves aerodrome_cl alone — it already reported unresolved fees correctly', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'aerodrome_cl');
+      expect(result).toEqual({ bps: 0, defaulted: true });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps rfq at a genuine zero — a maker fill has no LP fee to resolve', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'rfq');
+      expect(result).toEqual({ bps: 0, defaulted: false });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
