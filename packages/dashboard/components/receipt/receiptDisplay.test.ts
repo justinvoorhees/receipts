@@ -113,7 +113,9 @@ describe('getExecutionBreakdown coverage gating', () => {
 		expect(r.positiveSlippageDisplay.text).toBe('n/a');
 		expect(r.unattributedDisplay.text).toBe('6.18bps');
 		// Unnegated and signed — the display string above has lost both.
-		expect(r.residualRawBps).toBeCloseTo(6.18, 2);
+		// 25.544581236341276 − 19.36871009070179 = 6.175871145639486, which
+		// formatDialogBps then rounds to the "6.18bps" asserted above.
+		expect(r.residualRawBps).toBeCloseTo(6.175871145639486, 9);
 	});
 
 	it('THE REGRESSION GUARD: Unattributed prints exactly what Slippage used to', async () => {
