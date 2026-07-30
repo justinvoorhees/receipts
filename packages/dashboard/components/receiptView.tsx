@@ -20,6 +20,8 @@ import {
 	NULL_PRICE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
+	noSlippageTooltip,
+	UNATTRIBUTED_TOOLTIP,
 } from './receipt/receiptDisplay';
 import { receiptDollars } from './receipt/qualityNotionals';
 import type { PriceDeltaRow } from './receipt/priceFormat';
@@ -386,6 +388,9 @@ export function Receipt({
 							value={execution.slippageDisplay.text}
 							color={execution.slippageDisplay.color}
 							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+							valueTooltip={
+								execution.fullyPriced ? undefined : noSlippageTooltip(execution.coveragePercent)
+							}
 							standalone
 						/>
 						<BkdHeading
@@ -393,8 +398,26 @@ export function Receipt({
 							value={execution.positiveSlippageDisplay.text}
 							color={execution.positiveSlippageDisplay.color}
 							tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
+							valueTooltip={
+								execution.fullyPriced ? undefined : noSlippageTooltip(execution.coveragePercent)
+							}
 							standalone
 						/>
+						{/*
+						  Shown ONLY when a leg went unpriced. The residual is the same number the
+						  Slippage row would have printed; what it is not is *slippage*, because we
+						  never measured every leg's price impact. One signed row — it is not split
+						  into cost/benefit halves the way Slippage is (Figma 577-1232).
+						*/}
+						{!execution.fullyPriced && (
+							<BkdHeading
+								label="Unattributed"
+								value={execution.unattributedDisplay.text}
+								color={execution.unattributedDisplay.color}
+								tooltip={UNATTRIBUTED_TOOLTIP}
+								standalone
+							/>
+						)}
 
 						<BkdRow
 							label="Total Execution Delta"

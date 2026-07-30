@@ -1609,3 +1609,74 @@ describe('SHARE bar', () => {
 		expect(html).not.toContain('h-[69px]');
 	});
 });
+
+describe('Receipt Unattributed row', () => {
+	const pricedLeg = {
+		venue: '0x1111111111111111111111111111111111111111',
+		type: 'swap',
+		tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+		tokenOut: '0x4200000000000000000000000000000000000006',
+		feeTierBps: 5, notionalUsdc: 1000, lpFeeBps: 1, priceImpactBps: 2,
+	};
+	const unpricedLeg = { ...pricedLeg, notionalUsdc: 500, priceImpactBps: null };
+
+	const fullyPricedRow = { ...fullUsdcWethRow, routeLegs: [pricedLeg] };
+	const partialRow = { ...fullUsdcWethRow, routeLegs: [pricedLeg, unpricedLeg] };
+
+	it('hides the Unattributed row entirely when every leg is priced', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={fullyPricedRow as never} hash={fullyPricedRow.txHash} />,
+		);
+		// Anchor on the cell, not the bare word: 'Slippage' is a substring of
+		// 'Positive Slippage', and a bare toContain would pass vacuously.
+		expect(html).not.toContain('>Unattributed<');
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Positive Slippage<');
+	});
+
+	it('shows Unattributed and n/a Slippage when a leg went unpriced', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		expect(html).toContain('>Unattributed<');
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Positive Slippage<');
+	});
+
+	it('names the coverage percentage in the n/a tooltip', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		// 1000 of 1500 notional priced = 66.66% → floors to 66.
+		expect(html).toContain('No slippage calculation available, pricing coverage is 66% complete');
+	});
+
+	it('explains Unattributed on its label', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		expect(html).toContain(
+			'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact',
+		);
+	});
+
+	it('counts exactly two n/a cells in the slippage group, not one and not three', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		// A counted differential: 'n/a' is NOT unique on this page (unpriced leg
+		// rows carry it too), so assert against the same render without the
+		// unpriced leg rather than against an absolute count.
+		const baseline = renderToStaticMarkup(
+			<ReceiptView trade={fullyPricedRow as never} hash={fullyPricedRow.txHash} />,
+		);
+		const count = (s: string) => s.split('n/a').length - 1;
+		// partial adds: 1 unpriced leg row + Slippage + Positive Slippage = 3.
+		expect(count(html) - count(baseline)).toBe(3);
+	});
+});
