@@ -124,13 +124,22 @@ describe('attribution coverage', () => {
   });
 
   it('priceImpactCoverage matches the measured value for receipt id 210', () => {
-    // Real row: 6 costed legs, 5 priced, 76.5480% by notional.
+    // The REAL persisted route_legs of receipt 210 (Velora, $13,094), copied
+    // from the database. 7 legs: 1 wrap (excluded) + 6 costed, of which the
+    // rfq leg is unpriced. Notional-weighted coverage is 76.5480%.
     const legs = [
-      leg(13094.06, 4.19), leg(3061.23, 2.11), leg(2044.98, 5.02),
-      leg(1533.11, 3.90), leg(1021.55, 4.15), leg(6127.44, null),
+      leg(0, null, 'wrap'),
+      leg(4971.412665, null, 'rfq'),
+      leg(262.18974219197634, 0.020898202205538393, 'aerodrome_cl'),
+      leg(3665.7859929998917, 0.09839290965261527, 'univ3'),
+      leg(1047.1355028719797, 0.03968021578582681, 'univ3'),
+      leg(3142.2182415639018, 0.026166874292076724, 'pancakev3'),
+      leg(8109.494037, 19.183571888765734, 'curve_stableng'),
     ];
     const cov = priceImpactCoverage(legs)!;
+    expect(cov * 100).toBeCloseTo(76.5480, 3);
     expect(Math.floor(100 * cov)).toBe(76);
+    expect(isFullyPriced(legs)).toBe(false);
   });
 
   it('priceImpactCoverage excludes wrap/unwrap from the denominator', () => {
@@ -290,24 +299,30 @@ Append to `packages/dashboard/components/receipt/receiptDisplay.test.ts`:
 
 ```ts
 describe('getExecutionBreakdown coverage gating', () => {
-	// Real receipt id 210 (Velora, $13,094): 6 costed legs, 5 priced,
-	// slippage_bps 25.54, Σ legPI 19.37 → residual 6.18.
+	// The REAL persisted row for receipt id 210 (Velora, $13,094), copied from
+	// the database: 7 legs = 1 wrap (excluded from coverage) + 6 costed, of
+	// which the rfq leg is unpriced. Coverage 76.5480%; Σ legPI 19.36871009…;
+	// residual 25.544581… − 19.368710… = 6.175871… → renders "6.18bps".
+	const SLIPPAGE_BPS = 25.544581236341276;
+	const SUM_PI = 19.36871009070179;
 	const id210 = {
-		slippageBps: 25.54,
+		slippageBps: SLIPPAGE_BPS,
 		routeLegs: [
-			{ type: 'swap', notionalUsdc: 13094.06, priceImpactBps: 4.19 },
-			{ type: 'swap', notionalUsdc: 3061.23, priceImpactBps: 2.11 },
-			{ type: 'swap', notionalUsdc: 2044.98, priceImpactBps: 5.02 },
-			{ type: 'swap', notionalUsdc: 1533.11, priceImpactBps: 3.90 },
-			{ type: 'swap', notionalUsdc: 1021.55, priceImpactBps: 4.15 },
-			{ type: 'swap', notionalUsdc: 6127.44, priceImpactBps: null },
+			{ type: 'wrap', notionalUsdc: 0, priceImpactBps: null },
+			{ type: 'rfq', notionalUsdc: 4971.412665, priceImpactBps: null },
+			{ type: 'aerodrome_cl', notionalUsdc: 262.18974219197634, priceImpactBps: 0.020898202205538393 },
+			{ type: 'univ3', notionalUsdc: 3665.7859929998917, priceImpactBps: 0.09839290965261527 },
+			{ type: 'univ3', notionalUsdc: 1047.1355028719797, priceImpactBps: 0.03968021578582681 },
+			{ type: 'pancakev3', notionalUsdc: 3142.2182415639018, priceImpactBps: 0.026166874292076724 },
+			{ type: 'curve_stableng', notionalUsdc: 8109.494037, priceImpactBps: 19.183571888765734 },
 		],
 	};
+	// Same trade, same residual, but collapsed to a single fully-priced leg —
+	// so the two fixtures differ ONLY in coverage, and any display difference
+	// between them is attributable to the gate and nothing else.
 	const fullyPricedRow = {
-		slippageBps: 25.54,
-		routeLegs: [
-			{ type: 'swap', notionalUsdc: 13094.06, priceImpactBps: 19.37 },
-		],
+		slippageBps: SLIPPAGE_BPS,
+		routeLegs: [{ type: 'univ3', notionalUsdc: 13094.06, priceImpactBps: SUM_PI }],
 	};
 
 	it('a partially-priced route moves its residual to Unattributed', async () => {
