@@ -274,10 +274,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `priceImpactCoverage`, `isFullyPriced` from `@fabric-tca/core/pure` (Task 1).
-- Produces: `getExecutionBreakdown` returns three additional fields —
+- Produces: `getExecutionBreakdown` returns four additional fields —
   `unattributedDisplay: { text: string; color: string | undefined }`,
-  `coveragePercent: number`, `fullyPriced: boolean`. Also exports
-  `UNATTRIBUTED_TOOLTIP: string` and
+  `coveragePercent: number`, `fullyPriced: boolean`, and
+  `residualRawBps: number | null` (the **unnegated** residual, positive = cost;
+  Task 4's sort accessors need the sign, which the display strings have had
+  stripped). Also exports `UNATTRIBUTED_TOOLTIP: string` and
   `noSlippageTooltip(coveragePercent: number): string`.
 
 ⚠️ Dashboard files use **tabs**.
@@ -315,6 +317,8 @@ describe('getExecutionBreakdown coverage gating', () => {
 		expect(r.slippageDisplay.text).toBe('n/a');
 		expect(r.positiveSlippageDisplay.text).toBe('n/a');
 		expect(r.unattributedDisplay.text).toBe('6.18bps');
+		// Unnegated and signed — the display string above has lost both.
+		expect(r.residualRawBps).toBeCloseTo(6.18, 6);
 	});
 
 	it('THE REGRESSION GUARD: Unattributed prints exactly what Slippage used to', async () => {
@@ -422,6 +426,7 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	unattributedDisplay: { text: string; color: string | undefined };
 	coveragePercent: number;
 	fullyPriced: boolean;
+	residualRawBps: number | null;
 } {
 	const executionRaw =
 		row.slippageBps == null || !Number.isFinite(Number(row.slippageBps))
@@ -467,6 +472,10 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 		unattributedDisplay: fullyPriced ? NOT_AVAILABLE : residualDisplay,
 		coveragePercent,
 		fullyPriced,
+		// Unnegated (positive = cost to the user). Exposed because the display
+		// strings above have had their sign stripped by formatDialogBps and the
+		// trades-table sort needs it back. Callers negate for display polarity.
+		residualRawBps: marketForcesRaw,
 	};
 }
 ```
@@ -835,31 +844,29 @@ export const TRADES_SORT_COLUMN_KEYS = {
 
 ⚠️ The sort must work off the **raw** residual, not the rendered string:
 `formatDialogBps` strips the minus sign, so `slippageDisplay.text` cannot be
-parsed back into a signed number. Add this helper immediately above `ACCESSORS`
-(`tradesTable.tsx:26`):
+parsed back into a signed number. Task 2 exposes `residualRawBps` for exactly
+this — **use it. Do not recompute the residual here**, and do not add a local
+helper that duplicates `getExecutionBreakdown`'s logic.
+
+Replace the single `slippage` accessor (`:40-47`) with these three. Each returns
+`0` for rows whose cell renders `–`, so a sort groups the blanks together. Note
+the negation: `residualRawBps` is positive-is-cost, and the table's other
+accessors (`accuracy`, `lpFee`, `aggFee`) all sort on the negated display
+polarity, so these match:
 
 ```tsx
-// The signed residual behind the Slippage / Pos. Slippage / Unattributed cells,
-// in the same display polarity the cells use (negated: positive = benefit).
-// Recomputed rather than parsed back out of the rendered string, because
-// formatDialogBps strips the sign and the sort needs it.
-function residualBps(r: ReceiptRow): number {
-	const slip = r.slippageBps == null ? null : Number(r.slippageBps);
-	const legs = normalizeRouteLegs(r.routeLegs);
-	const hasImpact = legs.some((l) => l.priceImpactBps != null);
-	const impact = hasImpact ? legs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0) : null;
-	return -((slip != null && impact != null ? slip - impact : slip) ?? 0);
-}
-```
-
-Then replace the single `slippage` accessor (`:40-47`) with these three. Each
-returns `0` for rows whose cell renders `–`, so a sort groups the blanks
-together:
-
-```tsx
-	slippage: (r) => (getExecutionBreakdown(r).fullyPriced ? Math.min(residualBps(r), 0) : 0),
-	posSlippage: (r) => (getExecutionBreakdown(r).fullyPriced ? Math.max(residualBps(r), 0) : 0),
-	unattributed: (r) => (getExecutionBreakdown(r).fullyPriced ? 0 : residualBps(r)),
+	slippage: (r) => {
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? Math.min(-(e.residualRawBps ?? 0), 0) : 0;
+	},
+	posSlippage: (r) => {
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? Math.max(-(e.residualRawBps ?? 0), 0) : 0;
+	},
+	unattributed: (r) => {
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? 0 : -(e.residualRawBps ?? 0);
+	},
 ```
 
 Header — replace the single `<th>` at `:177-179` with three:
