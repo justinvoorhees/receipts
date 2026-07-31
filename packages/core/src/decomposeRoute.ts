@@ -19,6 +19,7 @@ import {
 } from './tradeEndpoints.js';
 import { buildRouteGraph, type RouteShape, type VenueType, type Leg, type RouteBreakReason } from './routeGraph.js';
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput } from './legFees.js';
+import { anchorsToUsd } from './receiptPure.js';
 import { decomposeTrade, type DecomposeTradeInput } from './decomposeTrade.js';
 import { type FeeSink } from './tradeFees.js';
 import { type PairMidResult } from './tokenPricing.js';
@@ -79,6 +80,47 @@ const UNISWAP_V4_POOL_MANAGER =
 	'0x498581ff718922c3f8e6a244956af099b2652b2b';
 
 const LEG_FEE_CAP_BPS = 300;
+
+/**
+ * The largest gap that could plausibly be a transfer tax, in bps.
+ *
+ * Real fee-on-transfer tokens tax a few percent — receipt id 219's SWARM takes
+ * exactly 1.00%, verified on-chain. Extreme memecoins reach the low tens. Beyond
+ * ~30% a token is untradeable through a router (its slippage check would reject
+ * the fill), so a gap that large is not a tax: it means legs are missing.
+ */
+const FOT_PLAUSIBLE_CAP_BPS = 3000;
+
+/**
+ * Describe an intermediate token whose inflow and outflow disagree.
+ *
+ * `diagnoseBreak` classifies ANY such token as `fee_on_transfer`, but an
+ * unbalanced intermediate has several causes and a token tax is only one — an
+ * uncaptured leg produces exactly the same signature. Receipt id 442 reported
+ * "USDC loses ~99.49% between hops", which is not a tax; only 36% of that
+ * route's notional was captured in legs.
+ *
+ * So only claim a tax when one is plausible. The conclusion for the user is the
+ * same either way — LP and slippage are not separable — but we must not assert
+ * a CAUSE we have not established.
+ *
+ * ⚠️ This governs the FLAG only. The break `kind` is deliberately left alone:
+ * it drives `shouldAttemptV4Rescue`, and a large unexplained gap is exactly when
+ * a hidden V4 pool might be the explanation.
+ */
+export function feeOnTransferFlag(token: string, gapBps: number): string {
+  const short = `${token.slice(0, 6)}...${token.slice(-4)}`;
+  const pct = (gapBps / 100).toFixed(2);
+  // Anchor tokens (stables, WETH, native) are never fee-on-transfer.
+  if (anchorsToUsd(token) || gapBps > FOT_PLAUSIBLE_CAP_BPS) {
+    return (
+      `UNBALANCED_INTERMEDIATE: token ${short} inflow and outflow differ by ~${pct}% — ` +
+      `too large for a transfer tax, so legs are likely incomplete; LP/slippage not separable`
+    );
+  }
+  return `FEE_ON_TRANSFER: token ${short} loses ~${pct}% between hops — LP/slippage not separable`;
+}
+
 
 /**
  * Per-leg price-impact above this magnitude (in either direction) indicates a
@@ -777,10 +819,7 @@ export async function decomposeRoute(
 	// reliably separate LP/Slippage. Name the specific cause when we know it.
 	const br: RouteBreakReason | undefined = graph.breakReason;
 	if (br?.kind === 'fee_on_transfer') {
-		const short = `${br.token.slice(0, 6)}...${br.token.slice(-4)}`;
-		routeFlags.push(
-			`FEE_ON_TRANSFER: token ${short} loses ~${(br.gapBps / 100).toFixed(2)}% between hops — LP/slippage not separable`,
-		);
+		routeFlags.push(feeOnTransferFlag(br.token, br.gapBps));
 	} else if (br?.kind === 'orphan_token') {
 		const short = `${br.token.slice(0, 6)}...${br.token.slice(-4)}`;
 		routeFlags.push(

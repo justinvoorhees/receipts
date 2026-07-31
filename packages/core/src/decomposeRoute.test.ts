@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks, feeOnTransferFlag } from './decomposeRoute.js';
 import type { FeeSink } from './tradeFees.js';
 import { getLegMidAtBlock } from './routeReaders.js';
 import type { DecomposeTradeInput } from './decomposeTrade.js';
@@ -1459,4 +1459,46 @@ describe('buildFeeSinks', () => {
 		expect(out).toHaveLength(2);
 		expect(out[0]!.feeBps).toBeCloseTo(5, 6);
 	});
+});
+
+describe('feeOnTransferFlag', () => {
+  const SWARM = '0xea871696 99dabd028a78d4b91544b4298086baf6'.replace(/ /g, '');
+  const USDC_ADDR = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+
+  it('names a plausible token tax as FEE_ON_TRANSFER', () => {
+    // Receipt id 219, verified on-chain: the VIRTUAL/SWARM pool routes exactly
+    // 1.00% of its SWARM output (472.57 of 47,257) to the token's own address.
+    // A real transfer tax.
+    expect(feeOnTransferFlag(SWARM, 99)).toMatch(/^FEE_ON_TRANSFER: /);
+    expect(feeOnTransferFlag(SWARM, 99)).toContain('0.99%');
+  });
+
+  it('refuses to call an anchor token fee-on-transfer', () => {
+    // Receipt id 442 claimed USDC "loses ~99.49% between hops". USDC does not
+    // tax transfers; only 36% of that route's notional was captured in legs, so
+    // the intermediate simply does not balance. Naming a cause we have not
+    // established is the defect.
+    const f = feeOnTransferFlag(USDC_ADDR, 9949);
+    expect(f).toMatch(/^UNBALANCED_INTERMEDIATE: /);
+    expect(f).not.toContain('FEE_ON_TRANSFER');
+  });
+
+  it('refuses an implausibly large gap even on an unknown token', () => {
+    // No tradeable token taxes 80% — a router's slippage check would reject it.
+    // A gap that size means legs are missing, whatever the token is.
+    expect(feeOnTransferFlag(SWARM, 8000)).toMatch(/^UNBALANCED_INTERMEDIATE: /);
+  });
+
+  it('accepts a steep but real tax on a non-anchor token', () => {
+    // Extreme memecoin taxes reach the low tens of percent. 10% must still read
+    // as a tax, or the honest cases get relabelled with the dishonest ones.
+    expect(feeOnTransferFlag(SWARM, 1000)).toMatch(/^FEE_ON_TRANSFER: /);
+  });
+
+  it('says LP/slippage is not separable either way', () => {
+    // The user-facing conclusion is identical; only the claimed CAUSE differs.
+    for (const f of [feeOnTransferFlag(SWARM, 99), feeOnTransferFlag(USDC_ADDR, 9949)]) {
+      expect(f).toContain('LP/slippage not separable');
+    }
+  });
 });
