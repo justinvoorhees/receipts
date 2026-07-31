@@ -870,6 +870,18 @@ First extend `routeReaders.ts`'s `./poolDiscovery.js` import with
 `readInfinitySlot0` and `INFINITY_CL_POOL_MANAGER` — Task 3 deliberately left
 them out, because it did not use them and eslint errors on unused imports.
 
+Also wire the fee through at its call site. `decomposeRoute.ts` currently
+forwards only `leg.v4FeeRaw`, so an Infinity leg's fee never reaches the reader
+and the case above would be correct in isolation but dead in the live pipeline —
+which also makes Task 5's success criterion unreachable:
+
+```ts
+		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw ?? leg.infinityFeeRaw);
+```
+
+A leg is only ever one venue type, so exactly one of the two is ever set and the
+`??` cannot pick the wrong one.
+
 Then, in `getLegMidAtBlock`, immediately after the `univ4` block:
 
 ```ts
@@ -915,8 +927,10 @@ npx tsc --build
 grep -n "pancake_infinity" packages/core/src/routeReaders.ts
 ```
 
-Expected: PASS, tsc 0, and **two** hits in `routeReaders.ts` — one fee case, one
-mid branch. Exactly one hit means you shipped the half that nulls price impact.
+Expected: PASS, tsc 0, and **three** hits in `routeReaders.ts` — the fee `case`,
+plus TWO from the mid branch (`if (type === …)` and `poolKind: …`). What matters
+is that BOTH a fee case and a mid branch are present; a single hit means you
+shipped only the fee case, which is the half that nulls price impact.
 
 - [ ] **Step 6: Commit**
 
