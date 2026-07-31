@@ -5,6 +5,13 @@ const V3_FACTORY_TYPES: Record<string, VenueType> = {
 	'0xc35dadb65012ec5796536bd9864ed8773abc74c4': 'sushiv3',
 	'0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a': 'aerodrome_cl',
 	'0xade65c38cd4849adba595a4323a8c7ddfe89716a': 'aerodrome_cl',
+	// A third Slipstream CLFactory. Its pools emit the canonical Uniswap V3 Swap
+	// topic, so without this entry they fall through to the `univ3` default and
+	// render as "Uniswap v3" on the receipt. Identified by voter() 0x16613524…
+	// (the same Aerodrome Voter as the two factories above); its pools expose
+	// gauge()/nft()/unstakedFee() and its fee() is driven by a swapFeeModule,
+	// which is why they report mutable, non-canonical tiers.
+	'0xf8f2eb4940cfe7d13603dddd87f123820fc061ef': 'aerodrome_cl',
 	'0x38015d05f4fec8afe15d7cc0386a126574e8077b': 'baseswapv3',
 	'0x0a7e848aca42d879ef06507fca0e7b33a0a63c1e': 'maverickv2',
 	'0xdf033790907c60c9b81ae355f76f74f52f92114a': 'maverickv2',

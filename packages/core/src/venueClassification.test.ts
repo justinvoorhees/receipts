@@ -6,6 +6,11 @@ describe('classifyV3Factory', () => {
 		expect(classifyV3Factory('0x33128a8fC17869897dcE68Ed026d694621f6FDfD')).toBe('univ3');
 		expect(classifyV3Factory('0xc35DADB65012eC5796536bD9864eD8773aBc74C4')).toBe('sushiv3');
 		expect(classifyV3Factory('0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A')).toBe('aerodrome_cl');
+		// A third Slipstream CLFactory, found in production: 13 corpus pools reported
+		// mutable, non-canonical fees (0.8/0.85/21.25/28.02 bps) while rendering as
+		// "Uniswap v3". Confirmed Aerodrome by voter() 0x16613524… — the same Voter
+		// as both factories above — plus poolImplementation/swapFeeModule/gauge/nft.
+		expect(classifyV3Factory('0xf8f2Eb4940Cfe7D13603ddDD87F123820fC061ef')).toBe('aerodrome_cl');
 		expect(classifyV3Factory('0x38015D05f4fEC8AFe15D7cc0386a126574e8077B')).toBe('baseswapv3');
 		expect(classifyV3Factory('0x36077D39cdC65E1e3FB65810430E5b2c4D5fA29E')).toBe('hydrex');
 		// QuickSwap v4 (Algebra Integral) — recognised by its factory, like Hydrex,
