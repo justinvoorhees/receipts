@@ -1737,6 +1737,31 @@ describe('Receipt Unattributed row', () => {
 		expect(count(html) - count(baseline)).toBe(3);
 	});
 
+	it('blames market-maker inventory, not our coverage, on an RFQ-only gap', async () => {
+		// id 36's shape: a single market-maker fill. There is no on-chain mid to
+		// measure it against, so "pricing coverage is 0% complete" would report a
+		// property of RFQ as a failure of ours.
+		const { ReceiptView } = await import('./receiptView');
+		const makerRow = {
+			...fullUsdcWethRow,
+			routeLegs: [{ ...pricedLeg, type: 'rfq', priceImpactBps: null }],
+		};
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={makerRow as never} hash={makerRow.txHash} />,
+		);
+		expect(html).toContain('No calculation available due to market maker inventory.');
+		expect(html).not.toContain('pricing coverage is');
+	});
+
+	it('still reports coverage when the unpriced leg is a pool, not a maker', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		expect(html).toContain('pricing coverage is 66% complete');
+		expect(html).not.toContain('market maker inventory');
+	});
+
 	it('omits the row when the route is unpriced AND there is no residual at all', async () => {
 		// Reachable today — receipt id 219 is pricingStatus 'full' with a NULL
 		// slippage_bps. Without the residualRawBps guard the row renders a bare

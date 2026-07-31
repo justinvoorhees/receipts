@@ -11,7 +11,7 @@
  * module is marked 'use client'.
  */
 import { useState } from 'react';
-import { isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
+import { costedLegs, isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
 import { formatProvider, shortTxHash } from '../../lib/formatters';
 import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
@@ -118,6 +118,18 @@ export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): stri
 	return leg.v4Emitter ?? leg.venue;
 }
 
+/**
+ * Copy for the Slippage / Positive Slippage cells when the ONLY reason we could
+ * not price the route is that a market maker filled part of it.
+ *
+ * An RFQ fill is quoted off-chain; there is no pool mid to measure it against,
+ * so the cost genuinely cannot be split into components. That is a property of
+ * how RFQ works, NOT a gap in our readers — and `noSlippageTooltip`'s "pricing
+ * coverage is n% complete" would blame the tool for it. 10 of 62 receipts
+ * ($74,969, incl. id 36 at $35,055) are in this state.
+ */
+export const RFQ_UNATTRIBUTABLE_TOOLTIP = 'No calculation available due to market maker inventory.';
+
 /** Copy for the Unattributed row's label. */
 export const UNATTRIBUTED_TOOLTIP =
 	'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact';
@@ -145,6 +157,8 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	coveragePercent: number;
 	fullyPriced: boolean;
 	residualRawBps: number | null;
+	/** Explanation for the N/A Slippage cells; undefined when the route is priced. */
+	slippageUnavailableTooltip: string | undefined;
 } {
 	const executionRaw =
 		row.slippageBps == null || !Number.isFinite(Number(row.slippageBps))
@@ -175,6 +189,22 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	// nothing to weigh at all, which is 0% priced.
 	const coveragePercent = fullyPriced ? 100 : Math.min(99, Math.floor(100 * (coverage ?? 0)));
 
+	// WHY we could not price it decides what we tell the trader. If every leg we
+	// failed to price is a market-maker fill, the gap is inherent to RFQ and
+	// naming a coverage percentage would blame our tooling for it. If ANY unpriced
+	// leg is a pool, that one really is our gap, and the honest answer is the
+	// coverage figure — so this deliberately does not generalise from "the route
+	// contains a maker leg" to "the whole gap is by design".
+	// ⚠️ `[].every()` is vacuously true: an empty route is a coverage gap, not
+	// evidence of a market maker, hence the length check.
+	const unpriced = costedLegs(legs).filter((leg) => leg.priceImpactBps == null);
+	const unpricedIsAllMaker = unpriced.length > 0 && unpriced.every(isMakerLeg);
+	const slippageUnavailableTooltip = fullyPriced
+		? undefined
+		: unpricedIsAllMaker
+			? RFQ_UNATTRIBUTABLE_TOOLTIP
+			: noSlippageTooltip(coveragePercent);
+
 	const residualDisplay = formatDialogBps(marketForcesRaw == null ? null : -marketForcesRaw);
 
 	return {
@@ -188,6 +218,7 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 			? formatDialogBps(slippageBenefitRaw == null ? null : -slippageBenefitRaw)
 			: NOT_AVAILABLE,
 		unattributedDisplay: fullyPriced ? NOT_AVAILABLE : residualDisplay,
+		slippageUnavailableTooltip,
 		coveragePercent,
 		fullyPriced,
 		// Unnegated (positive = cost to the user). Exposed because the display
@@ -322,7 +353,10 @@ export const RFQ_LEG_TOOLTIP =
 
 /** True when a leg is a market maker's off-chain-quoted fill, not an on-chain pool. */
 export function isMakerLeg(leg: Pick<RouteLeg, 'type' | 'venue'>): boolean {
-	return leg.type === 'rfq' && !KNOWN_NON_RFQ_VENUES.has(leg.venue.toLowerCase());
+	// `venue` is optional-in-practice: route_legs is persisted JSON, and callers
+	// pass partial legs. An absent venue is never in the exclusion set, so it
+	// falls through to "maker" — the same answer the type alone would give.
+	return leg.type === 'rfq' && !KNOWN_NON_RFQ_VENUES.has((leg.venue ?? '').toLowerCase());
 }
 
 // Shared with ReceiptView for every other null-pricing field (Market Price,

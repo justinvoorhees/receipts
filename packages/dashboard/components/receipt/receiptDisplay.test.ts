@@ -206,6 +206,66 @@ describe('getExecutionBreakdown coverage gating', () => {
 		expect(r.slippageDisplay.text).toBe('N/A');
 	});
 
+	// A market-maker fill has no on-chain mid to compare against — it is
+	// unattributable BY DESIGN, not because our readers failed. Telling a trader
+	// "pricing coverage is 0% complete" on such a receipt blames the tool for a
+	// property of how RFQ works. Real split in the corpus: 10 receipts /$74,969
+	// where every unpriced leg is a maker fill, vs 8 /$1,607 where none is.
+	const makerLeg = { type: 'rfq', venue: '0x3dbe077e79b2a0e0b1f3a4c1e5d7a9c2b4e6f8a0', notionalUsdc: 1000, priceImpactBps: null };
+	const poolLeg = (priceImpactBps: number | null) => ({
+		type: 'univ3', venue: '0x1111111111111111111111111111111111111111',
+		notionalUsdc: 1000, priceImpactBps,
+	});
+
+	it('names market-maker inventory when EVERY unpriced leg is a maker fill', async () => {
+		const { getExecutionBreakdown } = await import('./receiptDisplay');
+		// id 210's shape: five priced pool legs plus one rfq leg.
+		const r = getExecutionBreakdown({
+			slippageBps: 25.54,
+			routeLegs: [poolLeg(4.19), poolLeg(2.11), makerLeg],
+		} as never);
+		expect(r.fullyPriced).toBe(false);
+		expect(r.slippageUnavailableTooltip).toBe('No calculation available due to market maker inventory.');
+	});
+
+	it('falls back to the coverage wording when an unpriced leg is NOT a maker fill', async () => {
+		const { getExecutionBreakdown } = await import('./receiptDisplay');
+		// A pool leg we simply failed to price is OUR gap, not the market's.
+		const r = getExecutionBreakdown({
+			slippageBps: 25.54,
+			routeLegs: [poolLeg(4.19), poolLeg(null)],
+		} as never);
+		expect(r.slippageUnavailableTooltip).toBe(
+			'No calculation available, per-leg pricing coverage is 50% complete',
+		);
+	});
+
+	it('does not claim maker inventory when only SOME unpriced legs are maker fills', async () => {
+		const { getExecutionBreakdown } = await import('./receiptDisplay');
+		// No such receipt exists in the corpus today, but the rule must not
+		// generalise from "there is a maker leg" to "the whole gap is by design".
+		const r = getExecutionBreakdown({
+			slippageBps: 25.54,
+			routeLegs: [poolLeg(4.19), makerLeg, poolLeg(null)],
+		} as never);
+		expect(r.slippageUnavailableTooltip).toContain('pricing coverage is');
+	});
+
+	it('offers no tooltip at all when the route is fully priced', async () => {
+		const { getExecutionBreakdown } = await import('./receiptDisplay');
+		const r = getExecutionBreakdown({ slippageBps: 25.54, routeLegs: [poolLeg(19.37)] } as never);
+		expect(r.fullyPriced).toBe(true);
+		expect(r.slippageUnavailableTooltip).toBeUndefined();
+	});
+
+	it('an empty route is a coverage gap, not maker inventory', async () => {
+		const { getExecutionBreakdown } = await import('./receiptDisplay');
+		// Vacuous truth trap: `[].every(isMaker)` is true. A route we never
+		// decomposed is not evidence a market maker filled it.
+		const r = getExecutionBreakdown({ slippageBps: 25.54, routeLegs: [] } as never);
+		expect(r.slippageUnavailableTooltip).toContain('pricing coverage is 0% complete');
+	});
+
 	it('a null slippageBps yields N/A everywhere, not a fake zero', async () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
 		const r = getExecutionBreakdown({ slippageBps: null, routeLegs: [] } as never);

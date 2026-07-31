@@ -20,7 +20,6 @@ import {
 	NULL_PRICE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
-	noSlippageTooltip,
 	UNATTRIBUTED_TOOLTIP,
 } from './receipt/receiptDisplay';
 import { receiptDollars } from './receipt/qualityNotionals';
@@ -389,7 +388,7 @@ export function Receipt({
 							color={execution.slippageDisplay.color}
 							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
 							valueTooltip={
-								execution.fullyPriced ? undefined : noSlippageTooltip(execution.coveragePercent)
+								execution.slippageUnavailableTooltip
 							}
 							standalone
 						/>
@@ -399,7 +398,7 @@ export function Receipt({
 							color={execution.positiveSlippageDisplay.color}
 							tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
 							valueTooltip={
-								execution.fullyPriced ? undefined : noSlippageTooltip(execution.coveragePercent)
+								execution.slippageUnavailableTooltip
 							}
 							standalone
 						/>
