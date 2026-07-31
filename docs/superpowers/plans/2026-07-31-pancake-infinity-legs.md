@@ -1144,7 +1144,14 @@ for (const r of rows) {
 ```
 
 **Success is measured on id 408**, where Infinity is the only gap:
-- its `0x238a3588…` leg is replaced by an `inf:<poolId>` leg;
+- its `0x238a3588…` leg is TYPED `pancake_infinity` and priced.
+  ⚠️ It is **not** replaced by an `inf:<poolId>` leg, and must not be. id 408 has
+  exactly one Infinity pool, so the vault's leg IS that pool and is priced in
+  place; only multi-pool routes go through the rescue that mints `inf:` venues.
+  Minting one here would be worse, not better — the vault address is real and
+  linkable on Basescan, a synthetic pool id is not. (An earlier draft of this
+  criterion said "replaced by an `inf:<poolId>` leg"; that described the design
+  before the single-pool fix and is unreachable by construction now.);
 - that leg has `feeTierBps` ≈ **0.47** and no `feeResolved: false`;
 - that leg has a **non-null `priceImpactBps`** — this is the proof the mid branch
   works, and the single most important check in this plan;
