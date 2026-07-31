@@ -756,6 +756,26 @@ describe('TradesTable slippage columns', () => {
 		feeTierBps: 5, notionalUsdc, lpFeeBps: 1, priceImpactBps,
 	});
 
+	it('renders an ID column immediately right of Aggregator, right-aligned', async () => {
+		const { TradesTable } = await import('./tradesTable');
+		const html = renderToStaticMarkup(
+			<TradesTable
+				rows={[{ ...baseRow, id: 4242, routeLegs: [leg(1000, 19.37)] }] as never}
+				initialSort={{ column: 'block', direction: 'desc' }}
+			/>,
+		);
+		// Position matters: the ID header must sit between Aggregator and Pair.
+		const head = html.slice(html.indexOf('<thead'), html.indexOf('</thead>'));
+		expect(head.indexOf('>Aggregator')).toBeLessThan(head.indexOf('>ID'));
+		expect(head.indexOf('>ID')).toBeLessThan(head.indexOf('>Pair'));
+
+		// And the cell carries the receipt's own id, right-aligned.
+		const body = html.slice(html.indexOf('<tbody'));
+		const cells = (body.match(/<td[^>]*>([^<]*)<\/td>/g) ?? []);
+		expect(cells[1]).toContain('4242');
+		expect(cells[1]).toContain('text-right');
+	});
+
 	it('renders all three slippage columns as headers', async () => {
 		const { TradesTable } = await import('./tradesTable');
 		const html = renderToStaticMarkup(

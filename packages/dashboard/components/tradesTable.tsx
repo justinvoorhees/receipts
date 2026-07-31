@@ -26,6 +26,9 @@ const COL_FIRST = 'p-0 py-[10px] align-baseline whitespace-nowrap';
 const ACCESSORS: Record<TradesSortColumn, (r: ReceiptRow) => string | number> = {
 	block: (r) => r.blockNumber,
 	aggregator: (r) => r.aggregator.toLowerCase(),
+	// The receipt's own primary key. Numeric, so it sorts numerically rather
+	// than lexically — 'id 9' must not fall between 'id 89' and 'id 90'.
+	id: (r) => r.id,
 	// "side" = input→output symbols; we never parse `direction`.
 	side: (r) => `${r.inputSymbol}->${r.outputSymbol}`,
 	size: (r) => Number(r.notionalUsd ?? 0),
@@ -165,6 +168,9 @@ function HeaderRow({
 				<SortHeader col="aggregator" sort={sort} onSort={onSort} align="left">Aggregator</SortHeader>
 			</th>
 			<th className={TH}>
+				<SortHeader col="id" sort={sort} onSort={onSort}>ID</SortHeader>
+			</th>
+			<th className={TH}>
 				<SortHeader col="side" sort={sort} onSort={onSort}>Pair</SortHeader>
 			</th>
 			<th className={TH}>
@@ -292,6 +298,7 @@ function DataRow({
 			onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(row); } }}
 		>
 			<td className={COL_FIRST} style={{ color: providerColor(row.aggregator.toLowerCase()) }}>{formatProvider(row.aggregator.toLowerCase())}</td>
+			<td className={`${COL} text-right`}>{row.id}</td>
 			<td className={`${COL} text-right whitespace-nowrap`}>{receiptPairTitle(row)}</td>
 			<td className={`${COL} text-right`}>{formatNotional(row.notionalUsd != null ? Number(row.notionalUsd) : null)}</td>
 			<td className={`${COL} text-right`} style={!lpNotApplicable && lp.color ? { color: lp.color } : undefined}>{lpNotApplicable ? '–' : stripSign(lp.text)}</td>

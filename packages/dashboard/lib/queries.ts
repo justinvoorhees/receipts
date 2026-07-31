@@ -118,7 +118,7 @@ export function enrichLegRouters(row: ReceiptRow): ReceiptRow {
  * sortable field on `ReceiptRow` (see TradesTable ACCESSORS).
  */
 export const TRADES_SORT_COLUMN_KEYS = {
-	block: 'blockNumber', aggregator: 'aggregator', side: 'direction',
+	block: 'blockNumber', aggregator: 'aggregator', id: 'id', side: 'direction',
 	size: 'notionalUsd', accuracy: 'allInCostBps', lpFee: 'lpFeeBps',
 	aggFee: 'aggFeeBps', impact: 'slippageBps', slippage: 'slippageBps',
 	posSlippage: 'slippageBps', unattributed: 'slippageBps', gas: 'gasCostUsd',
