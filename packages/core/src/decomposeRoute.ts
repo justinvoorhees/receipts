@@ -615,8 +615,12 @@ export async function decomposeRoute(
 
 	const legFeeInputs: LegFeeInput[] = [];
 	for (const leg of graph.legs) {
-		// Resolve fee tier
-		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw);
+		// Resolve fee tier. Both singleton venues (V4 and Infinity) carry their
+		// fee on the Swap event rather than on-chain, which is why it arrives as
+		// a parameter here instead of being read by the reader itself. A leg is
+		// only ever one venue type, so exactly one of the two fields is set and
+		// `??` cannot pick the wrong one.
+		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw ?? leg.infinityFeeRaw);
 		const feeTierBps = feeResult.bps;
 
 		if (feeResult.defaulted) {
