@@ -25,7 +25,20 @@ Measured blast radius, re-measured 2026-07-30:
 | **§2 V4 multi-pool fee averaging** | 5 (3 unflagged) | $4,497 | a real bug; 3 receipts silently wrong today |
 | §3 Twin venues fee tier | 2 | $53,884 | **exactly zero bps**; identification work |
 | §4 PancakeSwap Infinity | 1 | $3 | generalizable root cause, negligible value |
-| (RFQ relabel — not in this doc) | 10 | $74,969 | zero, label only |
+| ~~RFQ relabel~~ ✅ DONE 2026-07-30 | 10 | $74,969 | zero bps, label only — see below |
+
+**RFQ relabel — ✅ DONE 2026-07-30** (`8accd10`). Not a numbered item, but it
+was the largest remaining honesty gap: 10 of 62 receipts ($74,969) have an
+unpriced leg *only* because a market maker filled it off-chain, and the Slippage
+cells were telling the trader "pricing coverage is n% complete" — reporting a
+property of RFQ as a failure of ours. `getExecutionBreakdown` now returns
+`slippageUnavailableTooltip`, which reads **"No calculation available due to
+market maker inventory."** when EVERY unpriced leg is a maker fill, and the
+coverage string otherwise. ⚠️ It deliberately does NOT generalise from "the route
+contains a maker leg" to "the whole gap is by design" — one unpriced *pool* leg
+really is our gap. The corpus splits cleanly (10 all-maker / 8 no-maker / 0
+mixed), so the rule is currently unambiguous; the mixed case is covered by a test
+rather than by data.
 
 **Recommended order: §2, then §4, then §3.** §2 is the only one that corrects a
 displayed number, and its fix reuses machinery that already exists and passes
