@@ -192,3 +192,52 @@ describe('decodeV3LikeSwaps', () => {
 		expect(decodeV3LikeSwaps([transferLog], true)).toEqual([]);
 	});
 });
+
+describe('SINGLETON_DEX_CUSTODIANS', () => {
+  it('lists every singleton custodian, not just Uniswap V4', async () => {
+    const { SINGLETON_DEX_CUSTODIANS } = await import('./tradeDecoders.js');
+    // Uniswap V4's PoolManager both custodies and emits; Pancake Infinity splits
+    // the two, and it is the VAULT that holds tokens and therefore shows up in
+    // address deltas as a "retained balance".
+    expect(SINGLETON_DEX_CUSTODIANS.has('0x498581ff718922c3f8e6a244956af099b2652b2b')).toBe(true);
+    expect(SINGLETON_DEX_CUSTODIANS.has('0x238a358808379702088667322f80ac48bad5e6c4')).toBe(true);
+  });
+
+  it('is lowercased, because every caller compares against lowercased addresses', async () => {
+    const { SINGLETON_DEX_CUSTODIANS } = await import('./tradeDecoders.js');
+    for (const a of SINGLETON_DEX_CUSTODIANS) expect(a).toBe(a.toLowerCase());
+  });
+});
+
+describe('computeAggFee singleton custodians', () => {
+  it('never books a singleton custodian as a fee sink', async () => {
+    const { computeAggFee } = await import('./tradeFees.js');
+    const VAULT = '0x238a358808379702088667322f80ac48bad5e6c4';
+    const { SINGLETON_DEX_CUSTODIANS } = await import('./tradeDecoders.js');
+    // Reproduces receipt id 408 (Nordstern, $12.07). The Vault is a
+    // flash-accounting custodian: tokens go in and come back out, so it should
+    // net to ~nothing. It does not, and the residual looks exactly like a fee —
+    // it was booked as 2.810 bps of aggregator fee. Probing cannot fix this: a
+    // custodian answers neither fee() nor getReserves(), so the only reliable
+    // signal is knowing structurally that the address IS a singleton.
+    const args = {
+      transfers: [],
+      addrDeltas: new Map([[VAULT, { usdc: 0.0034, weth: 0, nativeEth: 0 }]]),
+      knownVaults: new Set<string>(),
+      dustUsdc: 1e-6,
+      structuralFloor: 0,
+      realizedPrice: 1873,
+      notionalUsdc: 12.07,
+    };
+
+    // Without the carve-out the custodian is booked as an aggregator fee.
+    const naive = computeAggFee({ ...args, isInfra: () => false });
+    expect(naive.feeSinks.map((s) => s.address)).toContain(VAULT);
+    expect(naive.aggFeeBps).toBeCloseTo(2.82, 1);
+
+    // With it, the vault contributes nothing at all — not merely a smaller share.
+    const fixed = computeAggFee({ ...args, isInfra: (a) => SINGLETON_DEX_CUSTODIANS.has(a) });
+    expect(fixed.feeSinks).toHaveLength(0);
+    expect(fixed.aggFeeBps).toBe(0);
+  });
+});

@@ -29,6 +29,7 @@ import {
 	AERODROME_SWAP_TOPIC,
 	AERODROME_SYNC_TOPIC,
 	UNISWAP_V4_POOL_MANAGER,
+	SINGLETON_DEX_CUSTODIANS,
 	decodeV3LikeSwaps,
 	decodeV4SwapFees,
 } from './tradeDecoders.js';
@@ -147,8 +148,12 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		}
 	}
 
-	// V4 PoolManager is always a venue
-	venueAddresses.add(UNISWAP_V4_POOL_MANAGER);
+	// Singleton-architecture DEXes are always venues, never fee sinks. Their
+	// custodian holds every pool's balances and settles by flash accounting, so a
+	// small unmatched residual is normal — and reads exactly like a retained fee
+	// to the classifier below. It cannot be probed away: a custodian answers
+	// neither fee() nor getReserves(). See SINGLETON_DEX_CUSTODIANS.
+	for (const custodian of SINGLETON_DEX_CUSTODIANS) venueAddresses.add(custodian);
 
 	// Create an RPC client for fee() view calls
 	const rpc = createPublicClient({ chain: base, transport: http(input.rpcUrl) });

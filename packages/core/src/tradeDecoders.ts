@@ -44,6 +44,38 @@ export const DEPOSIT_TOPIC =
 export const UNISWAP_V4_POOL_MANAGER =
 	'0x498581ff718922c3f8e6a244956af099b2652b2b';
 
+/** PancakeSwap Infinity `Vault` — the token custodian, NOT a pool. Pools live
+ *  behind CLPoolManager 0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b, which emits
+ *  the Swap. Uniswap V4 does both jobs at one address; Pancake splits them. */
+export const PANCAKE_INFINITY_VAULT =
+	'0x238a358808379702088667322f80ac48bad5e6c4';
+
+/**
+ * Addresses that CUSTODY tokens for a singleton-architecture DEX.
+ *
+ * A singleton holds every pool's balances at one address and settles by flash
+ * accounting, so tokens go in and come back out within the trade. It should net
+ * to ~nothing, but the two sides are not measured identically and the residual
+ * reads exactly like a retained fee — which is how receipt id 408 booked the
+ * Pancake Infinity Vault as 2.810 bps of AGGREGATOR fee on a $12 trade.
+ *
+ * ⚠️ Probing cannot distinguish these. `computeAggFee`'s fee-sink classifier
+ * falls back to calling `fee()` / `getReserves()`, and a custodian answers
+ * NEITHER — its fees live per-pool inside the manager contract. So the only
+ * reliable signal is structural: this list. Uniswap V4 was carved out by hand
+ * for exactly this reason; every other singleton silently had its LP fee
+ * reclassified as an aggregator fee until it was added here.
+ *
+ * ⚠️ This is the CUSTODIAN, which is not always the Swap emitter. Adding an
+ * emitter here instead would leave the custodian probed and misbooked.
+ *
+ * Lowercase — every caller compares against lowercased addresses.
+ */
+export const SINGLETON_DEX_CUSTODIANS: ReadonlySet<string> = new Set([
+	UNISWAP_V4_POOL_MANAGER,
+	PANCAKE_INFINITY_VAULT,
+]);
+
 // ─── Helpers ───
 
 /**
