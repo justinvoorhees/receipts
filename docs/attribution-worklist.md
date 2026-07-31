@@ -391,10 +391,37 @@ already repopulated; the fix is visible now.
 
 ---
 
-## 4. PancakeSwap Infinity
+## 4. PancakeSwap Infinity  ⚡ HALF DONE 2026-07-30
 
-**Value: $3 of notional corpus-wide (1 of 52 receipts).** Do it for
-correctness, not for recovered bps. Lowest priority.
+> ⚠️ **The receipt id below is STALE.** This section says id 326, which no
+> longer exists. The live case is **id 408**
+> (`0x32b6fdfb3351304de58a8c3eedd0a7e0c1820d4505ea5bdb5d8cdbe764aede68`).
+
+**✅ Shipped (`46aeed2`): the fee-sink misbooking.**
+`SINGLETON_DEX_CUSTODIANS` (`tradeDecoders.ts`) replaces the hardcoded
+`venueAddresses.add(UNISWAP_V4_POOL_MANAGER)`; the Vault is now infrastructure
+and never probed. id 408: aggFee 3.997 → 1.188, slippage −3.209 → −0.400, allIn
+unchanged, identity still closes. Backup: `docs/receipt-408-prerepop-backup.json`.
+
+⚡ **The mechanism is flash accounting, not a failed probe.** The root-cause
+text below is half right — the probe genuinely cannot see a custodian, but that
+is incidental. A singleton settles by taking tokens in and paying them back out,
+so it should net to ~nothing; the two sides are not measured identically and the
+residual reads as a retained fee. Measured: the Vault's ERC-20-only delta is
+**+2.991 USDC on a $12.07 trade**, because its payout side is native ETH.
+
+⚠️ The registry holds the **CUSTODIAN**, not the Swap emitter. Uniswap V4 does
+both at one address; Pancake splits them. Listing an emitter would leave the
+custodian probed and misbooked.
+
+**⭐ STILL OPEN: the 0.47 bps leg fee.** Everything below about decoding it from
+the Swap event is verified correct on-chain. It is unread because adding a new
+`VenueType` without also adding a `getLegMidAtBlock` branch would **null the
+leg's 2.88 bps price impact** — the leg currently reaches a mid only via the
+`unknown` → discovery fallback. Worth 0.17 bps of route LP fee on a $12 trade.
+
+**Original value note: $3 of notional corpus-wide (1 of 52 receipts).** Do it for
+correctness, not for recovered bps.
 
 ### The bug
 
