@@ -981,6 +981,28 @@ In `routeVenueScan.ts`'s scan loop, beside the V4 branch:
 		}
 ```
 
+⚠️ **Then attach the pool identity, but ONLY when there is exactly one pool.**
+After the scan loop, count the distinct Infinity poolIds via
+`collectInfinitySwaps(logs)`. If there is **exactly one**, the vault's leg is
+unambiguous, so store `infinityPoolId` and `infinityFeeRaw` (the swap's
+`lpFeePips`) on that venue entry. With **two or more**, store the type alone and
+let the rescue synthesize per-pool legs.
+
+`VenueInfo` gains `infinityPoolId?: string` and `infinityFeeRaw?: number`, and
+`routeGraph.ts` copies them onto the leg exactly as it already does for V4 at
+`:234-235`.
+
+⚠️ **This is not optional polish — without it the retype is a REGRESSION.** A
+single-pool Infinity route that already reconstructs never trips
+`shouldAttemptInfinityRescue`, so no `inf:<poolId>` leg is created; the retyped
+vault leg then has no poolId, `getLegMidAtBlock` returns null at its first
+guard, and the leg LOSES the price impact it currently gets from the `unknown`
+→ discovery fallback. Measured on id 408: 2.88 bps → null. This is exactly what
+Uniswap V4's scan avoids by storing its poolId, which is why V4 has no
+equivalent problem.
+
+⚠️ Store the **LP-only** pips from `lpFeePips`, never the event's raw `fee`.
+
 Import `INFINITY_SWAP_TOPIC` from `./infinityLegs.js` and
 `PANCAKE_INFINITY_VAULT` from `./tradeDecoders.js` — the vault address already
 lives there from the singleton custodian registry, and a second copy would drift.
