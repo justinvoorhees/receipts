@@ -11,15 +11,7 @@ import { createPublicClient, http, parseAbiItem, type PublicClient } from 'viem'
 import { base } from 'viem/chains';
 import type { VenueType, Leg } from './routeGraph.js';
 import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
-import {
-	readSlot0,
-	readV2Reserves,
-	readV4Slot0,
-	V4_POOL_MANAGER,
-	readInfinitySlot0,
-	readInfinityPoolKey,
-	INFINITY_CL_POOL_MANAGER,
-} from './poolDiscovery.js';
+import { readSlot0, readV2Reserves, readV4Slot0, V4_POOL_MANAGER, readInfinityPoolKey } from './poolDiscovery.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 /** Sort two token addresses into Uniswap (token0, token1) order (lower = token0). */
