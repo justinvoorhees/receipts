@@ -119,14 +119,13 @@ export function TradesTable({
 	// Aggregator cell never wraps. `w-max` sizes the wrapper to the widest row;
 	// `left-1/2` + `-translate-x-1/2` re-centers it on the viewport (main is
 	// itself centered, so its center line IS the viewport's). `min-w-full` keeps
-	// a short table from collapsing narrower than the 720px column, and the
-	// 100vw clamp bounds the wrapper's own width; `overflow-x-auto` scrolls the
-	// table WITHIN that bounded box, so wide content (10 columns at ~1022px
-	// natural width, wider than the clamp below ~1024px viewports) scrolls in
-	// its own container instead of the page body.
+	// a short table from collapsing narrower than the 720px column. This is an
+	// admin-only page, so on viewports narrower than the table's natural width
+	// (10 columns, ~1022px) the page itself scrolls horizontally rather than
+	// boxing the table in its own scroll container.
 	return (
 		<>
-			<div className="relative left-1/2 mt-[40px] w-max min-w-full max-w-[calc(100vw-40px)] -translate-x-1/2 overflow-x-auto">
+			<div className="relative left-1/2 mt-[40px] w-max min-w-full -translate-x-1/2">
 				<table className="w-full font-['Sohne_Mono'] text-[12px] leading-[12px]">
 					<thead>
 						<HeaderRow sort={sort} onSort={onSort} />
@@ -231,14 +230,11 @@ function SortHeader({
 				<div
 					role="tooltip"
 					id={tooltip.id}
-					// Opens DOWNWARD (top-full), unlike the receipt's tooltips. The
-					// wrapper below now carries `overflow-x-auto`, and per CSS Overflow 3
-					// setting one axis non-visible computes the OTHER to `auto` — so the
-					// wrapper clips on both axes. These tooltips hang off buttons in
-					// <thead>, the topmost content, so opening upward would render them
-					// outside the content box: clipped, and unreachable by scrolling.
-					// renderToStaticMarkup has no layout, so no test can catch a regression
-					// here — change this only with a browser open.
+					// Opens DOWNWARD (top-full), unlike the receipt's tooltips: these hang
+					// off buttons in <thead>, the topmost content, so opening upward would
+					// render them above the viewport. renderToStaticMarkup has no layout,
+					// so no test can catch a regression here — change this only with a
+					// browser open.
 					className="pointer-events-none absolute top-full left-1/2 z-10 mt-[8px] w-max max-w-[320px] -translate-x-1/2 rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal not-italic normal-case whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible group-focus-visible:visible"
 				>
 					{tooltip.text}
