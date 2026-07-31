@@ -11,7 +11,15 @@ import { createPublicClient, http, parseAbiItem, type PublicClient } from 'viem'
 import { base } from 'viem/chains';
 import type { VenueType, Leg } from './routeGraph.js';
 import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
-import { readSlot0, readV2Reserves, readV4Slot0, V4_POOL_MANAGER } from './poolDiscovery.js';
+import {
+	readSlot0,
+	readV2Reserves,
+	readV4Slot0,
+	V4_POOL_MANAGER,
+	readInfinitySlot0,
+	readInfinityPoolKey,
+	INFINITY_CL_POOL_MANAGER,
+} from './poolDiscovery.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 /** Sort two token addresses into Uniswap (token0, token1) order (lower = token0). */
@@ -386,4 +394,46 @@ export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V
 		});
 		return logs as unknown as V4InitLog[];
 	});
+}
+
+// ─── Infinity poolId → currencies reader ───
+
+/**
+ * Pure cache over an injected Infinity pool-key fetcher. Lowercases the
+ * currencies, caches per poolId INCLUDING a null miss so a failed read is not
+ * retried on every leg, and never throws.
+ */
+export function makeInfinityPoolKeyReader(
+	fetchKey: (poolId: string) => Promise<{ currency0: string; currency1: string } | null>,
+): V4PoolKeyReader {
+	const cache = new Map<string, { currency0: string; currency1: string } | null>();
+	return async (poolId: string) => {
+		const key = poolId.toLowerCase();
+		if (cache.has(key)) return cache.get(key)!;
+		let result: { currency0: string; currency1: string } | null = null;
+		try {
+			const k = await fetchKey(key);
+			if (k) {
+				result = { currency0: k.currency0.toLowerCase(), currency1: k.currency1.toLowerCase() };
+			}
+		} catch {
+			result = null;
+		}
+		cache.set(key, result);
+		return result;
+	};
+}
+
+/**
+ * Live Infinity pool-key reader.
+ *
+ * ⚡ A single eth_call. V4's equivalent has to scan historical Initialize logs
+ * because Uniswap's PoolManager exposes no poolIdToPoolKey; Infinity does.
+ */
+export function createDefaultInfinityPoolKeyReader(rpcUrl: string, blockNumber: bigint): V4PoolKeyReader {
+	if (!rpcUrl || rpcUrl === 'unused' || rpcUrl === 'http://invalid') return async () => null;
+	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	return makeInfinityPoolKeyReader((poolId) =>
+		readInfinityPoolKey(rpc as never, poolId as `0x${string}`, blockNumber),
+	);
 }

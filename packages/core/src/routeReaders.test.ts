@@ -119,3 +119,32 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
     }
   });
 });
+
+describe('makeInfinityPoolKeyReader', () => {
+  it('lowercases currencies and caches per poolId, including a miss', async () => {
+    let calls = 0;
+    const { makeInfinityPoolKeyReader } = await import('./routeReaders.js');
+    const reader = makeInfinityPoolKeyReader(async (poolId) => {
+      calls++;
+      return poolId === '0xaa'
+        ? { currency0: '0x0000000000000000000000000000000000000000', currency1: '0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913' }
+        : null;
+    });
+    expect(await reader('0xAA')).toEqual({
+      currency0: '0x0000000000000000000000000000000000000000',
+      currency1: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+    });
+    await reader('0xaa');
+    expect(calls).toBe(1); // cached
+
+    expect(await reader('0xbb')).toBeNull();
+    await reader('0xbb');
+    expect(calls).toBe(2); // a null miss is cached too, not retried
+  });
+
+  it('never throws — a failing fetch degrades to null', async () => {
+    const { makeInfinityPoolKeyReader } = await import('./routeReaders.js');
+    const reader = makeInfinityPoolKeyReader(async () => { throw new Error('rpc down'); });
+    await expect(reader('0xaa')).resolves.toBeNull();
+  });
+});
