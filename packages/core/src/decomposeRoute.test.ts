@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks, feeOnTransferFlag } from './decomposeRoute.js';
 import type { FeeSink } from './tradeFees.js';
 import { getLegMidAtBlock } from './routeReaders.js';
@@ -1299,6 +1299,40 @@ describe('getLegMidAtBlock', () => {
 			async () => 18,
 		);
 		expect(result).toBeNull();
+	});
+
+	// Reaching this branch at all is the property under test: a reordering that
+	// let a pancake_infinity leg fall through to the unknown/discovery fallback
+	// instead of its own `if (!leg.infinityPoolId) return null` guard would
+	// silently null that leg's price impact, exactly like the univ4 case above.
+	//
+	// v4PoolId is deliberately SET (while infinityPoolId is absent) and the
+	// client is a spy rather than `null as never`: if the guard checked the
+	// wrong field (e.g. `!leg.v4PoolId` instead of `!leg.infinityPoolId`), it
+	// would not fire here, fall through to the RPC read, and this test would
+	// catch that via the spy — asserting only `result === null` would not,
+	// since a failed RPC call against a null client also resolves to null.
+	it('returns null for a pancake_infinity leg without infinityPoolId, without touching the RPC client', async () => {
+		const leg: Leg = {
+			venue: '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b',
+			type: 'pancake_infinity',
+			tokenIn: '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b',
+			tokenOut: '0x4200000000000000000000000000000000000006',
+			amountInRaw: 1000n,
+			amountOutRaw: 500n,
+			v4PoolId: '0xdeadbeef00000000000000000000000000000000000000000000000000000',
+			// no infinityPoolId
+		};
+		const readContract = vi.fn(async () => { throw new Error('should not be called'); });
+		const spyClient = { readContract } as never;
+		const result = await getLegMidAtBlock(
+			spyClient,
+			leg,
+			100n,
+			async () => 18,
+		);
+		expect(result).toBeNull();
+		expect(readContract).not.toHaveBeenCalled();
 	});
 
 	// QuickSwap v4 is Algebra Integral: like Hydrex, its own mid isn't read by a
