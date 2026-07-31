@@ -161,8 +161,8 @@ export interface RouteDecomposeResult {
 export interface DecomposeRouteDeps {
 	/** Pre-fetched trace (skip RPC call). */
 	trace?: TraceNode;
-	/** Custom fee-tier reader. Signature: (poolAddr, venueType, v4FeeRaw?) → { bps, defaulted }. */
-	feeReader?: (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
+	/** Custom fee-tier reader. Signature: (poolAddr, venueType, feeRawPips?) → { bps, defaulted }. */
+	feeReader?: (addr: string, type: VenueType, feeRawPips?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
 	/** Custom V3-style factory reader. Signature: (poolAddr) → factory address. */
 	v3FactoryReader?: (addr: string) => Promise<string | null> | string | null;
 	/** Custom mid-price reader. Signature: (leg, blockNumber) → PairMidResult | null. */

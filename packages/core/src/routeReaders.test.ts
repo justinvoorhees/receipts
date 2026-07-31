@@ -148,3 +148,22 @@ describe('makeInfinityPoolKeyReader', () => {
     await expect(reader('0xaa')).resolves.toBeNull();
   });
 });
+
+describe('pancake_infinity fee reader', () => {
+  it('converts LP pips to bps and reports the fee as resolved', async () => {
+    const { createDefaultFeeReader } = await import('./routeReaders.js');
+    // 'unused' short-circuits the RPC client; the univ4/infinity cases read
+    // their fee off the leg, so they still answer.
+    const read = createDefaultFeeReader('unused', 1n);
+    const out = await read('inf:0xf6', 'pancake_infinity', 47);
+    expect(out.bps).toBeCloseTo(0.47, 6);
+    expect(out.defaulted).toBe(false);
+  });
+
+  it('reports unresolved when the leg carries no fee', async () => {
+    const { createDefaultFeeReader } = await import('./routeReaders.js');
+    const read = createDefaultFeeReader('unused', 1n);
+    const out = await read('inf:0xf6', 'pancake_infinity', undefined);
+    expect(out.defaulted).toBe(true);
+  });
+});
