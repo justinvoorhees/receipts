@@ -18,10 +18,11 @@ Spec: `docs/superpowers/specs/2026-07-31-pancake-infinity-legs-design.md`
 
 ## Global Constraints
 
-- `packages/core/src/**` — **match each file's existing indentation.**
-  `v4Legs.ts`, `receiptPure.ts` and `poolDiscovery.ts` use **2 spaces**;
-  `decomposeRoute.ts`, `routeGraph.ts`, `routeVenueScan.ts`, `routeReaders.ts`
-  and `analyzeTransaction.ts` use **TABS**. Check with `cat -t` if unsure.
+- `packages/core/src/**` — **match each file's existing indentation.** Measured
+  2026-07-31, so trust this over any earlier note: **2 spaces** —
+  `v4Legs.ts`, `receiptPure.ts`, `poolDiscovery.ts`, **`routeGraph.ts`**;
+  **TABS** — `decomposeRoute.ts`, `routeVenueScan.ts`, `routeReaders.ts`,
+  `analyzeTransaction.ts`. Verify with `grep -cP '^\t' <file>` if unsure.
   `packages/dashboard/**` uses tabs.
 - **Adding `VenueType: 'pancake_infinity'` REQUIRES both a fee-reader case AND a
   `getLegMidAtBlock` branch.** A venue type without the mid branch falls through
@@ -41,6 +42,13 @@ Spec: `docs/superpowers/specs/2026-07-31-pancake-infinity-legs-design.md`
   Run the exported and unexported suites as **separate tool calls** — chaining
   them in one shell leaks the env into the second.
 - Work from the repo root: `/Users/justinvoorhees/withfabricxyz/fabric-tca-decoder`
+- ⚠️ **The PERSISTED key in `receipts.route_legs` stays `v4Emitter`** even though
+  the in-memory field is now `replacesVenue` (`analyzeTransaction.ts:137` maps
+  one to the other). Renaming the persisted key would strand every existing row
+  — the dashboard would read `undefined` and silently lose V4 Basescan links and
+  router provenance until a full repopulation. Do not "tidy" this.
+- ⚠️ Another agent is active in this repo. **Stage files explicitly — never
+  `git add -A`** — and `git fetch` before each commit.
 
 ## File Structure
 
