@@ -1219,6 +1219,28 @@ describe('getPriceImpactRows router attribution', () => {
 	// NB this does NOT move the Slippage/Unattributed residual — slippage is
 	// overstated by exactly the same amount ΣPI is, so `slippage − ΣPI` is
 	// invariant. The defect is confined to this one cell.
+	it('names the PancakeSwap Infinity vault rather than calling it Unknown Pool', async () => {
+		// The leg is type 'unknown' — we do not read Infinity's fee or mid yet —
+		// but the address is known, and KNOWN_VENUE_LABELS is consulted before the
+		// type dispatch. Naming it needs no VenueType, and so cannot disturb which
+		// branch getLegMidAtBlock takes.
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows(
+			[leg({ venue: '0x238a358808379702088667322f80ac48bad5e6c4', type: 'unknown' })] as never,
+			baseRow as never,
+		);
+		expect(rows[0]!.label).toBe('PancakeSwap Infinity');
+	});
+
+	it('still calls a genuinely unidentified pool Unknown Pool', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows(
+			[leg({ venue: '0x0000000000000000000000000000000000000dead', type: 'unknown' })] as never,
+			baseRow as never,
+		);
+		expect(rows[0]!.label).toBe('Unknown Pool');
+	});
+
 	it('links a synthesized V4 leg to its emitter, not to the poolId', async () => {
 		// A per-pool V4 leg's venue is `v4:<poolId>` — not an address — so linking
 		// to it yields a dead Basescan URL. The emitting singleton is persisted

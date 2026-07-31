@@ -428,11 +428,20 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 	'0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3': 'GITLAWB',
 };
 
+// Consulted BEFORE any leg.type dispatch, so a venue can be named without
+// giving it a VenueType. That matters for singleton custodians: naming them
+// here is purely cosmetic, whereas a new VenueType changes which branch
+// getLegMidAtBlock takes and can null the leg's price impact.
 const KNOWN_VENUE_LABELS: Record<string, string> = {
 	'0x77e44581399f96129a8a0041dbb4e1a7569b9969': 'Curve StableNG',
 	'0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap v4',
 	'0xb1383dc47d9971fc999c3a9088f79e744b376e97': 'Hydrex',
 	'0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76': 'UniPool',
+	// PancakeSwap Infinity's Vault. Its legs are type 'unknown' because we do not
+	// read Infinity's fee or mid yet — but "Unknown Pool" was never true, we know
+	// exactly what this is. Named for the protocol, matching Uniswap v4 above,
+	// which is likewise the singleton rather than the pool the trade touched.
+	'0x238a358808379702088667322f80ac48bad5e6c4': 'PancakeSwap Infinity',
 };
 
 const KNOWN_NON_RFQ_VENUES = new Set([
