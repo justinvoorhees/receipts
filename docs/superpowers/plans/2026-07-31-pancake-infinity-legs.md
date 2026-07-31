@@ -762,8 +762,12 @@ export function createDefaultInfinityPoolKeyReader(rpcUrl: string, blockNumber: 
 ```
 
 Extend `routeReaders.ts`'s import from `./poolDiscovery.js` to include
-`readInfinitySlot0`, `readInfinityPoolKey` **and `INFINITY_CL_POOL_MANAGER`** —
-Task 4's mid branch returns the last of these as the leg's `poolAddress`.
+**`readInfinityPoolKey` ONLY**.
+
+⚠️ Do NOT import `readInfinitySlot0` or `INFINITY_CL_POOL_MANAGER` here — this
+task does not use them, and eslint's `no-unused-vars` is an error in this repo,
+so importing them now leaves the branch failing lint until Task 4 lands. Task 4
+adds them when it uses them.
 
 - [ ] **Step 5: Run to verify they pass**
 
@@ -862,7 +866,11 @@ In `createDefaultFeeReader`'s switch, beside `case 'univ4'`:
 
 - [ ] **Step 4: Add the mid branch**
 
-In `getLegMidAtBlock`, immediately after the `univ4` block:
+First extend `routeReaders.ts`'s `./poolDiscovery.js` import with
+`readInfinitySlot0` and `INFINITY_CL_POOL_MANAGER` — Task 3 deliberately left
+them out, because it did not use them and eslint errors on unused imports.
+
+Then, in `getLegMidAtBlock`, immediately after the `univ4` block:
 
 ```ts
   // Infinity pools: read slot0 by poolId from the CLPoolManager. Like V4 they
