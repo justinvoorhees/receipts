@@ -9,7 +9,7 @@
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type VenueType = 'univ3' | 'sushiv3' | 'baseswapv3' | 'pancakev3' | 'univ4' | 'univ2' | 'aerodrome' | 'aerodrome_cl' | 'curve_stableng' | 'maverickv1' | 'maverickv2' | 'hydrex' | 'quickswapv4' | 'unipool' | 'rfq' | 'unknown' | 'wrap' | 'unwrap';
+export type VenueType = 'univ3' | 'sushiv3' | 'baseswapv3' | 'pancakev3' | 'univ4' | 'univ2' | 'aerodrome' | 'aerodrome_cl' | 'curve_stableng' | 'maverickv1' | 'maverickv2' | 'hydrex' | 'quickswapv4' | 'unipool' | 'rfq' | 'unknown' | 'wrap' | 'unwrap' | 'pancake_infinity';
 
 export interface Leg {
   venue: string;            // lowercase address (or 'rfq_fill:<idx>')
@@ -23,6 +23,8 @@ export interface Leg {
   amountsNetted?: boolean;
   v4PoolId?: string;        // for univ4 (from Swap event id)
   v4FeeRaw?: number;        // for univ4 (from Swap event fee)
+  infinityPoolId?: string;  // for pancake_infinity (from Swap event id)
+  infinityFeeRaw?: number;  // LP-ONLY pips, already inverted out of swapFee
   /** The address-derived leg these synthesized legs REPLACE. For Uniswap V4 that
    *  is the PoolManager, which both emits Swap and custodies tokens. For
    *  PancakeSwap Infinity the two DIFFER — the CLPoolManager emits, the Vault
