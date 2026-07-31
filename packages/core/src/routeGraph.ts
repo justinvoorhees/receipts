@@ -23,6 +23,8 @@ export interface Leg {
   amountsNetted?: boolean;
   v4PoolId?: string;        // for univ4 (from Swap event id)
   v4FeeRaw?: number;        // for univ4 (from Swap event fee)
+  v4Emitter?: string;       // for univ4 (address that emitted this Swap log, so the
+                            // collapsed singleton leg at that address can be identified)
 }
 
 export type RouteShape = 'single' | 'linear' | 'split' | 'complex';
@@ -505,17 +507,51 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   const legs = buildLegs(argsNorm, deltas, gross, traderLc);
 
   // 3b. Merge in any synthesized extra legs (e.g. V4 multi-pool legs from Swap
-  // events), guarding against double-counting a V4 pool that buildLegs ALSO
-  // captured cleanly (single-pool case that slipped through): drop any
-  // extraLeg whose (tokenIn, tokenOut) pair already exists among `legs` with
-  // type === 'univ4'.
+  // events).
+  //
+  // When the extras describe MORE THAN ONE distinct V4 pool, buildLegs' own
+  // univ4 leg is the collapsed PoolManager artifact: routeVenueScan.ts keys
+  // venues by emitter address and the V4 singleton emits for every pool it
+  // hosts, so that leg carries only the LAST pool's fee and poolId. The
+  // per-pool legs are strictly better information, so they REPLACE it.
+  //
+  // With one pool (or none) the address-derived leg is trustworthy and the
+  // extra is a duplicate — no drop fires, and the pair-based dedup guard below
+  // (existingUniv4Pairs) is what stops a single-pool V4 route double-counting.
+  const extraPoolIds = new Set(
+    (args.extraLegs ?? []).map((l) => l.v4PoolId).filter((id): id is string => id != null),
+  );
+  // The collapsed leg sits at the ADDRESS that emitted these Swap logs. Match on
+  // that, not on the token pair: a multi-hop through V4 collapses to a leg whose
+  // pair is the route's ENDPOINTS (USDC→CLAWD), which no individual pool covers,
+  // so a pair-scoped drop would leave it in place and double-count the flow. A
+  // different univ4-tagged contract has a different address and survives.
+  const extraV4Emitters = new Set(
+    (args.extraLegs ?? []).map((l) => l.v4Emitter).filter((a): a is string => a != null),
+  );
+  const legsAfterV4 =
+    extraPoolIds.size > 1
+      ? legs.filter((l) => !(l.type === 'univ4' && extraV4Emitters.has(l.venue)))
+      : legs;
   const existingUniv4Pairs = new Set(
-    legs.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),
+    legsAfterV4.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),
   );
+  // An extra leg whose OWN emitter's collapsed leg was just dropped above must
+  // be kept unconditionally: existingUniv4Pairs is a GLOBAL set across every
+  // surviving univ4 leg, so if a second, untouched single-pool V4 emitter
+  // happens to trade the SAME token pair, pair-only de-dup would wrongly
+  // match the extra against that UNRELATED emitter's leg and delete it too —
+  // silently erasing this emitter's entire flow while `reconstructed` stays
+  // true (the unrelated leg papers over the gap). Scope the de-dup: only an
+  // extra whose emitter was NOT dropped (the single-pool case, where that
+  // emitter's own address-derived leg is still present and IS the duplicate)
+  // goes through the pair check.
+  const emitterWasDropped = (emitter: string | undefined): boolean =>
+    extraPoolIds.size > 1 && emitter != null && extraV4Emitters.has(emitter);
   const dedupedExtraLegs = (args.extraLegs ?? []).filter(
-    (l) => !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
+    (l) => emitterWasDropped(l.v4Emitter) || !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
   );
-  const allLegs = dedupedExtraLegs.length > 0 ? [...legs, ...dedupedExtraLegs] : legs;
+  const allLegs = dedupedExtraLegs.length > 0 ? [...legsAfterV4, ...dedupedExtraLegs] : legsAfterV4;
 
   // 4. Chain legs into order
   const { ordered, shape, reconstructed, breakReason } = chainLegs(allLegs, inputToken, outputToken);

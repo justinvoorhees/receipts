@@ -389,11 +389,11 @@ describe('TradesTable', () => {
 			/>,
 		);
 
-		expect(html).toContain('Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage');
+		expect(html).toContain('Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage (or Unattributed)');
 		expect(html).toContain('Fees paid to liquidity providers');
 		expect(html).toContain('Fees paid to aggregators');
 		expect(html).toContain('Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee');
-		expect(html).toContain('Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact');
+		expect(html).toContain('Residual cost after L.P. Fee, Agg. Fee, and P. Impact');
 		expect(html).toContain('role="tooltip"');
 	});
 
@@ -733,5 +733,78 @@ describe('getFlagLabel excludes provenance tokens', () => {
 		const { getFlagLabel } = await import('./tradesTable');
 		expect(getFlagLabel({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'SETTLEMENT_EVENT_MISSING: x'] }))
 			.toBe('SETTLEMENT_EVENT_MISSING: x');
+	});
+});
+
+describe('TradesTable slippage columns', () => {
+	const baseRow = {
+		id: 1, txHash: '0xaaaa', chainId: 8453, blockNumber: 1,
+		aggregator: 'kyberswap', direction: 'buy_weth',
+		inputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+		outputToken: '0x4200000000000000000000000000000000000006',
+		inputSymbol: 'USDC', outputSymbol: 'WETH',
+		inputAmount: '1000', outputAmount: '0.33', notionalUsd: '1000',
+		realizedPrice: '3000', marketMid: '3000', allInCostBps: '-1',
+		pricingStatus: 'full', lpFeeBps: '1', aggFeeBps: '0',
+		slippageBps: '25.54', executionBps: '-1', gasCostUsd: '0.001',
+		hopCount: 1, routeShape: 'single', decompConfidence: 'low',
+		routePure: true, reconResidualBps: null, manipulationFlag: false,
+	};
+	const leg = (notionalUsdc: number, priceImpactBps: number | null) => ({
+		venue: '0x1111111111111111111111111111111111111111', type: 'swap',
+		tokenIn: baseRow.inputToken, tokenOut: baseRow.outputToken,
+		feeTierBps: 5, notionalUsdc, lpFeeBps: 1, priceImpactBps,
+	});
+
+	it('renders all three slippage columns as headers', async () => {
+		const { TradesTable } = await import('./tradesTable');
+		const html = renderToStaticMarkup(
+			<TradesTable
+				rows={[{ ...baseRow, routeLegs: [leg(1000, 19.37)] }] as never}
+				initialSort={{ column: 'block', direction: 'desc' }}
+			/>,
+		);
+		// Anchor on the cell: 'Slippage' is a substring of 'Pos. Slippage'.
+		expect(html).toContain('>Slippage');
+		expect(html).toContain('>Pos. Slippage');
+		expect(html).toContain('>Unattributed');
+	});
+
+	// A COUNTED DIFFERENTIAL, not an absolute count: '–' is not unique in this
+	// table (an RFQ-only route dashes L.P. Fee, a null allInCostBps dashes
+	// Ex. Quality), so an absolute assertion would be brittle and could pass for
+	// the wrong reason. Both renders below differ ONLY in the unpriced leg.
+	const renderBody = async (legs: unknown[]) => {
+		const { TradesTable } = await import('./tradesTable');
+		const html = renderToStaticMarkup(
+			<TradesTable
+				rows={[{ ...baseRow, routeLegs: legs }] as never}
+				initialSort={{ column: 'block', direction: 'desc' }}
+			/>,
+		);
+		return html.slice(html.indexOf('<tbody'));
+	};
+	const dashes = (s: string) => s.split('>–<').length - 1;
+
+	it('the residual moves from Slippage to Unattributed when a leg is unpriced', async () => {
+		const priced = await renderBody([leg(1000, 19.37)]);
+		const partial = await renderBody([leg(1000, 19.37), leg(500, null)]);
+
+		// Same residual either way — 25.54 − 19.37 = 6.17. Only the column moves.
+		expect(priced).toContain('6.17bps');
+		expect(partial).toContain('6.17bps');
+
+		// Fully priced: Slippage + Pos. Slippage filled, Unattributed dashed.
+		// Partial: the inverse — two dashed, one filled. Net +1 dash.
+		expect(dashes(partial) - dashes(priced)).toBe(1);
+	});
+
+	it('the fully-priced row dashes Unattributed specifically', async () => {
+		const priced = await renderBody([leg(1000, 19.37)]);
+		// The last three <td>s before Ex. Quality are the slippage trio. Assert
+		// on order: filled, 0.00bps (the benefit half), dashed.
+		const cells = priced.match(/<td[^>]*>([^<]*)<\/td>/g) ?? [];
+		const texts = cells.map((c) => c.replace(/<[^>]*>/g, ''));
+		expect(texts.slice(-4, -1)).toEqual(['6.17bps', '0.00bps', '–']);
 	});
 });

@@ -63,6 +63,17 @@ export interface RouteLeg {
 	// by resolveLegRouter so registry growth applies retroactively. Absent on
 	// rows persisted before 2026-07-27 and on legs whose chain was ambiguous.
 	frameChain?: string[];
+	// False when core could not READ this pool's fee tier (the reader fell back
+	// to 0). Omitted when the tier resolved, and absent on rows persisted before
+	// 2026-07-30 — so only an explicit `false` suppresses the fee cell. Without
+	// it a 0 bps fee would render as a confident "0.00bps", asserting the pool
+	// was free rather than admitting we could not read it.
+	feeResolved?: boolean;
+	// The V4 singleton that emitted this leg's Swap. Present only on synthesized
+	// per-pool legs, whose `venue` is `v4:<poolId>` rather than an address — link
+	// to this, not to `venue`, or the Basescan URL is dead. Absent on rows
+	// persisted before 2026-07-30 and on every non-V4 leg.
+	v4Emitter?: string;
 	// Resolved from `frameChain` on read (never persisted) — see
 	// enrichLegRouters. Present only when another curated aggregator executed
 	// this leg.
@@ -109,7 +120,8 @@ export function enrichLegRouters(row: ReceiptRow): ReceiptRow {
 export const TRADES_SORT_COLUMN_KEYS = {
 	block: 'blockNumber', aggregator: 'aggregator', side: 'direction',
 	size: 'notionalUsd', accuracy: 'allInCostBps', lpFee: 'lpFeeBps',
-	aggFee: 'aggFeeBps', impact: 'slippageBps', slippage: 'slippageBps', gas: 'gasCostUsd',
+	aggFee: 'aggFeeBps', impact: 'slippageBps', slippage: 'slippageBps',
+	posSlippage: 'slippageBps', unattributed: 'slippageBps', gas: 'gasCostUsd',
 } as const;
 export type TradesSortColumn = keyof typeof TRADES_SORT_COLUMN_KEYS;
 // Keep TRADES_SORT_COLUMNS as an alias for the trades page's VALID_SORT_COLUMNS check:

@@ -11,6 +11,7 @@
  * module is marked 'use client'.
  */
 import { useState } from 'react';
+import { isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
 import { formatProvider, shortTxHash } from '../../lib/formatters';
 import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
@@ -95,12 +96,55 @@ export function formatDialogBps(value: number | null): { text: string; color: st
 	return { text, color };
 }
 
+/**
+ * Copy for the Slippage / Positive Slippage cells when we could not price every
+ * leg. The percentage is deliberately user-facing: a trader should be able to
+ * see how much of their transaction we actually priced.
+ */
+export function noSlippageTooltip(coveragePercent: number): string {
+	return `No slippage calculation available, pricing coverage is ${coveragePercent}% complete`;
+}
+
+/**
+ * The address to link a route leg to on Basescan.
+ *
+ * A synthesized Uniswap V4 leg's `venue` is `v4:<poolId>` — a pool identifier,
+ * not an address — so linking to it yields a dead URL. Those legs carry the
+ * singleton that emitted their Swap in `v4Emitter`; link to that instead. Every
+ * other leg's venue IS its address. Rows persisted before 2026-07-30 have no
+ * `v4Emitter` and keep their (still-dead) venue link until repopulated.
+ */
+export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): string {
+	return leg.v4Emitter ?? leg.venue;
+}
+
+/** Copy for the Unattributed row's label. */
+export const UNATTRIBUTED_TOOLTIP =
+	'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact';
+
+const NOT_AVAILABLE = { text: 'n/a', color: undefined };
+
 export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };
+	/**
+	 * @deprecated Do NOT render this. It is the UNGATED residual — the signed
+	 * `slippage − Σ legPI` with no check that every leg was actually priced.
+	 * Displaying it re-introduces exactly the overclaim this module exists to
+	 * remove: on a partially-priced route it reads as a precise measurement of
+	 * a quantity we never measured. Use `slippageDisplay` /
+	 * `positiveSlippageDisplay` / `unattributedDisplay`, which are gated on
+	 * `fullyPriced`. Retained only because a unit test still pins its value;
+	 * it has had no production consumer since the trades table split its
+	 * Slippage column in three.
+	 */
 	marketForcesDisplay: { text: string; color: string | undefined };
 	slippageDisplay: { text: string; color: string | undefined };
 	positiveSlippageDisplay: { text: string; color: string | undefined };
+	unattributedDisplay: { text: string; color: string | undefined };
+	coveragePercent: number;
+	fullyPriced: boolean;
+	residualRawBps: number | null;
 } {
 	const executionRaw =
 		row.slippageBps == null || !Number.isFinite(Number(row.slippageBps))
@@ -119,12 +163,37 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	const slippageCostRaw = marketForcesRaw == null ? null : Math.max(marketForcesRaw, 0);
 	const slippageBenefitRaw = marketForcesRaw == null ? null : Math.min(marketForcesRaw, 0);
 
+	// The residual above is CORRECT arithmetic either way — it is what is left
+	// after every leg we could price. What changes below is only what we are
+	// entitled to CALL it. "Slippage" claims we accounted for price impact; when
+	// a leg went unpriced, the honest claim is "we could not attribute this".
+	const fullyPriced = isFullyPriced(legs);
+	const coverage = priceImpactCoverage(legs);
+	// Floor, never round, so we cannot overstate coverage; and cap at 99 so a
+	// route that is 100.0% by notional but still has an unpriced (zero-notional)
+	// leg never reads "100% complete" next to an n/a. A null coverage means
+	// nothing to weigh at all, which is 0% priced.
+	const coveragePercent = fullyPriced ? 100 : Math.min(99, Math.floor(100 * (coverage ?? 0)));
+
+	const residualDisplay = formatDialogBps(marketForcesRaw == null ? null : -marketForcesRaw);
+
 	return {
 		executionDisplay: formatDialogBps(executionRaw == null ? null : -executionRaw),
 		priceImpactDisplay: formatDialogBps(priceImpactRaw == null ? null : -priceImpactRaw),
-		marketForcesDisplay: formatDialogBps(marketForcesRaw == null ? null : -marketForcesRaw),
-		slippageDisplay: formatDialogBps(slippageCostRaw == null ? null : -slippageCostRaw),
-		positiveSlippageDisplay: formatDialogBps(slippageBenefitRaw == null ? null : -slippageBenefitRaw),
+		marketForcesDisplay: residualDisplay,
+		slippageDisplay: fullyPriced
+			? formatDialogBps(slippageCostRaw == null ? null : -slippageCostRaw)
+			: NOT_AVAILABLE,
+		positiveSlippageDisplay: fullyPriced
+			? formatDialogBps(slippageBenefitRaw == null ? null : -slippageBenefitRaw)
+			: NOT_AVAILABLE,
+		unattributedDisplay: fullyPriced ? NOT_AVAILABLE : residualDisplay,
+		coveragePercent,
+		fullyPriced,
+		// Unnegated (positive = cost to the user). Exposed because the display
+		// strings above have had their sign stripped by formatDialogBps and the
+		// trades-table sort needs it back. Callers negate for display polarity.
+		residualRawBps: marketForcesRaw,
 	};
 }
 
@@ -193,7 +262,7 @@ export function legPairContext(
 }
 
 export function getPriceImpactRows(
-	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol' | 'router'>[],
+	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol' | 'router' | 'feeResolved'>[],
 	row?: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
 ): {
 	label: string;
@@ -209,7 +278,7 @@ export function getPriceImpactRows(
 		if (stepContext) {
 			return {
 				label: getVenueLabel(leg),
-				href: `https://basescan.org/address/${leg.venue}`,
+				href: `https://basescan.org/address/${legLinkAddress(leg)}`,
 				context: stepContext,
 				value: '–',
 				color: undefined,
@@ -223,13 +292,21 @@ export function getPriceImpactRows(
 			: formatDialogBps(-rawImpact);
 		return {
 			label: getVenueLabel(leg),
-			href: `https://basescan.org/address/${leg.venue}`,
+			href: `https://basescan.org/address/${legLinkAddress(leg)}`,
 			context: row
 				? legPairContext(leg, index, legs.length, row)
 				: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
 			value: impact.text,
 			color: impact.color,
-			valueTooltip: isNullImpact ? getNullPriceImpactTooltip(leg) : undefined,
+			// A null impact keeps its own explanation — there is no number to
+			// caveat. Otherwise, if this leg's fee tier never resolved, the number
+			// shown here has ABSORBED that unread fee (see IMPACT_ABSORBS_FEE_TOOLTIP)
+			// and must not read as a clean price-impact measurement.
+			valueTooltip: isNullImpact
+				? getNullPriceImpactTooltip(leg)
+				: hasUnresolvedFee(leg)
+					? IMPACT_ABSORBS_FEE_TOOLTIP
+					: undefined,
 			router: leg.router,
 		};
 	});
@@ -252,6 +329,32 @@ export function isMakerLeg(leg: Pick<RouteLeg, 'type' | 'venue'>): boolean {
 // Price Delta, Price Impact, Slippage) so the "no data" explanation reads the
 // same everywhere it's not the market-maker-specific case above.
 export const NULL_PRICE_TOOLTIP = 'No market price available';
+
+// A fee tier core could not read. Distinct from the null/rfq cases above: the
+// pool DOES charge an LP fee, we just failed to resolve it — so the cell must
+// not render "0.00bps", which would assert the pool was free. Reads as the
+// fee-side counterpart to LEG_NULL_PRICE_TOOLTIP.
+export const UNRESOLVED_FEE_TOOLTIP = 'No fee available for this leg';
+
+// The SAME unresolved fee, seen from the Price Impact row. An unread tier books
+// as 0, and core derives price impact as (legTotalCost − feeTier) × share
+// (decomposeRoute.ts:374, :632) while LP fee is feeTier × the SAME share (:566).
+// So the fee we failed to read has not vanished — it is sitting inside this
+// leg's price impact, which would otherwise render as a clean measurement.
+//
+// ⚠️ This does NOT reach the Slippage / Unattributed residual. Core computes
+// `slippage = allIn − lpFee − aggFee` (:577), so an understated lpFee overstates
+// slippage by exactly the amount it overstates ΣPI — and the displayed residual
+// `slippage − ΣPI` is invariant. Do not extend the coverage gate to fee
+// provenance on the strength of this: the residual really is fully attributed;
+// it is only the LP-Fee-vs-Price-Impact SPLIT that is wrong, and both of those
+// rows are on screen.
+export const IMPACT_ABSORBS_FEE_TOOLTIP = 'Includes the unavailable L.P. fee for this leg';
+
+/** True when core explicitly marked this leg's fee tier unresolved. */
+export function hasUnresolvedFee(leg: Pick<RouteLeg, 'feeResolved'>): boolean {
+	return leg.feeResolved === false;
+}
 
 // Per-leg null-pricing cells (a specific route leg's Price Impact) get a
 // leg-scoped explanation, distinct from the receipt-level NULL_PRICE_TOOLTIP

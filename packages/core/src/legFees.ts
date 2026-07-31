@@ -18,6 +18,15 @@ export interface LegFeeInput {
   feeTierBps: number;       // resolved per leg (rfq=0)
   notionalUsdc: number;     // leg notional in USDC
   notionalApprox: boolean;
+  /**
+   * Did the fee reader actually READ this pool's tier, or fall back to 0?
+   *
+   * Optional with "absent = resolved" semantics so wrap/unwrap synth legs and
+   * pre-existing fixtures need no change. Only an explicit `false` means the
+   * tier is unknown — without it a 0 bps fee is indistinguishable from a pool
+   * that is genuinely free, and the receipt renders a confident "0.00bps".
+   */
+  feeResolved?: boolean;
 }
 
 export interface LpRollup {

@@ -69,6 +69,182 @@ describe('buildRouteGraph', () => {
     expect(g.reconstructed).toBe(true);
   });
 
+  it('extraLegs: replaces a collapsed V4 leg when the extras describe >1 pool', () => {
+    // The module fixture's `v4` address yields ONE address-derived univ4 leg,
+    // VIRTUAL→WETH. That is the collapsed PoolManager artifact: real routes put
+    // several pools behind it and buildLegs cannot see the split. Two
+    // synthesized legs on the SAME pair must REPLACE it, not be deduped against
+    // it — this is the id 207 / id 211 shape (several fee tiers, one pair).
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
+
+    // The bare-PoolManager leg is gone; both per-pool legs survive.
+    expect(g.legs.filter((l) => l.venue === v4)).toHaveLength(0);
+    expect(g.legs.filter((l) => l.venue.startsWith('v4:')).map((l) => l.venue).sort())
+      .toEqual(['v4:0xaaa', 'v4:0xbbb']);
+    expect(g.legs).toHaveLength(3); // pancakev3 + the two V4 pools
+    expect(g.reconstructed).toBe(true);
+  });
+
+  it('extraLegs: a SINGLE pool still prefers the address-derived leg', () => {
+    // The regression guard for the 21 V4 receipts that are currently correct.
+    // One poolId ⇒ buildLegs' own leg is trustworthy and the extra is a
+    // duplicate, exactly as before this change.
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 3_000000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
+    expect(g.legs).toHaveLength(2);
+    expect(g.legs.some((l) => l.venue === v4)).toBe(true);
+    expect(g.legs.some((l) => l.venue.startsWith('v4:'))).toBe(false);
+  });
+
+  it('extraLegs: two legs from the SAME pool do not trigger replacement', () => {
+    // Two Swap events on one poolId (e.g. a multi-hop through the same pool) is
+    // NOT a collapsed multi-pool leg. Distinctness is what matters, not count —
+    // counting extraLegs instead of poolIds would misfire here.
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
+    expect(g.legs.some((l) => l.venue === v4)).toBe(true);
+  });
+
+  it('extraLegs: legs without a poolId never trigger replacement', () => {
+    // v4PoolId is optional on Leg. Legs lacking it (older synthesis paths, or
+    // non-V4 extras) must not be counted as distinct pools — a set of
+    // `undefined` would otherwise look like one pool, or worse.
+    const extraLegs: Leg[] = [
+      { venue: 'v4:x', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+      { venue: 'v4:y', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
+    expect(g.legs.some((l) => l.venue === v4)).toBe(true);
+  });
+
+  it('extraLegs: a second, unrelated univ4 leg at a DIFFERENT address survives replacement', () => {
+    // routeVenueScan tags `univ4` by Swap topic0, which is shared across V4
+    // forks — so a route can touch one multi-pool V4 contract (replaced) and a
+    // separate, legitimately single-pool V4-topic contract at another address
+    // (not replaced, no synthesized counterpart there). Scoping the drop to
+    // only the EMITTER address the replacement legs came from — not the token
+    // pair — prevents deleting that second leg outright.
+    const FINAL = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const v4c = '0x498581ff718922c3f8e6a244956af099b2652b2d';
+    const t3 = [
+      { token: USDC, from: trader, to: pcs, value: 2_000000n },
+      { token: VIRTUAL, from: pcs, to: v4, value: 3_000000000000000000n },
+      { token: WETH, from: v4, to: v4c, value: 1_000000000000000n },
+      { token: FINAL, from: v4c, to: trader, value: 500_000000000000n },
+    ];
+    const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers: t3, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
+
+    // The collapsed VIRTUAL→WETH leg (emitted by `v4`) is replaced by the two
+    // per-pool legs, but the unrelated WETH→FINAL leg (emitted by the
+    // DIFFERENT address `v4c`) has no synthesized counterpart and must survive.
+    expect(g.legs.some((l) => l.venue === v4)).toBe(false);
+    expect(g.legs.some((l) => l.tokenIn === WETH && l.tokenOut === FINAL)).toBe(true);
+  });
+
+  it('extraLegs: a second univ4 emitter on the SAME pair does not swallow the replacements', () => {
+    // The nastier sibling of the test above, and the one that actually stresses
+    // the de-dup scoping. `existingUniv4Pairs` is a GLOBAL set over every
+    // SURVIVING univ4 leg. When a second, untouched emitter trades the same pair
+    // as the replacements, a pair-only de-dup matches them against THAT leg and
+    // deletes them — so the multi-pool emitter's collapsed leg is dropped AND its
+    // replacements are discarded, erasing its entire flow while `reconstructed`
+    // stays true because the unrelated leg papers over the gap.
+    const v4c = '0x498581ff718922c3f8e6a244956af099b2652b2d';
+    const t4 = [
+      { token: USDC, from: trader, to: pcs, value: 2_000000n },
+      { token: VIRTUAL, from: pcs, to: v4, value: 2_000000000000000000n },
+      { token: VIRTUAL, from: pcs, to: v4c, value: 1_000000000000000000n },
+      { token: WETH, from: v4, to: trader, value: 666_000000000n },
+      { token: WETH, from: v4c, to: trader, value: 334_000000000n },
+    ];
+    const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers: t4, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
+
+    // Both replacements survive despite v4c holding the same VIRTUAL→WETH pair…
+    expect(g.legs.filter((l) => l.venue.startsWith('v4:')).map((l) => l.venue).sort())
+      .toEqual(['v4:0xaaa', 'v4:0xbbb']);
+    // …the multi-pool emitter's collapsed leg is gone…
+    expect(g.legs.some((l) => l.venue === v4)).toBe(false);
+    // …and the unrelated single-pool emitter is untouched.
+    expect(g.legs.some((l) => l.venue === v4c)).toBe(true);
+    // pcs + two replacements + v4c. Without the emitter-scoped de-dup this is 2,
+    // and v4's entire 2 VIRTUAL of flow has silently vanished.
+    expect(g.legs).toHaveLength(4);
+  });
+
+  it('extraLegs: a multi-hop V4 collapse replaces the endpoints leg (id 55 / id 207 shape)', () => {
+    // id 55 (USDC→CLAWD) and id 207 (USDC→WETH) both collapse a MULTI-HOP route
+    // through the V4 singleton into one leg whose pair is the route's
+    // ENDPOINTS, not any individual pool's pair — the hub token never leaves
+    // the singleton as an ERC-20 Transfer, so buildLegs only ever sees
+    // USDC-in / WETH-out. A pair-scoped drop can never match that leg (no
+    // individual pool trades USDC→WETH directly), so it survived alongside the
+    // replacements and double-counted the flow — this is the round-2 fix.
+    // Matching on the emitter ADDRESS instead removes it correctly.
+    const HUB2 = '0xffffffffffffffffffffffffffffffffffffffff';
+    const t4 = [
+      { token: USDC, from: trader, to: v4, value: 2_000000n },
+      { token: WETH, from: v4, to: trader, value: 1_000000000000000n },
+    ];
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: USDC, tokenOut: HUB2,
+        amountInRaw: 2_000000n, amountOutRaw: 1_500000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: HUB2, tokenOut: WETH,
+        amountInRaw: 1_500000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers: t4, trader, venues: new Map([[v4, { type: 'univ4' as const }]]), denylist: new Set(), extraLegs });
+
+    expect(g.legs.some((l) => l.tokenIn === USDC && l.tokenOut === WETH)).toBe(false);
+    expect(g.legs.some((l) => l.tokenIn === USDC && l.tokenOut === HUB2)).toBe(true);
+    expect(g.legs.some((l) => l.tokenIn === HUB2 && l.tokenOut === WETH)).toBe(true);
+    expect(g.legs).toHaveLength(2);
+    expect(g.reconstructed).toBe(true);
+  });
+
+  it('extraLegs: an undefined poolId is not counted as a distinct pool', () => {
+    // One real pool + one leg with no poolId. WITH the null filter that is one
+    // distinct pool (no replacement); WITHOUT it the Set holds {'0xaaa',
+    // undefined} = 2 and replacement fires wrongly. This is the only shape that
+    // pins the filter.
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:none', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
+    expect(g.legs.some((l) => l.venue === v4)).toBe(true);
+  });
+
   it('classifies an unrecognized 1-in-1-out venue (no Swap event) as unknown', () => {
     // A clean 1-in-1-out address with no Swap event is NOT assumed to be a
     // genuine RFQ filler: probing showed these are real AMM pools we failed to

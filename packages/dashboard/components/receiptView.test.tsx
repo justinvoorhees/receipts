@@ -465,6 +465,59 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html.indexOf('Liquidity Provider Fee')).toBeLessThan(html.indexOf('Price Impact'));
 	});
 
+	// A fee we could not read must not render as "0.00bps" — that asserts the pool
+	// was free. Only an explicit feeResolved:false means unresolved; rows written
+	// before the flag existed (key absent) keep rendering their fee as before.
+	describe('unresolved LP fee', () => {
+		const legWith = (over: Record<string, unknown>) => ({
+			venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
+			tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+			tokenOut: '0x4200000000000000000000000000000000000006',
+			feeTierBps: 0, notionalUsdc: 100, lpFeeBps: 0, priceImpactBps: 2, ...over,
+		});
+		const render = async (over: Record<string, unknown>) => {
+			const { ReceiptView } = await import('./receiptView');
+			const row = { ...base, pricingStatus: 'full', routeLegs: [legWith(over)] };
+			return renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		};
+
+		// Counted, not just "contains": 0.00bps also appears on the Aggregator Fee
+		// row, so a bare toContain would pass for the wrong reason.
+		const zeroBpsCells = (html: string) => (html.match(/>0\.00bps</g) ?? []).length;
+
+		it('explains an unresolved fee instead of claiming the pool was free', async () => {
+			const html = await render({ feeResolved: false });
+			expect(html).toContain('No fee available for this leg');
+			expect(html).toContain('>n/a<');
+		});
+
+		it('drops the 0.00bps fee cell when the fee is unresolved', async () => {
+			const resolved = await render({ feeResolved: true });
+			const unresolved = await render({ feeResolved: false });
+			expect(zeroBpsCells(unresolved)).toBe(zeroBpsCells(resolved) - 1);
+		});
+
+		it('still renders a genuine 0.00bps fee when the flag is absent (pre-flag rows)', async () => {
+			const html = await render({});
+			expect(zeroBpsCells(html)).toBeGreaterThan(0);
+			expect(html).not.toContain('No fee available for this leg');
+		});
+
+		it('still renders a genuine 0.00bps fee when the fee resolved cleanly', async () => {
+			const html = await render({ feeResolved: true });
+			expect(zeroBpsCells(html)).toBeGreaterThan(0);
+			expect(html).not.toContain('No fee available for this leg');
+		});
+
+		// The unresolved fee must not suppress the leg's price impact — they are
+		// independent measurements and only the fee is in question. formatDialogBps
+		// strips the sign, so a -2 impact renders as the cell text "2.00bps".
+		it('leaves the leg price impact rendering when only the fee is unresolved', async () => {
+			const html = await render({ feeResolved: false });
+			expect(html).toContain('>2.00bps<');
+		});
+	});
+
 	it('renders a Pools Touched section when no leg is costed', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, pricingStatus: 'partial', routeLegs: [
@@ -1156,6 +1209,63 @@ describe('getPriceImpactRows router attribution', () => {
 		const rows = getPriceImpactRows([leg({ router: ROUTER })] as never, baseRow as never);
 		expect(typeof rows[0]!.context).toBe('string');
 	});
+
+	// An unread fee tier books as 0, and decomposeRoute derives price impact as
+	// (legTotalCost − feeTier) × share (decomposeRoute.ts:374/632) while LP fee is
+	// feeTier × the SAME share (:566). So a leg whose fee failed to resolve has
+	// its missing fee sitting INSIDE its price impact, which then renders as a
+	// bare confident number. Real case: receipt id 408, leg 0x238a3588… (the
+	// PancakeSwap Infinity vault), price impact 2.88bps.
+	// NB this does NOT move the Slippage/Unattributed residual — slippage is
+	// overstated by exactly the same amount ΣPI is, so `slippage − ΣPI` is
+	// invariant. The defect is confined to this one cell.
+	it('links a synthesized V4 leg to its emitter, not to the poolId', async () => {
+		// A per-pool V4 leg's venue is `v4:<poolId>` — not an address — so linking
+		// to it yields a dead Basescan URL. The emitting singleton is persisted
+		// alongside it for exactly this.
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+		const rows = getPriceImpactRows(
+			[leg({ venue: 'v4:0xdeadbeef', v4Emitter: POOL_MANAGER })] as never,
+			baseRow as never,
+		);
+		expect(rows[0]!.href).toBe(`https://basescan.org/address/${POOL_MANAGER}`);
+		expect(rows[0]!.href).not.toContain('v4:');
+	});
+
+	it('links an ordinary leg to its own venue address', async () => {
+		// The regression guard: every non-V4 leg's venue IS its address.
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg()] as never, baseRow as never);
+		expect(rows[0]!.href).toBe('https://basescan.org/address/0x345825a980bd94e1480bc4f20fe4e3dae2f23dd3');
+	});
+
+	it('caveats a leg whose price impact absorbs an unresolved L.P. fee', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg({ feeResolved: false })] as never, baseRow as never);
+		expect(rows[0]!.value).toBe('3.00bps'); // the number still shows
+		expect(rows[0]!.valueTooltip).toBe('Includes the unavailable L.P. fee for this leg');
+	});
+
+	it('leaves a resolved-fee leg uncaveated', async () => {
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		// Both the explicit-true and the absent (pre-2026-07-30 rows) cases.
+		expect(getPriceImpactRows([leg({ feeResolved: true })] as never, baseRow as never)[0]!.valueTooltip)
+			.toBeUndefined();
+		expect(getPriceImpactRows([leg()] as never, baseRow as never)[0]!.valueTooltip).toBeUndefined();
+	});
+
+	it('keeps the null-price explanation when there is no impact to caveat', async () => {
+		const { getPriceImpactRows, LEG_NULL_PRICE_TOOLTIP } = await import('./receipt/receiptDisplay');
+		// Unresolved fee AND null impact: there is no number to be contaminated,
+		// so the null explanation wins rather than promising a value that isn't there.
+		const rows = getPriceImpactRows(
+			[leg({ feeResolved: false, priceImpactBps: null })] as never,
+			baseRow as never,
+		);
+		expect(rows[0]!.value).toBe('n/a');
+		expect(rows[0]!.valueTooltip).toBe(LEG_NULL_PRICE_TOOLTIP);
+	});
 });
 
 describe('legContext', () => {
@@ -1554,5 +1664,94 @@ describe('SHARE bar', () => {
 		expect(html).toContain('>Delete<');
 		expect(html).not.toContain('>SHARE<');
 		expect(html).not.toContain('h-[69px]');
+	});
+});
+
+describe('Receipt Unattributed row', () => {
+	const pricedLeg = {
+		venue: '0x1111111111111111111111111111111111111111',
+		type: 'swap',
+		tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+		tokenOut: '0x4200000000000000000000000000000000000006',
+		feeTierBps: 5, notionalUsdc: 1000, lpFeeBps: 1, priceImpactBps: 2,
+	};
+	const unpricedLeg = { ...pricedLeg, notionalUsdc: 500, priceImpactBps: null };
+
+	const fullyPricedRow = { ...fullUsdcWethRow, routeLegs: [pricedLeg] };
+	const partialRow = { ...fullUsdcWethRow, routeLegs: [pricedLeg, unpricedLeg] };
+
+	it('hides the Unattributed row entirely when every leg is priced', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={fullyPricedRow as never} hash={fullyPricedRow.txHash} />,
+		);
+		// Anchor on the cell, not the bare word: 'Slippage' is a substring of
+		// 'Positive Slippage', and a bare toContain would pass vacuously.
+		expect(html).not.toContain('>Unattributed<');
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Positive Slippage<');
+	});
+
+	it('shows Unattributed and n/a Slippage when a leg went unpriced', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		expect(html).toContain('>Unattributed<');
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Positive Slippage<');
+	});
+
+	it('names the coverage percentage in the n/a tooltip', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		// 1000 of 1500 notional priced = 66.66% → floors to 66.
+		expect(html).toContain('No slippage calculation available, pricing coverage is 66% complete');
+	});
+
+	it('explains Unattributed on its label', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		expect(html).toContain(
+			'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact',
+		);
+	});
+
+	it('counts exactly two n/a cells in the slippage group, not one and not three', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
+		);
+		// A counted differential: 'n/a' is NOT unique on this page (unpriced leg
+		// rows carry it too), so assert against the same render without the
+		// unpriced leg rather than against an absolute count.
+		const baseline = renderToStaticMarkup(
+			<ReceiptView trade={fullyPricedRow as never} hash={fullyPricedRow.txHash} />,
+		);
+		const count = (s: string) => s.split('n/a').length - 1;
+		// partial adds: 1 unpriced leg row + Slippage + Positive Slippage = 3.
+		expect(count(html) - count(baseline)).toBe(3);
+	});
+
+	it('omits the row when the route is unpriced AND there is no residual at all', async () => {
+		// Reachable today — receipt id 219 is pricingStatus 'full' with a NULL
+		// slippage_bps. Without the residualRawBps guard the row renders a bare
+		// '–' under a tooltip promising a "residual cost or benefit", i.e. it
+		// announces a quantity that does not exist. The Slippage / Positive
+		// Slippage rows above already say n/a; a third empty row adds nothing.
+		const { ReceiptView } = await import('./receiptView');
+		const noResidualRow = { ...partialRow, slippageBps: null };
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={noResidualRow as never} hash={noResidualRow.txHash} />,
+		);
+		expect(html).not.toContain('>Unattributed<');
+		// ...and the coverage gate is still what suppressed the Slippage number,
+		// so this is the no-residual case and not some unrelated early return.
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Positive Slippage<');
 	});
 });

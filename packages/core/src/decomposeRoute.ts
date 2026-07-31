@@ -37,7 +37,7 @@ import {
 	type V4PoolKeyReader,
 } from './routeReaders.js';
 import { isCuratedMaker } from './makerRegistry.js';
-import { collectV4Swaps, synthesizeV4Legs } from './v4Legs.js';
+import { collectV4Swaps, shouldAttemptV4Rescue, synthesizeV4Legs } from './v4Legs.js';
 
 // ─── Fee sinks ───
 
@@ -382,6 +382,10 @@ export async function decomposeRoute(
 	deps?: DecomposeRouteDeps,
 ): Promise<RouteDecomposeResult> {
 	const routeFlags: string[] = [];
+	// True once the V4 multi-pool rescue actually replaced the collapsed leg.
+	// Used to suppress decomposeTrade's averaged-fee flag, which describes a
+	// value this route no longer uses (see the flags merge at the end).
+	let v4RescueAdopted = false;
 
 	// Step 1: Get base decomposition from decomposeTrade (reuse agg fee, gas, flags)
 	const base = await decomposeTrade(input);
@@ -447,42 +451,83 @@ export async function decomposeRoute(
 	// double-count and BREAK them. And we adopt the V4-augmented graph ONLY if it
 	// then reconstructs, so a genuine fee-on-transfer token (no V4 orphan, e.g.
 	// id 219's SWARM) never gets a spurious rescue.
+	const v4Swaps = collectV4Swaps(logs);
 	if (
-		!graph.reconstructed &&
-		(graph.breakReason?.kind === 'orphan_token' || graph.breakReason?.kind === 'fee_on_transfer')
+		shouldAttemptV4Rescue({
+			reconstructed: graph.reconstructed,
+			breakReason: graph.breakReason,
+			v4Swaps,
+		})
 	) {
-		const v4Swaps = collectV4Swaps(logs);
-		if (v4Swaps.length > 0) {
-			const pmTokens = new Set<string>();
-			for (const t of transfers) {
-				const from = t.from.toLowerCase();
-				const to = t.to.toLowerCase();
-				if (from === UNISWAP_V4_POOL_MANAGER || to === UNISWAP_V4_POOL_MANAGER) {
-					pmTokens.add(t.token.toLowerCase());
-				}
+		const pmTokens = new Set<string>();
+		for (const t of transfers) {
+			const from = t.from.toLowerCase();
+			const to = t.to.toLowerCase();
+			if (from === UNISWAP_V4_POOL_MANAGER || to === UNISWAP_V4_POOL_MANAGER) {
+				pmTokens.add(t.token.toLowerCase());
 			}
-			if (pmTokens.size > 1) {
-				const keyReader = deps?.v4PoolKeyReader
-					?? createDefaultV4PoolKeyReader(input.rpcUrl, input.blockNumber);
-				const poolKeys = new Map<string, { currency0: string; currency1: string }>();
-				for (const s of v4Swaps) {
-					if (poolKeys.has(s.poolId)) continue;
-					const key = await keyReader(s.poolId);
-					if (key) poolKeys.set(s.poolId, key);
-				}
-				const extraV4Legs = synthesizeV4Legs(v4Swaps, poolKeys, WETH);
-				if (extraV4Legs.length > 0) {
-					const v4Graph = buildRouteGraph({
-						transfers,
-						trader: input.trader,
-						venues,
-						denylist: extendedDenylist,
-						extraLegs: extraV4Legs,
-					});
-					if (v4Graph.reconstructed) {
-						graph = v4Graph;
+		}
+		if (pmTokens.size > 1) {
+			const keyReader = deps?.v4PoolKeyReader
+				?? createDefaultV4PoolKeyReader(input.rpcUrl, input.blockNumber);
+			const poolKeys = new Map<string, { currency0: string; currency1: string }>();
+			for (const s of v4Swaps) {
+				if (poolKeys.has(s.poolId)) continue;
+				const key = await keyReader(s.poolId);
+				if (key) poolKeys.set(s.poolId, key);
+			}
+			const extraV4Legs = synthesizeV4Legs(v4Swaps, poolKeys, WETH);
+			if (extraV4Legs.length > 0) {
+				const v4Graph = buildRouteGraph({
+					transfers,
+					trader: input.trader,
+					venues,
+					denylist: extendedDenylist,
+					extraLegs: extraV4Legs,
+				});
+				// ⚠️ `reconstructed` is NOT a completeness check. reconstructDag only
+				// verifies that INTERMEDIATE tokens conserve and that the output token
+				// receives something — it never compares endpoint totals against the
+				// trade. So it accepts a rescue that UNDER-accounts: a v4PoolKeyReader
+				// returning null drops that swap silently (v4Legs.ts), and 2-of-3
+				// resolved pools still trips `poolIds.size > 1`, so the collapsed leg
+				// carrying the FULL flow gets replaced by legs carrying two thirds of
+				// it. It also accepted OVER-accounting, which is exactly how receipts
+				// 55 and 207 were corrupted in production mid-branch. Compare the
+				// input-token outflow against the pre-rescue graph and reject a
+				// shortfall rather than trusting reconstruction.
+				// Baseline is what the TRADER actually sent, not the pre-rescue graph:
+				// on the original rescue path that graph is un-reconstructed by
+				// definition, so measuring against it would compare one broken number
+				// with another. The trader's own outflow is ground truth.
+				const traderLc = input.trader.toLowerCase();
+				const traderSent = transfers
+					.filter((t) => t.from.toLowerCase() === traderLc && t.token.toLowerCase() === v4Graph.inputToken)
+					.reduce((s, t) => s + t.value, 0n);
+				const afterIn = v4Graph.legs
+					.filter((l) => l.tokenIn === v4Graph.inputToken)
+					.reduce((s, l) => s + l.amountInRaw, 0n);
+				// The same 0.1% dust tolerance routeGraph's `conserved()` uses. Only a
+				// SHORTFALL is rejected: an excess is double-counting, which the
+				// per-emitter drop now prevents structurally, and rejecting on excess
+				// would also fire on legitimate splits that gain resolution.
+				const shortfall =
+					traderSent > 0n && afterIn < traderSent && (traderSent - afterIn) * 1000n > traderSent;
+				if (v4Graph.reconstructed && !shortfall) {
+					// Only claim a rescue when the leg set actually changed. With exactly
+					// one pool resolved the single extra is de-duped away and v4Graph is
+					// identical to graph — flagging that advertises work not done.
+					const changed = v4Graph.legs.length !== graph.legs.length;
+					graph = v4Graph;
+					if (changed) {
 						routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
+						v4RescueAdopted = true;
 					}
+				} else if (shortfall) {
+					routeFlags.push(
+						`V4_RESCUE_REJECTED: synthesized legs consume ${afterIn} of the ${traderSent} input`
+						+ ` the trader sent (a pool key likely failed to resolve); keeping the un-rescued route`,
+					);
 				}
 			}
 		}
@@ -552,6 +597,7 @@ export async function decomposeRoute(
 			feeTierBps,
 			notionalUsdc,
 			notionalApprox: approx,
+			feeResolved: !feeResult.defaulted,
 		});
 	}
 
@@ -709,7 +755,18 @@ export async function decomposeRoute(
 			legs: [...wrapEntries, ...legsWithLp, ...unwrapEntries],
 			reconResidualBps,
 			confidence,
-			flags: [...base.flags, ...routeFlags],
+			// decomposeTrade averages V4 fee tiers for ITS OWN route-level rollup and
+			// flags that it did. When the rescue replaced the collapsed leg, every V4
+			// leg now carries its own real tier and no averaged value survives into
+			// this receipt — so the flag would be user-visible misinformation sitting
+			// beside the per-pool numbers that disprove it. Drop it here rather than
+			// in decomposeTrade, which still serves callers that DO use the average.
+			flags: [
+				...(v4RescueAdopted
+					? base.flags.filter((f) => !f.includes('multiple V4 Swap fees detected'))
+					: base.flags),
+				...routeFlags,
+			],
 			feeRecipient,
 			feeSinkSource,
 			feeSinks,

@@ -10,6 +10,7 @@ import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import {
 	getVenueLabel,
 	isMakerLeg,
+	legLinkAddress,
 	RFQ_LEG_TOOLTIP,
 	legPairContext,
 	getStepContext,
@@ -420,6 +421,7 @@ export function LegRow({
 	value,
 	color,
 	requirePair = false,
+	valueTooltip,
 }: {
 	leg: RouteLeg;
 	index: number;
@@ -428,6 +430,8 @@ export function LegRow({
 	value: string;
 	color?: string | undefined;
 	requirePair?: boolean;
+	/** Explains a non-numeric cell (e.g. an unresolved fee tier). */
+	valueTooltip?: string | undefined;
 }) {
 	const stepContext = getStepContext(leg.type);
 	const isStep = stepContext != null;
@@ -439,12 +443,16 @@ export function LegRow({
 	return (
 		<BkdRow
 			label={getVenueLabel(leg)}
-			href={`https://basescan.org/address/${leg.venue}`}
+			href={`https://basescan.org/address/${legLinkAddress(leg)}`}
 			context={context}
 			value={value}
 			color={color}
 			secondary
-			{...(maker ? { labelColor: 'var(--color-secondary)', valueTooltip: RFQ_LEG_TOOLTIP } : {})}
+			{...(maker
+				? { labelColor: 'var(--color-secondary)', valueTooltip: RFQ_LEG_TOOLTIP }
+				: valueTooltip
+					? { valueTooltip }
+					: {})}
 		/>
 	);
 }

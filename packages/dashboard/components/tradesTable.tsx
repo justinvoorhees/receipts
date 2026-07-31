@@ -38,12 +38,16 @@ const ACCESSORS: Record<TradesSortColumn, (r: ReceiptRow) => string | number> = 
 		return hasPriceImpact ? -legs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0) : 0;
 	},
 	slippage: (r) => {
-		const slip = r.slippageBps == null ? null : Number(r.slippageBps);
-		const legs = normalizeRouteLegs(r.routeLegs);
-		const hasPriceImpact = legs.some((l) => l.priceImpactBps != null);
-		const impact = hasPriceImpact ? legs.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0) : null;
-		const residual = slip != null && impact != null ? slip - impact : slip;
-		return -(residual ?? 0);
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? Math.min(-(e.residualRawBps ?? 0), 0) : 0;
+	},
+	posSlippage: (r) => {
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? Math.max(-(e.residualRawBps ?? 0), 0) : 0;
+	},
+	unattributed: (r) => {
+		const e = getExecutionBreakdown(r);
+		return e.fullyPriced ? 0 : -(e.residualRawBps ?? 0);
 	},
 	gas: (r) => Number(r.gasCostUsd ?? 0),
 };
@@ -116,11 +120,13 @@ export function TradesTable({
 	// `left-1/2` + `-translate-x-1/2` re-centers it on the viewport (main is
 	// itself centered, so its center line IS the viewport's). `min-w-full` keeps
 	// a short table from collapsing narrower than the 720px column, and the
-	// 100vw clamp stops the breakout from scrolling the page sideways on a
-	// small window.
+	// 100vw clamp bounds the wrapper's own width; `overflow-x-auto` scrolls the
+	// table WITHIN that bounded box, so wide content (10 columns at ~1022px
+	// natural width, wider than the clamp below ~1024px viewports) scrolls in
+	// its own container instead of the page body.
 	return (
 		<>
-			<div className="relative left-1/2 mt-[40px] w-max min-w-full max-w-[calc(100vw-40px)] -translate-x-1/2">
+			<div className="relative left-1/2 mt-[40px] w-max min-w-full max-w-[calc(100vw-40px)] -translate-x-1/2 overflow-x-auto">
 				<table className="w-full font-['Sohne_Mono'] text-[12px] leading-[12px]">
 					<thead>
 						<HeaderRow sort={sort} onSort={onSort} />
@@ -175,10 +181,16 @@ function HeaderRow({
 				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: 'Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee' }}>P. IMPACT</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual execution difference after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
+				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual cost after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage' }}>EX. QUALITY</SortHeader>
+				<SortHeader col="posSlippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-pos-slippage', text: 'Residual benefit after L.P. Fee, Agg. Fee, and P. Impact' }}>Pos. Slippage</SortHeader>
+			</th>
+			<th className={TH}>
+				<SortHeader col="unattributed" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-unattributed', text: 'Residual cost or benefit that could not be completely attributed, because some legs of this route were not priced' }}>Unattributed</SortHeader>
+			</th>
+			<th className={TH}>
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage (or Unattributed)' }}>EX. QUALITY</SortHeader>
 			</th>
 		</tr>
 	);
@@ -219,7 +231,15 @@ function SortHeader({
 				<div
 					role="tooltip"
 					id={tooltip.id}
-					className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-[8px] w-max max-w-[320px] -translate-x-1/2 rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal not-italic normal-case whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible group-focus-visible:visible"
+					// Opens DOWNWARD (top-full), unlike the receipt's tooltips. The
+					// wrapper below now carries `overflow-x-auto`, and per CSS Overflow 3
+					// setting one axis non-visible computes the OTHER to `auto` — so the
+					// wrapper clips on both axes. These tooltips hang off buttons in
+					// <thead>, the topmost content, so opening upward would render them
+					// outside the content box: clipped, and unreachable by scrolling.
+					// renderToStaticMarkup has no layout, so no test can catch a regression
+					// here — change this only with a browser open.
+					className="pointer-events-none absolute top-full left-1/2 z-10 mt-[8px] w-max max-w-[320px] -translate-x-1/2 rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal not-italic normal-case whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible group-focus-visible:visible"
 				>
 					{tooltip.text}
 				</div>
@@ -266,7 +286,6 @@ function DataRow({
 	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
 	const execution = getExecutionBreakdown(row);
 	const impact = execution.priceImpactDisplay;
-	const slip = execution.marketForcesDisplay;
 
 	return (
 		<tr
@@ -282,7 +301,9 @@ function DataRow({
 			<td className={`${COL} text-right`} style={!lpNotApplicable && lp.color ? { color: lp.color } : undefined}>{lpNotApplicable ? '–' : stripSign(lp.text)}</td>
 			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
-			<td className={`${COL} text-right`} style={slip.color ? { color: slip.color } : undefined}>{slip.text}</td>
+			<td className={`${COL} text-right`} style={execution.slippageDisplay.color ? { color: execution.slippageDisplay.color } : undefined}>{execution.fullyPriced ? execution.slippageDisplay.text : '–'}</td>
+			<td className={`${COL} text-right`} style={execution.positiveSlippageDisplay.color ? { color: execution.positiveSlippageDisplay.color } : undefined}>{execution.fullyPriced ? execution.positiveSlippageDisplay.text : '–'}</td>
+			<td className={`${COL} text-right`} style={execution.unattributedDisplay.color ? { color: execution.unattributedDisplay.color } : undefined}>{execution.fullyPriced ? '–' : execution.unattributedDisplay.text}</td>
 			<td className={`${COL} text-right`} style={accuracyColor ? { color: accuracyColor } : undefined}>{costBps == null ? '–' : formatAccuracySigned(costBps)}</td>
 		</tr>
 	);

@@ -16,5 +16,8 @@
   "0xbb1b19f138db3925883a96ff7a304277460e0c99": "SafeProxy",
   "0x238a358808379702088667322f80ac48bad5e6c4": "Vault",
   "0x9a972d8c3a8dd27e5811cbcb75ebdac924fb53a1": null,
-  "0xf70da97812cb96acdf810712aa562db8dfa3dbef": null
+  "0xf70da97812cb96acdf810712aa562db8dfa3dbef": null,
+  "0x1032e0c16cd224475fdd85495bc9eca83ef05b09": "CoinbaseSmartWallet",
+  "0x55c88bb05602da94fce8feadc1cbebf5b72c2453": null,
+  "0x7bf90111ad7c22bec9e9dff8a01a44713cc1b1b6": "GnosisSafeProxy"
 }

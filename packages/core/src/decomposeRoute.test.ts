@@ -147,6 +147,46 @@ describe('decomposeRoute', () => {
     expect(result.legs[0]!.leg.type).toBe('sushiv3');
   });
 
+  // An unresolved fee tier must stay distinguishable from a pool that is
+  // genuinely free all the way to the leg, or the receipt renders a confident
+  // "0.00bps" — a false claim rather than a missing one.
+  describe('per-leg fee provenance', () => {
+    const runWithFee = async (fee: { bps: number; defaulted: boolean }) => {
+      const sushiPool = '0x5f0f9d3d4b1b0a5c9b0e0a0f0a0e0a0f0a0e0a0f' as `0x${string}`;
+      const trader = '0x1111111111111111111111111111111111111111';
+      const trace = {
+        type: 'CALL', from: trader, to: sushiPool, input: '0x', logs: [
+          transferLog(USDC as `0x${string}`, trader as `0x${string}`, sushiPool, 1_000000n),
+          transferLog(WETH as `0x${string}`, sushiPool, trader as `0x${string}`, 500_000000000000n),
+          v3SwapLog(sushiPool),
+        ],
+      };
+      const input: DecomposeTradeInput = {
+        trace: trace as any,
+        txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        trader, allInCostBps: -1, notionalUsdc: 1, realizedPrice: 2000, gasCostUsd: 0,
+        aggregator: 'Fabric', blockNumber: 47379575n, rpcUrl: 'unused', dustUsdc: 1e-6,
+        structuralFloorUsd: 0, structuralFloorBps: 0.5,
+        recognizeV3Forks: true, impureOnVenueThirdToken: true,
+      };
+      return decomposeRoute(input, {
+        trace: trace as any,
+        v3FactoryReader: async () => '0xc35DADB65012eC5796536bD9864eD8773aBc74C4',
+        feeReader: async () => fee,
+      });
+    };
+
+    it('marks a leg feeResolved:false when the fee reader could not resolve the tier', async () => {
+      const result = await runWithFee({ bps: 0, defaulted: true });
+      expect(result.legs[0]!.feeResolved).toBe(false);
+    });
+
+    it('does not mark a leg feeResolved:false when the tier was genuinely read as 0', async () => {
+      const result = await runWithFee({ bps: 0, defaulted: false });
+      expect(result.legs[0]!.feeResolved).not.toBe(false);
+    });
+  });
+
   // Curve pools are recognised by the `TokenExchange` event every StableSwap pool
   // emits, so a pool that has never been seen before still tags correctly. The
   // address below is deliberately NOT one of the previously hardcoded pools.
@@ -1362,6 +1402,33 @@ describe('decomposeRoute V4 multi-pool extraction (id 56)', () => {
 		expect(result.routeShape).not.toBe('complex');
 		expect(result.lpFeeBps).not.toBeNull();
 		expect(result.slippageBps).not.toBeNull();
+		expect(result.flags.some((f) => f.startsWith('V4_MULTIPOOL_LEGS'))).toBe(true);
+	}, 15000);
+
+	it('REJECTS the rescue when a pool key fails to resolve, rather than under-accounting', async () => {
+		// `makeV4PoolKeyReader` never throws — a failed read returns null, and
+		// synthesizeV4Legs then silently DROPS that swap. With 2 of 3 pools resolved
+		// the `>1 distinct poolId` gate still trips, so the collapsed leg carrying
+		// the FULL flow would be replaced by legs carrying only part of it.
+		//
+		// `reconstructed` cannot catch this: reconstructDag checks intermediate
+		// conservation and that the output token receives something, never endpoint
+		// totals. Only the explicit shortfall guard does.
+		const firstPoolId = Object.keys(ID56_POOLKEYS)[0]!;
+		const partialReader = async (poolId: string) =>
+			poolId.toLowerCase() === firstPoolId ? null : (ID56_POOLKEYS[poolId.toLowerCase()] ?? null);
+		const result = await decomposeRoute(ID56_INPUT, {
+			trace: id56Trace as any,
+			feeReader: () => ({ bps: 100, defaulted: false }),
+			rfqProbe: () => 'contract',
+			v3FactoryReader: () => null,
+			v4PoolKeyReader: partialReader,
+		});
+
+		// The partial rescue is refused and says so, rather than silently shipping a
+		// route that chains but under-accounts.
+		expect(result.flags.some((f) => f.startsWith('V4_RESCUE_REJECTED'))).toBe(true);
+		expect(result.flags.some((f) => f.startsWith('V4_MULTIPOOL_LEGS'))).toBe(false);
 	}, 15000);
 });
 

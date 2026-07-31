@@ -15,9 +15,13 @@ import {
 	getAggregatorFeeLines,
 	ShareButton,
 	isMakerLeg,
+	hasUnresolvedFee,
+	UNRESOLVED_FEE_TOOLTIP,
 	NULL_PRICE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
+	noSlippageTooltip,
+	UNATTRIBUTED_TOOLTIP,
 } from './receipt/receiptDisplay';
 import { receiptDollars } from './receipt/qualityNotionals';
 import type { PriceDeltaRow } from './receipt/priceFormat';
@@ -297,7 +301,11 @@ export function Receipt({
 					<div className={GROUP_SECTION}>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						{legs.map((leg, index) => {
-							const { text: lpText, color: lpColor } = isMakerLeg(leg)
+							// An unresolved tier outranks the numeric format: core fell
+							// back to 0 bps without reading the pool, so "0.00bps" would
+							// claim it was free rather than admit we could not read it.
+							const unresolvedFee = hasUnresolvedFee(leg);
+							const { text: lpText, color: lpColor } = isMakerLeg(leg) || unresolvedFee
 								? { text: 'n/a', color: undefined }
 								: leg.lpFeeBps == null
 									? { text: '–', color: undefined }
@@ -311,6 +319,7 @@ export function Receipt({
 									row={row}
 									value={lpText}
 									color={lpColor}
+									valueTooltip={unresolvedFee ? UNRESOLVED_FEE_TOOLTIP : undefined}
 								/>
 							);
 						})}
@@ -379,6 +388,9 @@ export function Receipt({
 							value={execution.slippageDisplay.text}
 							color={execution.slippageDisplay.color}
 							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+							valueTooltip={
+								execution.fullyPriced ? undefined : noSlippageTooltip(execution.coveragePercent)
+							}
 							standalone
 						/>
 						<BkdHeading
@@ -386,14 +398,32 @@ export function Receipt({
 							value={execution.positiveSlippageDisplay.text}
 							color={execution.positiveSlippageDisplay.color}
 							tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
+							valueTooltip={
+								execution.fullyPriced ? undefined : noSlippageTooltip(execution.coveragePercent)
+							}
 							standalone
 						/>
+						{/*
+						  Shown ONLY when a leg went unpriced. The residual is the same number the
+						  Slippage row would have printed; what it is not is *slippage*, because we
+						  never measured every leg's price impact. One signed row — it is not split
+						  into cost/benefit halves the way Slippage is (Figma 577-1232).
+						*/}
+						{!execution.fullyPriced && execution.residualRawBps != null && (
+							<BkdHeading
+								label="Unattributed"
+								value={execution.unattributedDisplay.text}
+								color={execution.unattributedDisplay.color}
+								tooltip={UNATTRIBUTED_TOOLTIP}
+								standalone
+							/>
+						)}
 
 						<BkdRow
 							label="Total Execution Delta"
 							value={accuracy}
 							color={accuracyColor}
-							tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage"
+							tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage (or Unattributed)"
 							standalone
 						/>
 					</>
