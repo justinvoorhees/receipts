@@ -1753,6 +1753,22 @@ describe('Receipt Unattributed row', () => {
 		expect(html).not.toContain('pricing coverage is');
 	});
 
+	it('a MIXED pool+maker route reports coverage, not maker inventory', async () => {
+		// id 210's shape. The maker leg is the only unpriced one, but five of six
+		// legs were priced through pools — claiming "market maker inventory" would
+		// describe 23% of the trade as though it were all of it.
+		const { ReceiptView } = await import('./receiptView');
+		const mixedRow = {
+			...fullUsdcWethRow,
+			routeLegs: [pricedLeg, { ...pricedLeg, type: 'rfq', priceImpactBps: null }],
+		};
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={mixedRow as never} hash={mixedRow.txHash} />,
+		);
+		expect(html).toContain('per-leg pricing coverage is');
+		expect(html).not.toContain('market maker inventory');
+	});
+
 	it('still reports coverage when the unpriced leg is a pool, not a maker', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(

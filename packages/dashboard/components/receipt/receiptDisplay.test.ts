@@ -217,15 +217,27 @@ describe('getExecutionBreakdown coverage gating', () => {
 		notionalUsdc: 1000, priceImpactBps,
 	});
 
-	it('names market-maker inventory when EVERY unpriced leg is a maker fill', async () => {
+	it('names market-maker inventory when the WHOLE route is maker-filled', async () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
-		// id 210's shape: five priced pool legs plus one rfq leg.
+		// id 36's shape: a single maker fill, nothing else. 7 of 62 receipts.
+		const r = getExecutionBreakdown({ slippageBps: 25.54, routeLegs: [makerLeg] } as never);
+		expect(r.fullyPriced).toBe(false);
+		expect(r.slippageUnavailableTooltip).toBe('No calculation available due to market maker inventory.');
+	});
+
+	it('a MIXED pool+maker route reports coverage, not maker inventory', async () => {
+		const { getExecutionBreakdown } = await import('./receiptDisplay');
+		// id 210's shape: one maker leg among six, 77% of the notional priced
+		// through pools. "Every unpriced leg is a maker" is true here, and would
+		// be the wrong test — claiming the whole trade was maker-filled when most
+		// of it demonstrably was not. The coverage figure is more informative.
 		const r = getExecutionBreakdown({
 			slippageBps: 25.54,
 			routeLegs: [poolLeg(4.19), poolLeg(2.11), makerLeg],
 		} as never);
 		expect(r.fullyPriced).toBe(false);
-		expect(r.slippageUnavailableTooltip).toBe('No calculation available due to market maker inventory.');
+		expect(r.slippageUnavailableTooltip).toContain('per-leg pricing coverage is');
+		expect(r.slippageUnavailableTooltip).not.toContain('market maker');
 	});
 
 	it('falls back to the coverage wording when an unpriced leg is NOT a maker fill', async () => {
@@ -240,15 +252,24 @@ describe('getExecutionBreakdown coverage gating', () => {
 		);
 	});
 
-	it('does not claim maker inventory when only SOME unpriced legs are maker fills', async () => {
+	it('does not claim maker inventory when an unpriced POOL leg is present', async () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
-		// No such receipt exists in the corpus today, but the rule must not
-		// generalise from "there is a maker leg" to "the whole gap is by design".
+		// A pool leg we simply failed to price is unambiguously our gap.
 		const r = getExecutionBreakdown({
 			slippageBps: 25.54,
 			routeLegs: [poolLeg(4.19), makerLeg, poolLeg(null)],
 		} as never);
-		expect(r.slippageUnavailableTooltip).toContain('pricing coverage is');
+		expect(r.slippageUnavailableTooltip).toContain('per-leg pricing coverage is');
+	});
+
+	it('a multi-leg route that is ALL maker still names maker inventory', async () => {
+		const { getExecutionBreakdown } = await import('./receiptDisplay');
+		// The rule is "every costed leg is a maker", not "exactly one leg".
+		const r = getExecutionBreakdown({
+			slippageBps: 25.54,
+			routeLegs: [makerLeg, { ...makerLeg, notionalUsdc: 500 }],
+		} as never);
+		expect(r.slippageUnavailableTooltip).toBe('No calculation available due to market maker inventory.');
 	});
 
 	it('offers no tooltip at all when the route is fully priced', async () => {

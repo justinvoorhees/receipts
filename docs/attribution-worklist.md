@@ -33,12 +33,14 @@ unpriced leg *only* because a market maker filled it off-chain, and the Slippage
 cells were telling the trader "pricing coverage is n% complete" — reporting a
 property of RFQ as a failure of ours. `getExecutionBreakdown` now returns
 `slippageUnavailableTooltip`, which reads **"No calculation available due to
-market maker inventory."** when EVERY unpriced leg is a maker fill, and the
-coverage string otherwise. ⚠️ It deliberately does NOT generalise from "the route
-contains a maker leg" to "the whole gap is by design" — one unpriced *pool* leg
-really is our gap. The corpus splits cleanly (10 all-maker / 8 no-maker / 0
-mixed), so the rule is currently unambiguous; the mixed case is covered by a test
-rather than by data.
+market maker inventory."** only when the route is **entirely** maker-filled, and
+the coverage string otherwise. **7 receipts / $55,054.**
+
+⚠️ **"every UNPRICED leg is a maker" is the wrong test**, and shipped briefly
+before being narrowed. On a mixed route like id 210 — one maker leg among six,
+77% of the notional priced through pools — it is *true* yet claims the whole
+trade was maker-filled. The 3 mixed receipts (210, 189, 236; $19,915) get the
+coverage figure, which is both more informative and more honest.
 
 **Recommended order: §2, then §4, then §3.** §2 is the only one that corrects a
 displayed number, and its fix reuses machinery that already exists and passes

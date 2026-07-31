@@ -119,14 +119,18 @@ export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): stri
 }
 
 /**
- * Copy for the Slippage / Positive Slippage cells when the ONLY reason we could
- * not price the route is that a market maker filled part of it.
+ * Copy for the Slippage / Positive Slippage cells when the ENTIRE route was
+ * filled from market-maker inventory.
  *
  * An RFQ fill is quoted off-chain; there is no pool mid to measure it against,
  * so the cost genuinely cannot be split into components. That is a property of
- * how RFQ works, NOT a gap in our readers — and `noSlippageTooltip`'s "pricing
- * coverage is n% complete" would blame the tool for it. 10 of 62 receipts
- * ($74,969, incl. id 36 at $35,055) are in this state.
+ * how RFQ works, NOT a gap in our readers — and `noSlippageTooltip`'s coverage
+ * figure would blame the tool for it. 7 of 62 receipts ($55,054, incl. id 36 at
+ * $35,055) are wholly maker-filled.
+ *
+ * ⚠️ Reserved for WHOLLY-maker routes. A mixed route keeps the coverage string
+ * even when its only unpriced leg is the maker one — see the reasoning in
+ * getExecutionBreakdown.
  */
 export const RFQ_UNATTRIBUTABLE_TOOLTIP = 'No calculation available due to market maker inventory.';
 
@@ -189,19 +193,22 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	// nothing to weigh at all, which is 0% priced.
 	const coveragePercent = fullyPriced ? 100 : Math.min(99, Math.floor(100 * (coverage ?? 0)));
 
-	// WHY we could not price it decides what we tell the trader. If every leg we
-	// failed to price is a market-maker fill, the gap is inherent to RFQ and
-	// naming a coverage percentage would blame our tooling for it. If ANY unpriced
-	// leg is a pool, that one really is our gap, and the honest answer is the
-	// coverage figure — so this deliberately does not generalise from "the route
-	// contains a maker leg" to "the whole gap is by design".
-	// ⚠️ `[].every()` is vacuously true: an empty route is a coverage gap, not
-	// evidence of a market maker, hence the length check.
-	const unpriced = costedLegs(legs).filter((leg) => leg.priceImpactBps == null);
-	const unpricedIsAllMaker = unpriced.length > 0 && unpriced.every(isMakerLeg);
+	// WHY we could not price it decides what we tell the trader. The maker
+	// explanation is reserved for routes that are ENTIRELY market-maker fills —
+	// there, no part of the trade ever touched a pool and a coverage percentage
+	// would blame our tooling for how RFQ works.
+	// ⚠️ "every UNPRICED leg is a maker" is NOT the right test, even though it
+	// looks equivalent. On a mixed route like id 210 (one maker leg among six,
+	// 77% of the notional priced through pools) it would claim the whole trade
+	// was maker-filled. The coverage figure is the more informative and more
+	// honest statement there.
+	// ⚠️ `[].every()` is vacuously true: a route we never decomposed is a coverage
+	// gap, not evidence of a market maker — hence the length check.
+	const costed = costedLegs(legs);
+	const routeIsAllMaker = costed.length > 0 && costed.every(isMakerLeg);
 	const slippageUnavailableTooltip = fullyPriced
 		? undefined
-		: unpricedIsAllMaker
+		: routeIsAllMaker
 			? RFQ_UNATTRIBUTABLE_TOOLTIP
 			: noSlippageTooltip(coveragePercent);
 
