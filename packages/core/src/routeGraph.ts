@@ -62,8 +62,8 @@ export interface RouteGraph {
 export interface BuildRouteArgs {
   transfers: { token: string; from: string; to: string; value: bigint }[];
   trader: string;
-  /** venue address → {type, v4PoolId?, v4FeeRaw?} from Swap-event scan */
-  venues: Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number }>;
+  /** venue address → {type, v4PoolId?, v4FeeRaw?, infinityPoolId?, infinityFeeRaw?} from Swap-event scan */
+  venues: Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number; infinityPoolId?: string; infinityFeeRaw?: number }>;
   denylist: ReadonlySet<string>;
   /** Extra legs synthesized outside address-delta reconstruction (e.g. V4
    *  multi-pool legs from Swap events) — merged with the address-derived legs
@@ -233,6 +233,8 @@ function buildLegs(
 
         if (knownVenue.v4PoolId) leg.v4PoolId = knownVenue.v4PoolId;
         if (knownVenue.v4FeeRaw !== undefined) leg.v4FeeRaw = knownVenue.v4FeeRaw;
+        if (knownVenue.infinityPoolId) leg.infinityPoolId = knownVenue.infinityPoolId;
+        if (knownVenue.infinityFeeRaw !== undefined) leg.infinityFeeRaw = knownVenue.infinityFeeRaw;
 
         legs.push(leg);
       }
@@ -481,7 +483,7 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   const traderLc = args.trader.toLowerCase();
 
   // Normalize venue keys and denylist to lowercase
-  const venuesLc = new Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number }>();
+  const venuesLc = new Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number; infinityPoolId?: string; infinityFeeRaw?: number }>();
   for (const [addr, info] of args.venues) {
     venuesLc.set(addr.toLowerCase(), info);
   }

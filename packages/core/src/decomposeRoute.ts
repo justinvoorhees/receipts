@@ -35,10 +35,12 @@ import {
 	createDefaultV3FactoryReader,
 	createDefaultRfqProbe,
 	createDefaultV4PoolKeyReader,
+	createDefaultInfinityPoolKeyReader,
 	type V4PoolKeyReader,
 } from './routeReaders.js';
 import { isCuratedMaker } from './makerRegistry.js';
 import { collectV4Swaps, shouldAttemptV4Rescue, synthesizeV4Legs } from './v4Legs.js';
+import { collectInfinitySwaps, shouldAttemptInfinityRescue, synthesizeInfinityLegs } from './infinityLegs.js';
 
 // ─── Fee sinks ───
 
@@ -173,6 +175,8 @@ export interface DecomposeRouteDeps {
 	rfqProbe?: (addr: string) => Promise<'eoa' | 'proxy1967' | 'contract'> | 'eoa' | 'proxy1967' | 'contract';
 	/** Resolve a V4 poolId → its two currencies (block-pinned in production). */
 	v4PoolKeyReader?: V4PoolKeyReader;
+	/** Resolve an Infinity poolId → its two currencies (block-pinned in production). */
+	infinityPoolKeyReader?: V4PoolKeyReader;
 }
 
 // ─── Helpers ───
@@ -571,6 +575,60 @@ export async function decomposeRoute(
 						+ ` the trader sent (a pool key likely failed to resolve); keeping the un-rescued route`,
 					);
 				}
+			}
+		}
+	}
+
+	// PancakeSwap Infinity — same shape as the V4 rescue above, separate because
+	// the two singletons are deliberately not unified (see infinityLegs.ts).
+	const infinitySwaps = collectInfinitySwaps(logs);
+	if (
+		shouldAttemptInfinityRescue({
+			reconstructed: graph.reconstructed,
+			breakReason: graph.breakReason,
+			swaps: infinitySwaps,
+		})
+	) {
+		const keyReader = deps?.infinityPoolKeyReader
+			?? createDefaultInfinityPoolKeyReader(input.rpcUrl, input.blockNumber);
+		const poolKeys = new Map<string, { currency0: string; currency1: string }>();
+		for (const s of infinitySwaps) {
+			if (poolKeys.has(s.poolId)) continue;
+			const key = await keyReader(s.poolId);
+			if (key) poolKeys.set(s.poolId, key);
+		}
+		const extraLegs = synthesizeInfinityLegs(infinitySwaps, poolKeys, WETH);
+		if (extraLegs.length > 0) {
+			const infGraph = buildRouteGraph({
+				transfers,
+				trader: input.trader,
+				venues,
+				denylist: extendedDenylist,
+				extraLegs,
+			});
+			// Same completeness guard as the V4 rescue, for the same reason:
+			// `reconstructed` compares no endpoint totals, so it accepts a rescue
+			// that under-accounts when a pool key fails to resolve.
+			const traderLc = input.trader.toLowerCase();
+			const traderSent = transfers
+				.filter((t) => t.from.toLowerCase() === traderLc && t.token.toLowerCase() === infGraph.inputToken)
+				.reduce((s, t) => s + t.value, 0n);
+			const afterIn = infGraph.legs
+				.filter((l) => l.tokenIn === infGraph.inputToken)
+				.reduce((s, l) => s + l.amountInRaw, 0n);
+			const shortfall =
+				traderSent > 0n && afterIn < traderSent && (traderSent - afterIn) * 1000n > traderSent;
+			if (infGraph.reconstructed && !shortfall) {
+				const changed = infGraph.legs.length !== graph.legs.length;
+				graph = infGraph;
+				if (changed) {
+					routeFlags.push(`INFINITY_LEGS: synthesized ${extraLegs.length} Infinity pool leg(s) from Swap events`);
+				}
+			} else if (shortfall) {
+				routeFlags.push(
+					`INFINITY_RESCUE_REJECTED: synthesized legs consume ${afterIn} of the ${traderSent} input`
+					+ ` the trader sent (a pool key likely failed to resolve); keeping the un-rescued route`,
+				);
 			}
 		}
 	}

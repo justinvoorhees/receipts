@@ -468,7 +468,7 @@ already repopulated; the fix is visible now.
 
 ---
 
-## 4. PancakeSwap Infinity  ⚡ HALF DONE 2026-07-30
+## 4. PancakeSwap Infinity  ✅ DONE 2026-07-31
 
 > ⚠️ **The receipt id below is STALE.** This section says id 326, which no
 > longer exists. The live case is **id 408**
@@ -491,11 +491,20 @@ residual reads as a retained fee. Measured: the Vault's ERC-20-only delta is
 both at one address; Pancake splits them. Listing an emitter would leave the
 custodian probed and misbooked.
 
-**⭐ STILL OPEN: the 0.47 bps leg fee.** Everything below about decoding it from
-the Swap event is verified correct on-chain. It is unread because adding a new
-`VenueType` without also adding a `getLegMidAtBlock` branch would **null the
-leg's 2.88 bps price impact** — the leg currently reaches a mid only via the
-`unknown` → discovery fallback. Worth 0.17 bps of route LP fee on a $12 trade.
+**Delivered 2026-07-31.** `infinityLegs.ts` decodes the Infinity Swap topic into
+one leg per pool, with the LP fee recovered from the event by inverting
+`calculateSwapFee` (no RPC), and `pancake_infinity` gains both a fee-reader case
+and a `getLegMidAtBlock` branch reading `getSlot0` from the CLPoolManager.
+
+⚡ The value was mis-stated above as 0.17 bps on a $12 trade. That was the right
+number for the wrong question: id 445 ($3,733) contains three Infinity swaps that
+were not modelled at all, so its route could not conserve and `reconstructed` was
+false — and `decomposeRoute.ts` gates ALL price impact behind that flag. The cost
+was a receipt producing nothing, not a fraction of a basis point.
+
+⚠️ Still open: `0x60b393a76cea4a3afff00e1fb08d0f63a8f4a314`, a SECOND contract
+emitting the Uniswap V4 Swap topic (a fork), found in id 445. It is typed
+`univ4`, so its fee and mid reads assume the real PoolManager's state view.
 
 **Original value note: $3 of notional corpus-wide (1 of 52 receipts).** Do it for
 correctness, not for recovered bps.

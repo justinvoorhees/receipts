@@ -115,7 +115,10 @@ export function noSlippageTooltip(coveragePercent: number): string {
  * `v4Emitter` and keep their (still-dead) venue link until repopulated.
  */
 export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): string {
-	return leg.v4Emitter ?? leg.venue;
+	if (leg.v4Emitter) return leg.v4Emitter;
+	// `inf:<poolId>` and `v4:<poolId>` venues are pool ids, not addresses.
+	if (leg.venue.startsWith('inf:')) return INFINITY_CL_POOL_MANAGER_ADDRESS;
+	return leg.venue;
 }
 
 /**
@@ -460,6 +463,11 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 	'0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3': 'GITLAWB',
 };
 
+// Infinity's CLPoolManager — the contract that actually emits Swap and holds
+// per-pool state, as opposed to PANCAKE_INFINITY_VAULT (the token custodian).
+// `inf:<poolId>` legs link here since the poolId itself is not an address.
+const INFINITY_CL_POOL_MANAGER_ADDRESS = '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b';
+
 // Consulted BEFORE any leg.type dispatch, so a venue can be named without
 // giving it a VenueType. That matters for singleton custodians: naming them
 // here is purely cosmetic, whereas a new VenueType changes which branch
@@ -469,10 +477,11 @@ const KNOWN_VENUE_LABELS: Record<string, string> = {
 	'0x498581ff718922c3f8e6a244956af099b2652b2b': 'Uniswap v4',
 	'0xb1383dc47d9971fc999c3a9088f79e744b376e97': 'Hydrex',
 	'0xa9ab48b7e1577eef7ff6babc0870bd0f00131f76': 'UniPool',
-	// PancakeSwap Infinity's Vault. Its legs are type 'unknown' because we do not
-	// read Infinity's fee or mid yet — but "Unknown Pool" was never true, we know
-	// exactly what this is. Named for the protocol, matching Uniswap v4 above,
-	// which is likewise the singleton rather than the pool the trade touched.
+	// PancakeSwap Infinity's Vault — the collapsed (un-rescued) leg's venue when
+	// per-pool synthesis did not fire. Named for the protocol, matching Uniswap
+	// v4 above, which is likewise the singleton rather than the pool the trade
+	// touched. `getVenueLabel`'s `pancake_infinity` type case covers the
+	// synthesized `inf:<poolId>` legs, whose venue is a pool id, not this address.
 	'0x238a358808379702088667322f80ac48bad5e6c4': 'PancakeSwap Infinity',
 };
 
@@ -548,6 +557,7 @@ export function getVenueLabel(leg: Pick<RouteLeg, 'type'> & Partial<Pick<RouteLe
 	if (leg.type === 'unipool') return 'UniPool';
 	if (leg.type === 'aerodrome') return 'Aerodrome';
 	if (leg.type === 'univ4') return 'Uniswap v4';
+	if (leg.type === 'pancake_infinity') return 'PancakeSwap Infinity';
 	if (leg.type === 'pancakev3') return 'PancakeSwap v3';
 	if (leg.type === 'univ3') return 'Uniswap v3';
 	if (leg.type === 'univ2') return 'Uniswap v2';

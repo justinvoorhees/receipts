@@ -10,6 +10,8 @@ import { parseAbiItem, toEventSelector, decodeEventLog } from 'viem';
 import type { VenueType } from './routeGraph.js';
 import type { LogLike } from './tradeEndpoints.js';
 import { classifyKnownVenueAddress, classifyV3Factory } from './venueClassification.js';
+import { INFINITY_SWAP_TOPIC, collectInfinitySwaps } from './infinityLegs.js';
+import { PANCAKE_INFINITY_VAULT } from './tradeDecoders.js';
 
 // ─── Constants ───
 
@@ -48,6 +50,8 @@ export interface VenueInfo {
 	type: VenueType;
 	v4PoolId?: string;
 	v4FeeRaw?: number;
+	infinityPoolId?: string;
+	infinityFeeRaw?: number;
 }
 
 /**
@@ -111,6 +115,14 @@ export function scanVenues(logs: readonly LogLike[], recognizeForks: boolean): M
 			}
 		}
 
+		// PancakeSwap Infinity Swap — emitted by the CLPoolManager, but the tokens
+		// move through the VAULT, so it is the vault that appears in transfers and
+		// therefore the vault we must register as the venue. Registering the
+		// emitter instead would leave the vault's leg typed `unknown`.
+		if (topic0 === INFINITY_SWAP_TOPIC && log.topics.length >= 3) {
+			venues.set(PANCAKE_INFINITY_VAULT, { type: 'pancake_infinity' });
+		}
+
 		// V2 Swap
 		if (topic0 === V2_SWAP_TOPIC) {
 			if (!venues.has(addr)) {
@@ -151,6 +163,26 @@ export function scanVenues(logs: readonly LogLike[], recognizeForks: boolean): M
 			if (!venues.has(addr)) {
 				venues.set(addr, { type: 'curve_stableng' });
 			}
+		}
+	}
+
+	// Give the vault's collapsed leg the pool's identity IF, and only if, that
+	// identity is unambiguous. With exactly one distinct Infinity pool touched,
+	// the vault's leg IS that pool, so storing its poolId/fee lets it price
+	// normally without needing the rescue. With two or more, storing any one of
+	// them is the exact lossy collapse the V4 branch above already warns about
+	// — leave the entry type-only and let decomposeRoute's Infinity rescue
+	// synthesize per-pool legs instead.
+	if (venues.has(PANCAKE_INFINITY_VAULT)) {
+		const infinitySwaps = collectInfinitySwaps(logs);
+		const distinctPoolIds = new Set(infinitySwaps.map((s) => s.poolId));
+		if (distinctPoolIds.size === 1) {
+			const swap = infinitySwaps[0]!;
+			venues.set(PANCAKE_INFINITY_VAULT, {
+				type: 'pancake_infinity',
+				infinityPoolId: swap.poolId,
+				infinityFeeRaw: swap.lpFeePips,
+			});
 		}
 	}
 
