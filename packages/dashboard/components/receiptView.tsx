@@ -225,7 +225,7 @@ export function Receipt({
 						subValue={marketUsdPerBase != null ? formatSubvalueUsd(marketUsdPerBase) : undefined}
 						{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 					>
-						{hasMarketPrice ? formatExecutionPrice(row.marketMid, base, quote) : 'n/a'}
+						{hasMarketPrice ? formatExecutionPrice(row.marketMid, base, quote) : 'N/A'}
 						{hasMarketPrice && row.manipulationFlag ? (
 							<span
 								className="ml-2"
@@ -237,7 +237,7 @@ export function Receipt({
 						) : null}
 					</DetailRow>
 					{/* Renders on every tier — the unpriced tier's descriptor is the
-					    "Unavailable: …" string, which the frames show under `n/a`. Each
+					    "Unavailable: …" string, which the frames show under `N/A`. Each
 					    of the three methodology phrases (if present) links to
 					    /methodology in a new tab (Figma 546-694). */}
 					<p className="text-[10px] leading-[16px] text-[var(--color-secondary)]">
@@ -250,7 +250,7 @@ export function Receipt({
 					subValue={priceDelta?.sub ?? undefined}
 					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
-					{priceDelta?.text ?? 'n/a'}
+					{priceDelta?.text ?? 'N/A'}
 				</DetailRow>
 
 				{/* The descriptor is a property of the row, not of the number: gas is paid
@@ -306,7 +306,7 @@ export function Receipt({
 							// claim it was free rather than admit we could not read it.
 							const unresolvedFee = hasUnresolvedFee(leg);
 							const { text: lpText, color: lpColor } = isMakerLeg(leg) || unresolvedFee
-								? { text: 'n/a', color: undefined }
+								? { text: 'N/A', color: undefined }
 								: leg.lpFeeBps == null
 									? { text: '–', color: undefined }
 									: formatDialogBps(-leg.lpFeeBps);
@@ -345,14 +345,14 @@ export function Receipt({
 					<>
 						<BkdHeading
 							label="Price Impact"
-							value="n/a"
+							value="N/A"
 							valueTooltip={NULL_PRICE_TOOLTIP}
 							tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
 							standalone
 						/>
 						<BkdHeading
 							label="Slippage"
-							value="n/a"
+							value="N/A"
 							valueTooltip={NULL_PRICE_TOOLTIP}
 							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
 							standalone

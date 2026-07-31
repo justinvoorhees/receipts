@@ -157,7 +157,7 @@ describe('TradesTable', () => {
 				label: 'Curve StableNG',
 				href: 'https://basescan.org/address/0x4545410f7601b34a779edcebc641e529f465eeaa',
 				context: 'USDC/WETH',
-				value: 'n/a',
+				value: 'N/A',
 				color: undefined,
 				valueTooltip: 'No price available for this leg',
 			},
@@ -339,7 +339,7 @@ describe('TradesTable', () => {
 		] as never)[0]).toMatchObject({
 			label: 'Unknown Pool',
 			context: 'USDC/VIRTUAL',
-			value: 'n/a',
+			value: 'N/A',
 			valueTooltip: 'No price available for this leg',
 		});
 	});

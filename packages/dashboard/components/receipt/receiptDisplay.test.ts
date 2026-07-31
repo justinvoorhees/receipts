@@ -109,8 +109,8 @@ describe('getExecutionBreakdown coverage gating', () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
 		const r = getExecutionBreakdown(id210 as never);
 		expect(r.fullyPriced).toBe(false);
-		expect(r.slippageDisplay.text).toBe('n/a');
-		expect(r.positiveSlippageDisplay.text).toBe('n/a');
+		expect(r.slippageDisplay.text).toBe('N/A');
+		expect(r.positiveSlippageDisplay.text).toBe('N/A');
 		expect(r.unattributedDisplay.text).toBe('6.18bps');
 		// Unnegated and signed — the display string above has lost both.
 		// 25.544581236341276 − 19.36871009070179 = 6.175871145639486, which
@@ -170,7 +170,7 @@ describe('getExecutionBreakdown coverage gating', () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
 		const r = getExecutionBreakdown(fullyPricedRow as never);
 		expect(r.fullyPriced).toBe(true);
-		expect(r.unattributedDisplay.text).toBe('n/a');
+		expect(r.unattributedDisplay.text).toBe('N/A');
 		expect(r.slippageDisplay.text).toBe('6.18bps');
 		expect(r.positiveSlippageDisplay.text).toBe('0.00bps');
 		expect(r.coveragePercent).toBe(100);
@@ -185,7 +185,7 @@ describe('getExecutionBreakdown coverage gating', () => {
 	it('coveragePercent caps at 99 when a zero-notional leg is unpriced', async () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
 		// Notional-weighted coverage is exactly 1, but the route is NOT fully
-		// priced. "pricing coverage is 100% complete" beside an n/a is absurd.
+		// priced. "pricing coverage is 100% complete" beside an N/A is absurd.
 		const r = getExecutionBreakdown({
 			slippageBps: 10,
 			routeLegs: [
@@ -203,20 +203,20 @@ describe('getExecutionBreakdown coverage gating', () => {
 		expect(r.fullyPriced).toBe(false);
 		expect(r.coveragePercent).toBe(0);
 		expect(r.unattributedDisplay.text).toBe('25.54bps');
-		expect(r.slippageDisplay.text).toBe('n/a');
+		expect(r.slippageDisplay.text).toBe('N/A');
 	});
 
-	it('a null slippageBps yields n/a everywhere, not a fake zero', async () => {
+	it('a null slippageBps yields N/A everywhere, not a fake zero', async () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
 		const r = getExecutionBreakdown({ slippageBps: null, routeLegs: [] } as never);
 		expect(r.unattributedDisplay.text).toBe('–');
-		expect(r.slippageDisplay.text).toBe('n/a');
+		expect(r.slippageDisplay.text).toBe('N/A');
 	});
 
-	it('the n/a tooltip names the coverage percentage', async () => {
+	it('the N/A tooltip names the coverage percentage', async () => {
 		const { noSlippageTooltip } = await import('./receiptDisplay');
 		expect(noSlippageTooltip(76)).toBe(
-			'No slippage calculation available, pricing coverage is 76% complete',
+			'No calculation available, per-leg pricing coverage is 76% complete',
 		);
 	});
 });

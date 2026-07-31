@@ -428,7 +428,7 @@ describe('Receipt estimated pricing tier', () => {
 		// Execution Price renders (realizedPrice present); Market Price, Price Delta,
 		// Price Impact, and Slippage are all null on a fully partial receipt, each
 		// carrying the generic "no market price" tooltip.
-		expect((html.match(/>n\/a</g) ?? []).length).toBe(4);
+		expect((html.match(/>N\/A</g) ?? []).length).toBe(4);
 		expect((html.match(/No market price available/g) ?? []).length).toBeGreaterThanOrEqual(4);
 	});
 });
@@ -488,7 +488,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		it('explains an unresolved fee instead of claiming the pool was free', async () => {
 			const html = await render({ feeResolved: false });
 			expect(html).toContain('No fee available for this leg');
-			expect(html).toContain('>n/a<');
+			expect(html).toContain('>N/A<');
 		});
 
 		it('drops the 0.00bps fee cell when the fee is unresolved', async () => {
@@ -558,7 +558,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).toContain(`href="https://basescan.org/address/${venue}"`);
 		expect(html).toContain('color:var(--color-secondary)');
 		expect(html).toContain('Market maker inventory, no L.P. fee or price available for this leg');
-		expect(html).toContain('>n/a<');
+		expect(html).toContain('>N/A<');
 	});
 
 	// The Price Impact section (populated by TradesTable's getPriceImpactRows,
@@ -1039,7 +1039,7 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		expect(estimated).toContain('Estimated:');
 
 		// The null-mid (unpriced) tier now RENDERS the footnote too — it's the tier
-		// `549-2857` shows the "Unavailable: …" string under `n/a`.
+		// `549-2857` shows the "Unavailable: …" string under `N/A`.
 		const partial = renderToStaticMarkup(
 			<Receipt row={{ ...ethWbtc, pricingStatus: 'partial', marketMid: null, methodology: null, allInCostBps: null } as never} />,
 		);
@@ -1263,7 +1263,7 @@ describe('getPriceImpactRows router attribution', () => {
 			[leg({ feeResolved: false, priceImpactBps: null })] as never,
 			baseRow as never,
 		);
-		expect(rows[0]!.value).toBe('n/a');
+		expect(rows[0]!.value).toBe('N/A');
 		expect(rows[0]!.valueTooltip).toBe(LEG_NULL_PRICE_TOOLTIP);
 	});
 });
@@ -1692,7 +1692,7 @@ describe('Receipt Unattributed row', () => {
 		expect(html).toContain('>Positive Slippage<');
 	});
 
-	it('shows Unattributed and n/a Slippage when a leg went unpriced', async () => {
+	it('shows Unattributed and N/A Slippage when a leg went unpriced', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
@@ -1702,13 +1702,13 @@ describe('Receipt Unattributed row', () => {
 		expect(html).toContain('>Positive Slippage<');
 	});
 
-	it('names the coverage percentage in the n/a tooltip', async () => {
+	it('names the coverage percentage in the N/A tooltip', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
 		);
 		// 1000 of 1500 notional priced = 66.66% → floors to 66.
-		expect(html).toContain('No slippage calculation available, pricing coverage is 66% complete');
+		expect(html).toContain('No calculation available, per-leg pricing coverage is 66% complete');
 	});
 
 	it('explains Unattributed on its label', async () => {
@@ -1721,18 +1721,18 @@ describe('Receipt Unattributed row', () => {
 		);
 	});
 
-	it('counts exactly two n/a cells in the slippage group, not one and not three', async () => {
+	it('counts exactly two N/A cells in the slippage group, not one and not three', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
 		);
-		// A counted differential: 'n/a' is NOT unique on this page (unpriced leg
+		// A counted differential: 'N/A' is NOT unique on this page (unpriced leg
 		// rows carry it too), so assert against the same render without the
 		// unpriced leg rather than against an absolute count.
 		const baseline = renderToStaticMarkup(
 			<ReceiptView trade={fullyPricedRow as never} hash={fullyPricedRow.txHash} />,
 		);
-		const count = (s: string) => s.split('n/a').length - 1;
+		const count = (s: string) => s.split('N/A').length - 1;
 		// partial adds: 1 unpriced leg row + Slippage + Positive Slippage = 3.
 		expect(count(html) - count(baseline)).toBe(3);
 	});
@@ -1742,7 +1742,7 @@ describe('Receipt Unattributed row', () => {
 		// slippage_bps. Without the residualRawBps guard the row renders a bare
 		// '–' under a tooltip promising a "residual cost or benefit", i.e. it
 		// announces a quantity that does not exist. The Slippage / Positive
-		// Slippage rows above already say n/a; a third empty row adds nothing.
+		// Slippage rows above already say N/A; a third empty row adds nothing.
 		const { ReceiptView } = await import('./receiptView');
 		const noResidualRow = { ...partialRow, slippageBps: null };
 		const html = renderToStaticMarkup(

@@ -102,7 +102,7 @@ export function formatDialogBps(value: number | null): { text: string; color: st
  * see how much of their transaction we actually priced.
  */
 export function noSlippageTooltip(coveragePercent: number): string {
-	return `No slippage calculation available, pricing coverage is ${coveragePercent}% complete`;
+	return `No calculation available, per-leg pricing coverage is ${coveragePercent}% complete`;
 }
 
 /**
@@ -122,7 +122,7 @@ export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): stri
 export const UNATTRIBUTED_TOOLTIP =
 	'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact';
 
-const NOT_AVAILABLE = { text: 'n/a', color: undefined };
+const NOT_AVAILABLE = { text: 'N/A', color: undefined };
 
 export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
 	executionDisplay: { text: string; color: string | undefined };
@@ -171,7 +171,7 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	const coverage = priceImpactCoverage(legs);
 	// Floor, never round, so we cannot overstate coverage; and cap at 99 so a
 	// route that is 100.0% by notional but still has an unpriced (zero-notional)
-	// leg never reads "100% complete" next to an n/a. A null coverage means
+	// leg never reads "100% complete" next to an N/A. A null coverage means
 	// nothing to weigh at all, which is 0% priced.
 	const coveragePercent = fullyPriced ? 100 : Math.min(99, Math.floor(100 * (coverage ?? 0)));
 
@@ -288,7 +288,7 @@ export function getPriceImpactRows(
 		const rawImpact = leg.priceImpactBps;
 		const isNullImpact = rawImpact == null;
 		const impact = isNullImpact
-			? { text: 'n/a', color: undefined }
+			? { text: 'N/A', color: undefined }
 			: formatDialogBps(-rawImpact);
 		return {
 			label: getVenueLabel(leg),

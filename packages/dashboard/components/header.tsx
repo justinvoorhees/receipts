@@ -1,9 +1,9 @@
 import { ThemePicker } from './ThemePicker';
 
-// Native aspect ratio of the RECEIPTS wordmark is 120.505:40 (~3.013).
-// At 40px tall the rendered width is 120.505px.
+// Native aspect ratio of the RECEIPTS wordmark is 181.121:40 (~4.528).
+// At 40px tall the rendered width is 181.121px.
 const LOGO_HEIGHT = 40;
-const LOGO_WIDTH = (LOGO_HEIGHT * 120.505) / 40;
+const LOGO_WIDTH = (LOGO_HEIGHT * 181.121) / 40;
 
 export function Header() {
 	return (
