@@ -164,6 +164,43 @@ describe('buildRouteGraph', () => {
     expect(g.legs.some((l) => l.tokenIn === WETH && l.tokenOut === FINAL)).toBe(true);
   });
 
+  it('extraLegs: a second univ4 emitter on the SAME pair does not swallow the replacements', () => {
+    // The nastier sibling of the test above, and the one that actually stresses
+    // the de-dup scoping. `existingUniv4Pairs` is a GLOBAL set over every
+    // SURVIVING univ4 leg. When a second, untouched emitter trades the same pair
+    // as the replacements, a pair-only de-dup matches them against THAT leg and
+    // deletes them — so the multi-pool emitter's collapsed leg is dropped AND its
+    // replacements are discarded, erasing its entire flow while `reconstructed`
+    // stays true because the unrelated leg papers over the gap.
+    const v4c = '0x498581ff718922c3f8e6a244956af099b2652b2d';
+    const t4 = [
+      { token: USDC, from: trader, to: pcs, value: 2_000000n },
+      { token: VIRTUAL, from: pcs, to: v4, value: 2_000000000000000000n },
+      { token: VIRTUAL, from: pcs, to: v4c, value: 1_000000000000000000n },
+      { token: WETH, from: v4, to: trader, value: 666_000000000n },
+      { token: WETH, from: v4c, to: trader, value: 334_000000000n },
+    ];
+    const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
+    const extraLegs: Leg[] = [
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+    ];
+    const g = buildRouteGraph({ transfers: t4, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
+
+    // Both replacements survive despite v4c holding the same VIRTUAL→WETH pair…
+    expect(g.legs.filter((l) => l.venue.startsWith('v4:')).map((l) => l.venue).sort())
+      .toEqual(['v4:0xaaa', 'v4:0xbbb']);
+    // …the multi-pool emitter's collapsed leg is gone…
+    expect(g.legs.some((l) => l.venue === v4)).toBe(false);
+    // …and the unrelated single-pool emitter is untouched.
+    expect(g.legs.some((l) => l.venue === v4c)).toBe(true);
+    // pcs + two replacements + v4c. Without the emitter-scoped de-dup this is 2,
+    // and v4's entire 2 VIRTUAL of flow has silently vanished.
+    expect(g.legs).toHaveLength(4);
+  });
+
   it('extraLegs: a multi-hop V4 collapse replaces the endpoints leg (id 55 / id 207 shape)', () => {
     // id 55 (USDC→CLAWD) and id 207 (USDC→WETH) both collapse a MULTI-HOP route
     // through the V4 singleton into one leg whose pair is the route's

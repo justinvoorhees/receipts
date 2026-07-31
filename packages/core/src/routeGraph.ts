@@ -536,8 +536,20 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   const existingUniv4Pairs = new Set(
     legsAfterV4.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),
   );
+  // An extra leg whose OWN emitter's collapsed leg was just dropped above must
+  // be kept unconditionally: existingUniv4Pairs is a GLOBAL set across every
+  // surviving univ4 leg, so if a second, untouched single-pool V4 emitter
+  // happens to trade the SAME token pair, pair-only de-dup would wrongly
+  // match the extra against that UNRELATED emitter's leg and delete it too —
+  // silently erasing this emitter's entire flow while `reconstructed` stays
+  // true (the unrelated leg papers over the gap). Scope the de-dup: only an
+  // extra whose emitter was NOT dropped (the single-pool case, where that
+  // emitter's own address-derived leg is still present and IS the duplicate)
+  // goes through the pair check.
+  const emitterWasDropped = (emitter: string | undefined): boolean =>
+    extraPoolIds.size > 1 && emitter != null && extraV4Emitters.has(emitter);
   const dedupedExtraLegs = (args.extraLegs ?? []).filter(
-    (l) => !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
+    (l) => emitterWasDropped(l.v4Emitter) || !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
   );
   const allLegs = dedupedExtraLegs.length > 0 ? [...legsAfterV4, ...dedupedExtraLegs] : legsAfterV4;
 

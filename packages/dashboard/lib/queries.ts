@@ -69,6 +69,11 @@ export interface RouteLeg {
 	// it a 0 bps fee would render as a confident "0.00bps", asserting the pool
 	// was free rather than admitting we could not read it.
 	feeResolved?: boolean;
+	// The V4 singleton that emitted this leg's Swap. Present only on synthesized
+	// per-pool legs, whose `venue` is `v4:<poolId>` rather than an address — link
+	// to this, not to `venue`, or the Basescan URL is dead. Absent on rows
+	// persisted before 2026-07-30 and on every non-V4 leg.
+	v4Emitter?: string;
 	// Resolved from `frameChain` on read (never persisted) — see
 	// enrichLegRouters. Present only when another curated aggregator executed
 	// this leg.

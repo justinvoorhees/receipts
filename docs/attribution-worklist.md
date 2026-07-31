@@ -238,8 +238,20 @@ so the rescue never runs. **The gate cannot distinguish "reconstructed well"
 from "reconstructed wrong."**
 
 ⇒ Widen it: also attempt the rescue when `decomposeTrade` averaged more than one
-distinct V4 fee. Keep the existing "adopt only if the V4-augmented graph
-reconstructs" safety, so a failed rescue changes nothing.
+distinct V4 fee.
+
+⚠️ **"Adopt only if the V4-augmented graph reconstructs" is NOT a safety net** —
+an earlier draft of this section claimed a failed rescue changes nothing, and
+that is false. `reconstructDag` checks only that INTERMEDIATE tokens conserve
+and that the output token receives something; it never compares endpoint totals
+against the trade, so it accepts both under-accounting (a `v4PoolKeyReader`
+returning null silently drops that pool, and 2-of-3 resolved still trips the
+`>1 poolId` gate) and over-accounting — the latter is exactly how ids 55 and 207
+were corrupted in production mid-branch. A real completeness guard now compares
+the adopted graph's input-token outflow against the pre-rescue graph's and
+rejects a shortfall beyond the same 0.1% dust tolerance `conserved()` uses,
+flagging `V4_RESCUE_REJECTED`. Do not remove it and go back to trusting
+reconstruction.
 
 ### The clamp is hiding only the worst of it — 3 receipts are silently wrong
 
@@ -294,8 +306,9 @@ now lets the per-pool legs REPLACE that collapsed leg, discriminating it by the
 
 ⚠️ The emitter-address rule is load-bearing and was learned the hard way. A
 pair-scoped version shipped first and corrupted two receipts in production: ids
-55 and 207 are multi-HOP through V4 (`USDC→CLAWD` collapsed against `USDC→WETH`
-+ `WETH→CLAWD` synthesized), so the collapsed leg's pair is the route's
+55 and 207 are multi-HOP through V4 — id 55 collapsed `USDC→CLAWD` against
+synthesized `USDC→WETH` + `WETH→CLAWD`, id 207 collapsed `USDC→WETH` against
+`USDC→USDbC` + `USDbC→WETH` — so the collapsed leg's pair is the route's
 ENDPOINTS, which no individual pool covers — it survived alongside its own
 replacements and the same flow was counted twice (`lp_fee_bps` 100.971→104.058
 on id 55). Match on the emitter address: it identifies the collapsed leg

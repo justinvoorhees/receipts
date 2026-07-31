@@ -10,6 +10,7 @@ import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import {
 	getVenueLabel,
 	isMakerLeg,
+	legLinkAddress,
 	RFQ_LEG_TOOLTIP,
 	legPairContext,
 	getStepContext,
@@ -442,7 +443,7 @@ export function LegRow({
 	return (
 		<BkdRow
 			label={getVenueLabel(leg)}
-			href={`https://basescan.org/address/${leg.venue}`}
+			href={`https://basescan.org/address/${legLinkAddress(leg)}`}
 			context={context}
 			value={value}
 			color={color}

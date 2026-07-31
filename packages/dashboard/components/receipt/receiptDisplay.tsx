@@ -105,6 +105,19 @@ export function noSlippageTooltip(coveragePercent: number): string {
 	return `No slippage calculation available, pricing coverage is ${coveragePercent}% complete`;
 }
 
+/**
+ * The address to link a route leg to on Basescan.
+ *
+ * A synthesized Uniswap V4 leg's `venue` is `v4:<poolId>` — a pool identifier,
+ * not an address — so linking to it yields a dead URL. Those legs carry the
+ * singleton that emitted their Swap in `v4Emitter`; link to that instead. Every
+ * other leg's venue IS its address. Rows persisted before 2026-07-30 have no
+ * `v4Emitter` and keep their (still-dead) venue link until repopulated.
+ */
+export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): string {
+	return leg.v4Emitter ?? leg.venue;
+}
+
 /** Copy for the Unattributed row's label. */
 export const UNATTRIBUTED_TOOLTIP =
 	'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact';
@@ -265,7 +278,7 @@ export function getPriceImpactRows(
 		if (stepContext) {
 			return {
 				label: getVenueLabel(leg),
-				href: `https://basescan.org/address/${leg.venue}`,
+				href: `https://basescan.org/address/${legLinkAddress(leg)}`,
 				context: stepContext,
 				value: '–',
 				color: undefined,
@@ -279,7 +292,7 @@ export function getPriceImpactRows(
 			: formatDialogBps(-rawImpact);
 		return {
 			label: getVenueLabel(leg),
-			href: `https://basescan.org/address/${leg.venue}`,
+			href: `https://basescan.org/address/${legLinkAddress(leg)}`,
 			context: row
 				? legPairContext(leg, index, legs.length, row)
 				: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,

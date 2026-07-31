@@ -1219,6 +1219,27 @@ describe('getPriceImpactRows router attribution', () => {
 	// NB this does NOT move the Slippage/Unattributed residual — slippage is
 	// overstated by exactly the same amount ΣPI is, so `slippage − ΣPI` is
 	// invariant. The defect is confined to this one cell.
+	it('links a synthesized V4 leg to its emitter, not to the poolId', async () => {
+		// A per-pool V4 leg's venue is `v4:<poolId>` — not an address — so linking
+		// to it yields a dead Basescan URL. The emitting singleton is persisted
+		// alongside it for exactly this.
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+		const rows = getPriceImpactRows(
+			[leg({ venue: 'v4:0xdeadbeef', v4Emitter: POOL_MANAGER })] as never,
+			baseRow as never,
+		);
+		expect(rows[0]!.href).toBe(`https://basescan.org/address/${POOL_MANAGER}`);
+		expect(rows[0]!.href).not.toContain('v4:');
+	});
+
+	it('links an ordinary leg to its own venue address', async () => {
+		// The regression guard: every non-V4 leg's venue IS its address.
+		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
+		const rows = getPriceImpactRows([leg()] as never, baseRow as never);
+		expect(rows[0]!.href).toBe('https://basescan.org/address/0x345825a980bd94e1480bc4f20fe4e3dae2f23dd3');
+	});
+
 	it('caveats a leg whose price impact absorbs an unresolved L.P. fee', async () => {
 		const { getPriceImpactRows } = await import('./receipt/receiptDisplay');
 		const rows = getPriceImpactRows([leg({ feeResolved: false })] as never, baseRow as never);

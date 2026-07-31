@@ -231,7 +231,15 @@ function SortHeader({
 				<div
 					role="tooltip"
 					id={tooltip.id}
-					className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-[8px] w-max max-w-[320px] -translate-x-1/2 rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal not-italic normal-case whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible group-focus-visible:visible"
+					// Opens DOWNWARD (top-full), unlike the receipt's tooltips. The
+					// wrapper below now carries `overflow-x-auto`, and per CSS Overflow 3
+					// setting one axis non-visible computes the OTHER to `auto` — so the
+					// wrapper clips on both axes. These tooltips hang off buttons in
+					// <thead>, the topmost content, so opening upward would render them
+					// outside the content box: clipped, and unreachable by scrolling.
+					// renderToStaticMarkup has no layout, so no test can catch a regression
+					// here — change this only with a browser open.
+					className="pointer-events-none absolute top-full left-1/2 z-10 mt-[8px] w-max max-w-[320px] -translate-x-1/2 rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal not-italic normal-case whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible group-focus-visible:visible"
 				>
 					{tooltip.text}
 				</div>

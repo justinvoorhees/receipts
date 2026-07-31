@@ -1402,6 +1402,33 @@ describe('decomposeRoute V4 multi-pool extraction (id 56)', () => {
 		expect(result.routeShape).not.toBe('complex');
 		expect(result.lpFeeBps).not.toBeNull();
 		expect(result.slippageBps).not.toBeNull();
+		expect(result.flags.some((f) => f.startsWith('V4_MULTIPOOL_LEGS'))).toBe(true);
+	}, 15000);
+
+	it('REJECTS the rescue when a pool key fails to resolve, rather than under-accounting', async () => {
+		// `makeV4PoolKeyReader` never throws — a failed read returns null, and
+		// synthesizeV4Legs then silently DROPS that swap. With 2 of 3 pools resolved
+		// the `>1 distinct poolId` gate still trips, so the collapsed leg carrying
+		// the FULL flow would be replaced by legs carrying only part of it.
+		//
+		// `reconstructed` cannot catch this: reconstructDag checks intermediate
+		// conservation and that the output token receives something, never endpoint
+		// totals. Only the explicit shortfall guard does.
+		const firstPoolId = Object.keys(ID56_POOLKEYS)[0]!;
+		const partialReader = async (poolId: string) =>
+			poolId.toLowerCase() === firstPoolId ? null : (ID56_POOLKEYS[poolId.toLowerCase()] ?? null);
+		const result = await decomposeRoute(ID56_INPUT, {
+			trace: id56Trace as any,
+			feeReader: () => ({ bps: 100, defaulted: false }),
+			rfqProbe: () => 'contract',
+			v3FactoryReader: () => null,
+			v4PoolKeyReader: partialReader,
+		});
+
+		// The partial rescue is refused and says so, rather than silently shipping a
+		// route that chains but under-accounts.
+		expect(result.flags.some((f) => f.startsWith('V4_RESCUE_REJECTED'))).toBe(true);
+		expect(result.flags.some((f) => f.startsWith('V4_MULTIPOOL_LEGS'))).toBe(false);
 	}, 15000);
 });
 

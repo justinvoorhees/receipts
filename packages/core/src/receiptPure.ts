@@ -71,6 +71,14 @@ export function reconciledResult(args: {
 }
 
 // ── Attribution coverage ─────────────────────────────────────────────────────
+//
+// ⚠️ These measure "of the legs that EXIST, how many are priced". They presume
+// the leg set is COMPLETE, and they cannot detect a leg that was wrongly
+// dropped — a route missing a third of its flow reports fullyPriced: true and
+// the receipt then hides its Unattributed row and prints a confident Slippage
+// number. Leg-set completeness is routeGraph's invariant to hold (see the V4
+// rescue's shortfall guard in decomposeRoute), not something coverage can
+// backstop. Do not read a high coverage figure as evidence the route is whole.
 // How much of a route did we actually price? Consumed by the dashboard (to
 // decide whether a residual may be called "Slippage") and by scripts/analysis
 // (to report corpus-wide coverage). ONE definition, so the number the receipt

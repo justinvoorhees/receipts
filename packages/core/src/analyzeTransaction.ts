@@ -109,7 +109,7 @@ export function toDisplayPrice(price: number | null, baseIsOutput: boolean): num
  */
 export function toPersistedLeg(
 	l: {
-		leg: { venue: string; type: string; tokenIn: string; tokenOut: string };
+		leg: { venue: string; type: string; tokenIn: string; tokenOut: string; v4Emitter?: string };
 		feeTierBps: number;
 		notionalUsdc: number;
 		lpFeeBps: number | null;
@@ -130,6 +130,11 @@ export function toPersistedLeg(
 		priceImpactBps: midReliable ? l.priceImpactBps : null,
 		...(frameChain ? { frameChain } : {}),
 		...(l.feeResolved === false ? { feeResolved: false as const } : {}),
+		// A synthesized V4 leg's `venue` is `v4:<poolId>`, which is not an address:
+		// a Basescan link built from it is dead. Persist the singleton that emitted
+		// the Swap so the UI has something real to link to. Omitted on every other
+		// leg, whose venue IS the address.
+		...(l.leg.v4Emitter ? { v4Emitter: l.leg.v4Emitter } : {}),
 	};
 }
 
@@ -389,11 +394,18 @@ export async function analyzeTransaction(
 		// Which call frame executed each leg? `trace` is the one already fetched
 		// above — no extra RPC. Raw addresses only; naming happens on read so
 		// registry growth is retroactive (see legFrameChains.ts).
-		const venueAddresses = new Set(route.legs.map((l) => l.leg.venue.toLowerCase()));
+		// A synthesized V4 leg's venue is `v4:<poolId>`, never a call-frame address,
+		// so keying on it would silently drop router provenance for every V4 leg.
+		// Per-leg router names resolve at READ time so a growing routers.json
+		// retroactively attributes history — losing the raw frameChain forecloses
+		// that permanently. Fall back to the emitting singleton's address.
+		const frameKey = (l: { leg: { venue: string; v4Emitter?: string } }): string =>
+			(l.leg.v4Emitter ?? l.leg.venue).toLowerCase();
+		const venueAddresses = new Set(route.legs.map(frameKey));
 		const frameChains = extractFrameChains(trace, venueAddresses);
 
 		const routeLegsBase = route.legs.map((l) =>
-			toPersistedLeg(l, frameChains.get(l.leg.venue.toLowerCase()), midReliable),
+			toPersistedLeg(l, frameChains.get(frameKey(l)), midReliable),
 		);
 
 		// Resolve a display symbol for every leg token — including intermediate hops
