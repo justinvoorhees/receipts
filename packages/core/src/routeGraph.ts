@@ -23,8 +23,12 @@ export interface Leg {
   amountsNetted?: boolean;
   v4PoolId?: string;        // for univ4 (from Swap event id)
   v4FeeRaw?: number;        // for univ4 (from Swap event fee)
-  v4Emitter?: string;       // for univ4 (address that emitted this Swap log, so the
-                            // collapsed singleton leg at that address can be identified)
+  /** The address-derived leg these synthesized legs REPLACE. For Uniswap V4 that
+   *  is the PoolManager, which both emits Swap and custodies tokens. For
+   *  PancakeSwap Infinity the two DIFFER — the CLPoolManager emits, the Vault
+   *  custodies — and it is the custodian's leg that must be replaced. Naming it
+   *  for its role rather than for V4 is what lets both share the merge logic. */
+  replacesVenue?: string;
 }
 
 export type RouteShape = 'single' | 'linear' | 'split' | 'complex';
@@ -526,12 +530,12 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   // pair is the route's ENDPOINTS (USDC→CLAWD), which no individual pool covers,
   // so a pair-scoped drop would leave it in place and double-count the flow. A
   // different univ4-tagged contract has a different address and survives.
-  const extraV4Emitters = new Set(
-    (args.extraLegs ?? []).map((l) => l.v4Emitter).filter((a): a is string => a != null),
+  const extraReplacedVenues = new Set(
+    (args.extraLegs ?? []).map((l) => l.replacesVenue).filter((a): a is string => a != null),
   );
   const legsAfterV4 =
     extraPoolIds.size > 1
-      ? legs.filter((l) => !(l.type === 'univ4' && extraV4Emitters.has(l.venue)))
+      ? legs.filter((l) => !(l.type === 'univ4' && extraReplacedVenues.has(l.venue)))
       : legs;
   const existingUniv4Pairs = new Set(
     legsAfterV4.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),
@@ -547,9 +551,9 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   // emitter's own address-derived leg is still present and IS the duplicate)
   // goes through the pair check.
   const emitterWasDropped = (emitter: string | undefined): boolean =>
-    extraPoolIds.size > 1 && emitter != null && extraV4Emitters.has(emitter);
+    extraPoolIds.size > 1 && emitter != null && extraReplacedVenues.has(emitter);
   const dedupedExtraLegs = (args.extraLegs ?? []).filter(
-    (l) => emitterWasDropped(l.v4Emitter) || !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
+    (l) => emitterWasDropped(l.replacesVenue) || !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
   );
   const allLegs = dedupedExtraLegs.length > 0 ? [...legsAfterV4, ...dedupedExtraLegs] : legsAfterV4;
 

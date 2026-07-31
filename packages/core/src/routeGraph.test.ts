@@ -77,9 +77,9 @@ describe('buildRouteGraph', () => {
     // it — this is the id 207 / id 211 shape (several fee tiers, one pair).
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
 
@@ -97,7 +97,7 @@ describe('buildRouteGraph', () => {
     // duplicate, exactly as before this change.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 3_000000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 3_000000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs).toHaveLength(2);
@@ -111,9 +111,9 @@ describe('buildRouteGraph', () => {
     // counting extraLegs instead of poolIds would misfire here.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
@@ -125,9 +125,9 @@ describe('buildRouteGraph', () => {
     // `undefined` would otherwise look like one pool, or worse.
     const extraLegs: Leg[] = [
       { venue: 'v4:x', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, replacesVenue: v4 },
       { venue: 'v4:y', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
@@ -151,9 +151,9 @@ describe('buildRouteGraph', () => {
     const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers: t3, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
 
@@ -183,9 +183,9 @@ describe('buildRouteGraph', () => {
     const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers: t4, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
 
@@ -217,9 +217,9 @@ describe('buildRouteGraph', () => {
     ];
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: USDC, tokenOut: HUB2,
-        amountInRaw: 2_000000n, amountOutRaw: 1_500000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 2_000000n, amountOutRaw: 1_500000000000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: HUB2, tokenOut: WETH,
-        amountInRaw: 1_500000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 1_500000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers: t4, trader, venues: new Map([[v4, { type: 'univ4' as const }]]), denylist: new Set(), extraLegs });
 
@@ -237,9 +237,9 @@ describe('buildRouteGraph', () => {
     // pins the filter.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:none', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);

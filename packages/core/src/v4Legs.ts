@@ -145,7 +145,7 @@ export function synthesizeV4Legs(
       amountOutRaw,
       v4PoolId: s.poolId,
       v4FeeRaw: s.fee,
-      v4Emitter: s.emitter,
+      replacesVenue: s.emitter,
     });
   }
   return out;
