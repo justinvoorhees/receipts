@@ -13,7 +13,7 @@ import { Receipt } from './receiptView';
 // them without the TradesTable ↔ ReceiptView cycle. The component below uses two
 // of them directly; the rest are re-exported so existing import sites (the tests,
 // which do `await import('./TradesTable')`) keep resolving unchanged.
-import { getExecutionBreakdown, isMakerLeg, normalizeRouteLegs } from './receipt/receiptDisplay';
+import { getExecutionBreakdown, hasNoReadableLpFee, normalizeRouteLegs } from './receipt/receiptDisplay';
 import { receiptPairTitle } from './receipt/priceFormat';
 export * from './receipt/receiptDisplay';
 
@@ -278,13 +278,12 @@ function DataRow({
 	const accuracyColor = accuracy != null && accuracy > 0.05 ? '#117d45' : undefined;
 
 	const lp = formatContribution(row.lpFeeBps != null ? Number(row.lpFeeBps) : null);
-	// A market-maker (RFQ) leg carries lpFeeBps: 0, so a maker-only route
-	// aggregates to a misleading 0.0bps. When the route has a maker leg and no
-	// pool leg contributes a real L.P. fee, the fee is not applicable → show '–'.
-	// (Mixed routes with a genuine pool leg keep their computed fee.)
+	// A missing L.P. fee must not sum to zero. Covers both a maker-only route
+	// (rfq legs carry lpFeeBps: 0 by design) and a route whose every pool leg had
+	// an unreadable fee tier — the latter booked id 78 as a confident 0.0bps on a
+	// $1,919 trade. Mixed routes with at least one real fee keep their number.
 	const legs = normalizeRouteLegs(row.routeLegs);
-	const lpNotApplicable =
-		legs.some(isMakerLeg) && !legs.some((l) => !isMakerLeg(l) && typeof l.lpFeeBps === 'number');
+	const lpNotApplicable = hasNoReadableLpFee(legs);
 	const agg = formatContribution(row.aggFeeBps != null ? Number(row.aggFeeBps) : null);
 	const execution = getExecutionBreakdown(row);
 	const impact = execution.priceImpactDisplay;

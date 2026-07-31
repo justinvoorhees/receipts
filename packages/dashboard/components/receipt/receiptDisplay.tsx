@@ -392,6 +392,38 @@ export const UNRESOLVED_FEE_TOOLTIP = 'No fee available for this leg';
 // rows are on screen.
 export const IMPACT_ABSORBS_FEE_TOOLTIP = 'Includes the unavailable L.P. fee for this leg';
 
+/**
+ * True when NO leg of this route can contribute a readable L.P. fee, so the
+ * route-level rollup is a sum of nothing and must render `–` rather than 0.
+ *
+ * A missing fee must not sum to zero. Two ways that happens:
+ *  - a maker-only route: an rfq leg carries `lpFeeBps: 0` BY DESIGN (there is no
+ *    pool fee to read), so the rollup aggregates to a misleading 0.0bps;
+ *  - every pool leg's fee tier failed to read (`feeResolved: false`), which
+ *    booked receipt id 78 as `L.P. Fee = 0.0bps` on a $1,919 trade routed
+ *    entirely through two pools that certainly charge one.
+ *
+ * ⚠️ Requires EVERY fee-bearing leg to be unreadable. A route with even one
+ * resolved leg keeps its number: it is understated, not false, and blanking it
+ * would discard real measurement. (id 75 is that case — four small legs read,
+ * two large ones not.) The per-leg rows carry their own `–` and tooltip either
+ * way, so nothing is hidden; this only governs the rollup.
+ *
+ * ⚠️ wrap/unwrap are excluded — they carry `lpFeeBps: null` by nature, and
+ * counting them as non-contributors would make every wrapped route look
+ * unreadable.
+ */
+export function hasNoReadableLpFee(
+	legs: Pick<RouteLeg, 'type' | 'venue' | 'lpFeeBps' | 'feeResolved'>[],
+): boolean {
+	const contributors = legs.filter(
+		(l) => l.type !== 'wrap' && l.type !== 'unwrap' && !isMakerLeg(l),
+	);
+	// No pool legs at all: unreadable precisely when a maker filled the route.
+	if (contributors.length === 0) return legs.some(isMakerLeg);
+	return contributors.every((l) => l.feeResolved === false || typeof l.lpFeeBps !== 'number');
+}
+
 /** True when core explicitly marked this leg's fee tier unresolved. */
 export function hasUnresolvedFee(leg: Pick<RouteLeg, 'feeResolved'>): boolean {
 	return leg.feeResolved === false;

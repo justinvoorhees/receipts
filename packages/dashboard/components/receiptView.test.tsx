@@ -1219,6 +1219,49 @@ describe('getPriceImpactRows router attribution', () => {
 	// NB this does NOT move the Slippage/Unattributed residual — slippage is
 	// overstated by exactly the same amount ΣPI is, so `slippage − ΣPI` is
 	// invariant. The defect is confined to this one cell.
+	it('reports no readable L.P. fee when every fee-bearing leg is unresolved', async () => {
+		// Receipt id 78: both legs are pools whose fee tier we could not read, so
+		// the rollup sums to a confident 0.0bps — asserting a $1,919 trade paid no
+		// liquidity-provider fee. A missing fee must not sum to zero.
+		const { hasNoReadableLpFee } = await import('./receipt/receiptDisplay');
+		const unread = { type: 'unknown', venue: '0x0fcbb3f9aecc556de81ee756f01191d94a3d085e', lpFeeBps: 0, feeResolved: false };
+		expect(hasNoReadableLpFee([unread, { ...unread, venue: '0xef05e733970c37b6a2f863de0db9378ea49447cc' }] as never)).toBe(true);
+	});
+
+	it('keeps the number when SOME leg contributed a real fee', async () => {
+		// Receipt id 75: four small legs resolved, two large ones not. Understated,
+		// but not a false zero — blanking it would discard real measurement.
+		const { hasNoReadableLpFee } = await import('./receipt/receiptDisplay');
+		const legs = [
+			{ type: 'univ3', venue: '0xaaa', lpFeeBps: 0.05, feeResolved: undefined },
+			{ type: 'unknown', venue: '0xbbb', lpFeeBps: 0, feeResolved: false },
+		];
+		expect(hasNoReadableLpFee(legs as never)).toBe(false);
+	});
+
+	it('still reports no L.P. fee for a maker-only route', async () => {
+		// The pre-existing case this helper absorbs: an rfq leg carries lpFeeBps 0
+		// by design, so a maker-only route also aggregates to a misleading 0.0.
+		const { hasNoReadableLpFee } = await import('./receipt/receiptDisplay');
+		expect(hasNoReadableLpFee([{ type: 'rfq', venue: '0xccc', lpFeeBps: 0 }] as never)).toBe(true);
+	});
+
+	it('is false for an ordinary fully-read route', async () => {
+		const { hasNoReadableLpFee } = await import('./receipt/receiptDisplay');
+		expect(hasNoReadableLpFee([{ type: 'univ3', venue: '0xaaa', lpFeeBps: 0.05 }] as never)).toBe(false);
+	});
+
+	it('ignores wrap/unwrap steps, which never carry a fee', async () => {
+		// A wrap leg has lpFeeBps null. Counting it as a non-contributor would make
+		// every wrapped route look unreadable.
+		const { hasNoReadableLpFee } = await import('./receipt/receiptDisplay');
+		const legs = [
+			{ type: 'wrap', venue: '0xwwww', lpFeeBps: null },
+			{ type: 'univ3', venue: '0xaaa', lpFeeBps: 0.05 },
+		];
+		expect(hasNoReadableLpFee(legs as never)).toBe(false);
+	});
+
 	it('names the PancakeSwap Infinity vault rather than calling it Unknown Pool', async () => {
 		// The leg is type 'unknown' — we do not read Infinity's fee or mid yet —
 		// but the address is known, and KNOWN_VENUE_LABELS is consulted before the
