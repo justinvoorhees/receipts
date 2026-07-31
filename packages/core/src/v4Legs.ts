@@ -80,6 +80,13 @@ export function collectV4Swaps(logs: readonly LogLike[]): V4Swap[] {
         sqrtPriceX96: bigint;
         fee: number | bigint;
       };
+      // A swap that moved NOTHING is a no-op, and its poolId is not the pool the
+      // trade went through. Receipt id 402's only V4 log was exactly this:
+      // amount0 = amount1 = 0 with sqrtPriceX96 = 2^96 (an uninitialised pool at
+      // price 1.0). Identifying the venue from it made getLegMidAtBlock read a
+      // mid of 1.0 for a WETH/USDC leg, so its price impact came out at 9999 bps
+      // and was clamped to null. Drop these before they can name a venue.
+      if (a.amount0 === 0n && a.amount1 === 0n) continue;
       out.push({
         poolId: a.id.toLowerCase(),
         fee: Number(a.fee),

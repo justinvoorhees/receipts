@@ -86,6 +86,10 @@ export function scanVenues(logs: readonly LogLike[], recognizeForks: boolean): M
 				});
 				const poolId = decoded.args.id as string;
 				const fee = Number(decoded.args.fee);
+				// Skip no-op swaps: a Swap that moved nothing carries a poolId that is
+				// NOT the pool the trade used, and this map's entry drives BOTH the fee
+				// and the mid read. See the guard in collectV4Swaps (receipt id 402).
+				if ((decoded.args.amount0 as bigint) === 0n && (decoded.args.amount1 as bigint) === 0n) continue;
 				// ⚠️ The V4 PoolManager is a SINGLETON: it emits Swap for every pool it
 				// hosts, and this map is keyed by emitter address, so a multi-pool route
 				// leaves only the LAST pool's fee and poolId here. That is not a

@@ -159,3 +159,40 @@ describe('shouldAttemptV4Rescue', () => {
     })).toBe(false);
   });
 });
+
+describe('collectV4Swaps zero-amount guard', () => {
+  // Receipt id 402 (CHAOS→USDC, $268). Its ONLY V4 Swap log moved nothing:
+  // amount0 = amount1 = 0, with sqrtPriceX96 = exactly 2^96 — the canonical
+  // "price = 1" value of a pool that was never initialised with real liquidity.
+  // routeVenueScan attached that poolId to the venue anyway, so getLegMidAtBlock
+  // read a mid of 1.0 for a WETH/USDC leg whose real price is ~2000, producing a
+  // price impact of 9999 bps that the implausibility clamp then nulled.
+  const Q96 = 79228162514264337593543950336n;
+  const V4_SWAP_TOPIC = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
+  const PM = '0x498581ff718922c3f8e6a244956af099b2652b2b';
+  const word = (v: bigint) => (v < 0n ? (2n ** 256n + v) : v).toString(16).padStart(64, '0');
+  const swapLog = (poolId: string, amount0: bigint, amount1: bigint, sqrt: bigint, fee: bigint) => ({
+    address: PM as `0x${string}`,
+    topics: [V4_SWAP_TOPIC, poolId, `0x${'0'.repeat(64)}`] as unknown as readonly `0x${string}`[],
+    data: `0x${word(amount0)}${word(amount1)}${word(sqrt)}${word(0n)}${word(0n)}${word(fee)}` as `0x${string}`,
+  });
+
+  it('skips a swap that moved nothing — its poolId is not the pool the trade used', () => {
+    const logs = [swapLog(`0x${'af'.repeat(32)}`, 0n, 0n, Q96, 100n)];
+    expect(collectV4Swaps(logs as never)).toEqual([]);
+  });
+
+  it('keeps a real swap even when one side is zero', () => {
+    // Only BOTH sides zero is a no-op. A one-sided zero is a real (if odd) swap
+    // and its poolId is genuine — dropping it would lose a leg.
+    const logs = [swapLog(`0x${'bb'.repeat(32)}`, 0n, -5000n, 12345678n, 500n)];
+    expect(collectV4Swaps(logs as never)).toHaveLength(1);
+  });
+
+  it('keeps ordinary swaps', () => {
+    const logs = [swapLog(`0x${'cc'.repeat(32)}`, 1000n, -999n, 12345678n, 500n)];
+    const out = collectV4Swaps(logs as never);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.fee).toBe(500);
+  });
+});
