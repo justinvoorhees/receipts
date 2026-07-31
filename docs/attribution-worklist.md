@@ -305,12 +305,40 @@ unclamps first ships a −13-billion-bps row. Fix the averaging, then repopulate
   are $0 rows — nothing to move. Diagnose separately, and only after the
   averaging fix, which may change what is left.
 
-### Also in scope: the stray nulls
+### Also in scope: the stray nulls  ✅ RESOLVED 2026-07-31
 
-- **id 399** — `univ4`, `priceImpactBps` null with **no flag explaining why**.
-  Diagnose before assuming it is the same cause.
-- **id 219** — `ROUTE_NOT_DECOMPOSED: shape=complex, reconstructed=false`,
-  5 legs, $41. Reconstruction failure, different root cause.
+All eight were diagnosed. **Seven were never defects**, and this section's
+"no flag explaining why" claim was simply wrong — the flags were there.
+
+| ids | verdict |
+|---|---|
+| 396, 399, 329, 330, 403 | **Not bugs.** All carry `NO_LIQUIDITY`, `market_mid` is NULL, and `methodology` reads "No reliable market price could be calculated." Every one is a memecoin (3, WOON, JOE, HAZZA, FANGS) with no discoverable market price, so a null price impact is CORRECT and already explained. ⚠️ id 399 specifically is cited above as "null with no flag" — it has `NO_LIQUIDITY`. |
+| 219 | **Not a bug.** `FEE_ON_TRANSFER` + `ROUTE_NOT_DECOMPOSED`, $41. Genuinely not separable, and flagged as such. |
+| 215 | **Not a reader bug.** The implausible leg is Hydrex, which has no own-mid reader and therefore uses the DISCOVERY path — a reference USDC/LFI pool, not the pool traded. The −2189 bps is reference-pool-vs-traded-pool divergence: the structural issue this document opens with, not a fixable read. |
+| **402** | ⚡ **The one real defect — FIXED (`def3b16`).** See below. |
+
+### ⚡ The find: a V4 venue identified from a swap that moved nothing
+
+id 402's only Uniswap V4 Swap log was a no-op — `amount0 = amount1 = 0`, with
+`sqrtPriceX96` = exactly 2⁹⁶, the canonical "price = 1" value of a pool never
+initialised with liquidity. Both sites that identify a V4 venue took its poolId
+anyway, and that entry drives the **mid read** — so `getLegMidAtBlock` returned
+a mid of **1.0** for a WETH/USDC leg whose real price is ~2000. The resulting
+9999 bps of price impact was clamped to null, which hid the cause.
+
+Guarded in `routeVenueScan` and `collectV4Swaps`. Only BOTH amounts being zero
+counts — a one-sided zero is a real if unusual swap whose poolId is genuine.
+
+id 402 repopulated: price impact recovers from null to 14.77 bps,
+`PI_IMPLAUSIBLE` gone, lpFee 101.13 → 100.13 (the bogus 1 bp tier read off the
+empty pool), confidence low → medium. Corpus scan: **1 of 26** V4 receipts had
+a zero-amount swap.
+
+⚠️ The leg is now `unknown` / `feeResolved: false`, so it shows `–` and carries
+the price-impact caveat. Honest: the only V4 Swap in that transaction was a
+no-op, so we do not know which pool the $268 went through — if one did. Its
+14.77 bps now comes from the discovery path and is still high for WETH/USDC;
+treat it as a reference-pool artifact, not a measurement.
 
 **Delivered 2026-07-30.** Two halves. `shouldAttemptV4Rescue` (`v4Legs.ts`)
 widens the rescue gate to routes that RECONSTRUCT over more than one distinct V4
