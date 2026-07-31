@@ -177,10 +177,10 @@ function HeaderRow({
 				<SortHeader col="size" sort={sort} onSort={onSort}>Size</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="lpFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-lp-fee', text: 'Fees paid to liquidity providers' }}>L.P. Fee</SortHeader>
+				<SortHeader col="aggFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-agg-fee', text: 'Fees paid to aggregators' }}>Agg. Fee</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="aggFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-agg-fee', text: 'Fees paid to aggregators' }}>Agg. Fee</SortHeader>
+				<SortHeader col="lpFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-lp-fee', text: 'Fees paid to liquidity providers' }}>L.P. Fee</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: 'Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee' }}>P. IMPACT</SortHeader>
@@ -300,8 +300,8 @@ function DataRow({
 			<td className={`${COL} text-right`}>{row.id}</td>
 			<td className={`${COL} text-right whitespace-nowrap`}>{receiptPairTitle(row)}</td>
 			<td className={`${COL} text-right`}>{formatNotional(row.notionalUsd != null ? Number(row.notionalUsd) : null)}</td>
-			<td className={`${COL} text-right`} style={!lpNotApplicable && lp.color ? { color: lp.color } : undefined}>{lpNotApplicable ? '–' : stripSign(lp.text)}</td>
 			<td className={`${COL} text-right`} style={agg.color ? { color: agg.color } : undefined}>{stripSign(agg.text)}</td>
+			<td className={`${COL} text-right`} style={!lpNotApplicable && lp.color ? { color: lp.color } : undefined}>{lpNotApplicable ? '–' : stripSign(lp.text)}</td>
 			<td className={`${COL} text-right`} style={impact.color ? { color: impact.color } : undefined}>{impact.text}</td>
 			<td className={`${COL} text-right`} style={execution.slippageDisplay.color ? { color: execution.slippageDisplay.color } : undefined}>{execution.fullyPriced ? execution.slippageDisplay.text : '–'}</td>
 			<td className={`${COL} text-right`} style={execution.positiveSlippageDisplay.color ? { color: execution.positiveSlippageDisplay.color } : undefined}>{execution.fullyPriced ? execution.positiveSlippageDisplay.text : '–'}</td>

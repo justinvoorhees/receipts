@@ -776,6 +776,26 @@ describe('TradesTable slippage columns', () => {
 		expect(cells[1]).toContain('text-right');
 	});
 
+	it('orders the fee columns Agg. Fee before L.P. Fee', async () => {
+		const { TradesTable } = await import('./tradesTable');
+		const html = renderToStaticMarkup(
+			<TradesTable
+				rows={[{ ...baseRow, id: 7, lpFeeBps: '3.5', aggFeeBps: '9.5', routeLegs: [leg(1000, 19.37)] }] as never}
+				initialSort={{ column: 'block', direction: 'desc' }}
+			/>,
+		);
+		const head = html.slice(html.indexOf('<thead'), html.indexOf('</thead>'));
+		expect(head.indexOf('>Size')).toBeLessThan(head.indexOf('>Agg. Fee'));
+		expect(head.indexOf('>Agg. Fee')).toBeLessThan(head.indexOf('>L.P. Fee'));
+		expect(head.indexOf('>L.P. Fee')).toBeLessThan(head.indexOf('>P. IMPACT'));
+
+		// And the cells follow the headers — distinct values so a swap is visible.
+		const body = html.slice(html.indexOf('<tbody'));
+		const cells = (body.match(/<td[^>]*>([^<]*)<\/td>/g) ?? []).map((c) => c.replace(/<[^>]*>/g, ''));
+		expect(cells[4]).toBe('9.5bps');
+		expect(cells[5]).toBe('3.5bps');
+	});
+
 	it('renders all three slippage columns as headers', async () => {
 		const { TradesTable } = await import('./tradesTable');
 		const html = renderToStaticMarkup(
