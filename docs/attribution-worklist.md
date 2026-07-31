@@ -23,7 +23,7 @@ Measured blast radius, re-measured 2026-07-30:
 | item | receipts | notional | what it is |
 |---|---:|---:|---|
 | **§2 V4 multi-pool fee averaging** | 5 (3 unflagged) | $4,497 | a real bug; 3 receipts silently wrong today |
-| §3 Twin venues fee tier | 2 | $53,884 | **exactly zero bps**; identification work |
+| ~~§3 Twin venues fee tier~~ 🛑 CLOSED | 2 | $53,884 | won't fix — both receipts are Odos, which is winding down |
 | §4 PancakeSwap Infinity | 1 | $3 | generalizable root cause, negligible value |
 | ~~RFQ relabel~~ ✅ DONE 2026-07-30 | 10 | $74,969 | zero bps, label only — see below |
 
@@ -42,7 +42,7 @@ before being narrowed. On a mixed route like id 210 — one maker leg among six,
 trade was maker-filled. The 3 mixed receipts (210, 189, 236; $19,915) get the
 coverage figure, which is both more informative and more honest.
 
-**Recommended order: §2, then §4, then §3.** §2 is the only one that corrects a
+**Recommended order: §2, then §4.** ~~then §3~~ — §3 is closed (Odos wind-down). §2 is the only one that corrects a
 displayed number, and its fix reuses machinery that already exists and passes
 tests. §4 is cheap and its root cause generalizes to any future singleton DEX.
 §3 carries by far the most notional but provably cannot move a basis point, and
@@ -344,7 +344,56 @@ undiagnosed.
 
 ---
 
-## 3. Twin venues fee tier
+## 3. Twin venues fee tier  🛑 CLOSED 2026-07-31 — WON'T FIX
+
+> **Both twin receipts are Odos, and Odos announced it is winding down
+> operations within the month.** Odos is exactly 2 of 62 receipts — ids 75 and
+> 78, the twin receipts and nothing else. Identifying these pools would serve a
+> venue that is about to stop producing volume, for zero basis points of
+> movement. Closed on value, not on difficulty.
+
+### What the investigation found before it was closed (2026-07-31)
+
+Measured on-chain. **Two of this section's structural claims are wrong** — do
+not build on them if this is ever reopened.
+
+- ⚡ **"Twin" = ONE contract deployed twice.** Both are 19,335 bytes but NOT
+  byte-identical: they differ in 33 short runs, every one an inlined
+  `immutable`. Not two instances of the same pool.
+- ⚡ **The pairs are readable without verification**, straight from those
+  immutables and confirmed by a state-dump getter: `0x0fcbb3f9…` is
+  **USDC/cbBTC**, `0xef05e733…` is **cbBTC/WETH**. They form a two-hop CHAIN
+  (USDC → cbBTC → WETH), not a round trip.
+- ⚡⚡ **"sqrtPriceX96 ⇒ concentrated-liquidity family" is DISPROVEN.** Tested
+  against the realized price in the same log: word[6]/2⁹⁶ squared gives
+  57,752.92 where the actual raw price is 775.57 (USDC/cbBTC), and 24,057.72
+  where it is 3.63e11 (cbBTC/WETH). Neither matches. Word[5] is a constant −1
+  on both legs — a sentinel, not an amount.
+- ⚠️ **The contract exposes no standard AMM interface at all** — 14
+  non-standard dispatch selectors, no `token0()` / `fee()` / `slot0()` /
+  `getReserves()`. `unknown` is genuinely correct today; this was never a
+  reader bug.
+- ⭐ Only lead worth resuming from: **`0xbcdb4dad` returns a 14-word state
+  dump** (both tokens plus `5000000`, `10000`, `−30`, `29`, `1e10`, `1e12`, and
+  two contracts). ⚠️ `10000` cannot be a 1% fee — leg A's measured price impact
+  is 4.33 bps. The chain runs cold at a `factory()` pointing to an address with
+  **zero code on Base**.
+
+Full detail: memory `twin-venues-investigation.md`.
+
+### The user-visible defect this leaves behind
+
+⭐ **id 78 renders `L.P. Fee = 0.0bps` on `/trades`** for a $1,919 trade routed
+100% through these pools. The per-leg rows are honest (`N/A` + "No fee available
+for this leg"); the ROLLUP is not, because a missing fee sums to zero. That is
+fixable **without identifying anything** — make the route-level rollup render
+`–` when every contributing leg has `feeResolved: false`, applying the same
+"missing ≠ zero" rule already used per-leg. Cheaper than this section ever was,
+and it survives Odos shutting down.
+
+---
+
+### Original notes (superseded above, kept for the algebra)
 
 **Value: exactly zero bps out of Slippage.** This is correctness only.
 ⚠️ Previously recorded as the "best target" at $53.9k — that was wrong, see below.
