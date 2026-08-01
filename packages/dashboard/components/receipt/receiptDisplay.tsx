@@ -116,8 +116,8 @@ export function noSlippageTooltip(coveragePercent: number): string {
  */
 export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): string {
 	if (leg.v4Emitter) return leg.v4Emitter;
-	// `inf:<poolId>` and `v4:<poolId>` venues are pool ids, not addresses.
-	if (leg.venue.startsWith('inf:')) return INFINITY_CL_POOL_MANAGER_ADDRESS;
+	// Infinity legs also set `v4Emitter` (persisted from `replacesVenue`, the
+	// Vault) and are caught by the check above — do not re-add an `inf:` branch.
 	return leg.venue;
 }
 
@@ -462,11 +462,6 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 	'0x3722264ab15a1dfce5a5af89e6547f7949a8aba3': 'LFI',
 	'0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3': 'GITLAWB',
 };
-
-// Infinity's CLPoolManager — the contract that actually emits Swap and holds
-// per-pool state, as opposed to PANCAKE_INFINITY_VAULT (the token custodian).
-// `inf:<poolId>` legs link here since the poolId itself is not an address.
-const INFINITY_CL_POOL_MANAGER_ADDRESS = '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b';
 
 // Consulted BEFORE any leg.type dispatch, so a venue can be named without
 // giving it a VenueType. That matters for singleton custodians: naming them

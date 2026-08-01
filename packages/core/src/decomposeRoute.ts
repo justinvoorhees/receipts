@@ -432,6 +432,14 @@ export async function decomposeRoute(
 	// Used to suppress decomposeTrade's averaged-fee flag, which describes a
 	// value this route no longer uses (see the flags merge at the end).
 	let v4RescueAdopted = false;
+	// Extras from any rescue that was actually ADOPTED, carried forward into
+	// the next rescue's buildRouteGraph call. Each rescue rebuilds its graph
+	// from `transfers` alone (buildLegs has no memory of an earlier rescue), so
+	// without this a later rescue's adopted graph would silently discard an
+	// earlier one's synthesized legs — they exist only as extras, not as
+	// transfers. Symmetric: whichever rescue adopts appends its own extras, so
+	// a hypothetical third rescue would inherit both.
+	let adoptedExtraLegs: Leg[] = [];
 
 	// Step 1: Get base decomposition from decomposeTrade (reuse agg fee, gas, flags)
 	const base = await decomposeTrade(input);
@@ -568,6 +576,7 @@ export async function decomposeRoute(
 					if (changed) {
 						routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
 						v4RescueAdopted = true;
+						adoptedExtraLegs = [...adoptedExtraLegs, ...extraV4Legs];
 					}
 				} else if (shortfall) {
 					routeFlags.push(
@@ -599,12 +608,17 @@ export async function decomposeRoute(
 		}
 		const extraLegs = synthesizeInfinityLegs(infinitySwaps, poolKeys, WETH);
 		if (extraLegs.length > 0) {
+			// Carry forward any extras the V4 rescue already adopted: buildRouteGraph
+			// rebuilds from `transfers` alone every time, so without this the V4
+			// rescue's synthesized per-pool legs — which exist only as extras, never
+			// as transfers — would silently vanish from the graph this call adopts.
+			const combinedExtraLegs = [...adoptedExtraLegs, ...extraLegs];
 			const infGraph = buildRouteGraph({
 				transfers,
 				trader: input.trader,
 				venues,
 				denylist: extendedDenylist,
-				extraLegs,
+				extraLegs: combinedExtraLegs,
 			});
 			// Same completeness guard as the V4 rescue, for the same reason:
 			// `reconstructed` compares no endpoint totals, so it accepts a rescue
@@ -623,6 +637,9 @@ export async function decomposeRoute(
 				graph = infGraph;
 				if (changed) {
 					routeFlags.push(`INFINITY_LEGS: synthesized ${extraLegs.length} Infinity pool leg(s) from Swap events`);
+					// Symmetric with the V4 branch above, so a hypothetical third rescue
+					// would inherit both singletons' adopted legs.
+					adoptedExtraLegs = combinedExtraLegs;
 				}
 			} else if (shortfall) {
 				routeFlags.push(
