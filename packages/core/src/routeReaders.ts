@@ -290,9 +290,40 @@ export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (ad
 				// 30 bps is the canonical V2 fee, not a guess
 				return { bps: 30, defaulted: false };
 			case 'aerodrome': {
-				// Aerodrome pools expose fee via stable/volatile classification.
-				// Falling back to 30 bps is a guess — signal defaulted.
-				return { bps: 30, defaulted: true };
+				// The fee lives on the FACTORY, not the pool: getFee(pool, stable)
+				// returns it already in bps, per-pool, and it is NOT always 30.
+				// Verified on-chain 2026-08-01 — pool 0xef6f90ac… (receipt 173)
+				// returns 80, and the old hardcoded 30 understated that leg by
+				// 50bps while its PoolFees accumulator leaked the true 80bps into
+				// the third-party fee row. Volatile/stable is a per-pool flag, so
+				// both reads are required; only a failed read defaults.
+				try {
+					const [factory, stable] = await Promise.all([
+						rpc.readContract({
+							address: addr as `0x${string}`,
+							abi: [parseAbiItem('function factory() view returns (address)')],
+							functionName: 'factory',
+							blockNumber,
+						}),
+						rpc.readContract({
+							address: addr as `0x${string}`,
+							abi: [parseAbiItem('function stable() view returns (bool)')],
+							functionName: 'stable',
+							blockNumber,
+						}),
+					]);
+					const fee = await rpc.readContract({
+						address: factory as `0x${string}`,
+						abi: [parseAbiItem('function getFee(address pool, bool stable) view returns (uint256)')],
+						functionName: 'getFee',
+						args: [addr as `0x${string}`, stable as boolean],
+						blockNumber,
+					});
+					return { bps: Number(fee), defaulted: false };
+				} catch {
+					// Signal defaulted — 30 bps is the common case, never a reading.
+					return { bps: 30, defaulted: true };
+				}
 			}
 			case 'rfq':
 				return { bps: 0, defaulted: false };
@@ -318,6 +349,32 @@ export function createDefaultV3FactoryReader(rpcUrl: string, blockNumber: bigint
 				blockNumber,
 			});
 			return String(factory);
+		} catch {
+			return null;
+		}
+	};
+}
+
+/**
+ * Resolve an Aerodrome v2 pool to the `PoolFees` contract that receives its swap
+ * fees. Fails closed (null) — a missing accumulator only means we cannot prove an
+ * address is LP-side, so it stays wherever the other evidence puts it.
+ */
+export function createDefaultPoolFeesReader(rpcUrl: string, blockNumber: bigint): (addr: string) => Promise<string | null> {
+	if (rpcUrl === 'unused') {
+		return async () => null;
+	}
+	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+
+	return async (addr: string): Promise<string | null> => {
+		try {
+			const fees = await rpc.readContract({
+				address: addr as `0x${string}`,
+				abi: [parseAbiItem('function poolFees() view returns (address)')],
+				functionName: 'poolFees',
+				blockNumber,
+			});
+			return String(fees);
 		} catch {
 			return null;
 		}

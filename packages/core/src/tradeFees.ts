@@ -152,6 +152,50 @@ export function computeAggFee(args: {
 	return { aggFeeBps, feeSinks, vaultMapFeeUsdc, flags };
 }
 
+// ─── Step 3b: Drop LP-side sinks ───
+
+/**
+ * Remove sinks that are LP-side by construction, and restate `aggFeeBps` on what
+ * survives.
+ *
+ * `computeAggFee` only knows "this address retained a little USDC/WETH", which is
+ * exactly what an AMM pool's fee looks like. Two shapes leak in:
+ *
+ *  1. **The pool itself is a route leg.** A Curve StableSwap-NG pool keeps its fee
+ *     in its own reserves, so it retains value AND appears as a leg — receipt 173
+ *     booked $1.6403 of Curve fee as a third-party fee while the LP Fee row
+ *     separately claimed $1.4090 of the same money from the pool's `fee()` tier.
+ *  2. **A pool's dedicated fee accumulator.** Aerodrome v2 forwards each swap's fee
+ *     to the address its `poolFees()` returns. On receipt 173 that contract took
+ *     $4.9597 — exactly 80bps × the leg's $619.96, i.e. the leg's LP fee at the
+ *     true rate the factory reports.
+ *
+ * Both are the LP fee. Booking them here double-counts against the LP Fee row.
+ *
+ * ⚠️ RFQ makers are deliberately NOT dropped. A maker's retained spread is real
+ * value kept by a third party, its leg is priced at `lpFeeBps: 0` with a null price
+ * impact, so it is counted exactly once and belongs under Third-Party Fee.
+ */
+export function dropLpSideSinks(
+	sinks: FeeSink[],
+	lpSideAddresses: Set<string>,
+	notionalUsdc: number,
+): { kept: FeeSink[]; dropped: FeeSink[]; aggFeeBps: number; flags: string[] } {
+	const kept: FeeSink[] = [];
+	const dropped: FeeSink[] = [];
+	for (const s of sinks) {
+		(lpSideAddresses.has(s.address.toLowerCase()) ? dropped : kept).push(s);
+	}
+	const flags = dropped.map(
+		(s) =>
+			`LP_SIDE_SINK_DROPPED: ${s.address} retained ${s.totalUsdc.toFixed(4)} USDC as a pool fee — ` +
+			`counted in the L.P. fee, not as a third-party fee`,
+	);
+	const keptUsdc = kept.reduce((sum, s) => sum + s.totalUsdc, 0);
+	const aggFeeBps = notionalUsdc > 0 ? Math.max(0, (keptUsdc / notionalUsdc) * 10_000) : 0;
+	return { kept, dropped, aggFeeBps, flags };
+}
+
 // ─── Step 4b: Route-purity detection ───
 // A route is impure (LP/slippage not separable) only if a third token
 // (non-USDC, non-WETH) is transiently held by a trade "hub" — one of

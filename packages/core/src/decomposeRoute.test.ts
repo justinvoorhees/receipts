@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks, feeOnTransferFlag } from './decomposeRoute.js';
+import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks, feeOnTransferFlag, POOL_VENUE_TYPES } from './decomposeRoute.js';
 import type { FeeSink } from './tradeFees.js';
 import { getLegMidAtBlock } from './routeReaders.js';
 import { INFINITY_SWAP_TOPIC } from './infinityLegs.js';
@@ -1789,6 +1789,28 @@ describe('decomposeRoute: a single surviving Infinity extra is de-duped against 
 
 		expect(result.legs).toHaveLength(1);
 	}, 15000);
+});
+
+// Which leg types count as LP-side decides whose retained value gets dropped from
+// the Third-Party Fee row. Verified against the corpus 2026-08-01: dropping pools
+// zeroed receipt 173's bogus 93.51bps, while all seven receipts whose sink IS an
+// RFQ maker (36, 53, 118, 189, 208, 210, 324) were left untouched.
+describe('POOL_VENUE_TYPES', () => {
+	it('excludes rfq — a maker spread is a third-party fee, not an L.P. fee', () => {
+		expect(POOL_VENUE_TYPES.has('rfq')).toBe(false);
+	});
+
+	it('excludes wrap/unwrap and unknown — not established as pools', () => {
+		expect(POOL_VENUE_TYPES.has('wrap')).toBe(false);
+		expect(POOL_VENUE_TYPES.has('unwrap')).toBe(false);
+		expect(POOL_VENUE_TYPES.has('unknown')).toBe(false);
+	});
+
+	it('includes the AMM families whose retained value is an L.P. fee', () => {
+		for (const t of ['aerodrome', 'aerodrome_cl', 'curve_stableng', 'univ3', 'univ4', 'univ2'] as const) {
+			expect(POOL_VENUE_TYPES.has(t)).toBe(true);
+		}
+	});
 });
 
 describe('buildFeeSinks', () => {

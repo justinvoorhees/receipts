@@ -108,6 +108,40 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
     }
   });
 
+  // Aerodrome's fee lives on the FACTORY (getFee(pool, stable)) and is per-pool.
+  // It used to return a hardcoded 30bps with no RPC call at all, which understated
+  // receipt 173's pool by 50bps (its real fee is 80) while the pool's PoolFees
+  // accumulator leaked the true amount into the third-party fee row.
+  it('marks an aerodrome leg defaulted only when the factory read FAILS', async () => {
+    const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'aerodrome');
+    expect(result).toEqual({ bps: 30, defaulted: true });
+  });
+
+  it('reports a successful aerodrome read as a measurement, at the factory rate', async () => {
+    const rpc = 'http://aerodrome-stub.invalid';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      type RpcCall = { id: number; params?: [{ data?: string }] };
+      const body: RpcCall | RpcCall[] = JSON.parse(String((init as RequestInit).body));
+      const calls: RpcCall[] = Array.isArray(body) ? body : [body];
+      const answer = (c: RpcCall) => {
+        const data = String(c.params?.[0]?.data ?? '');
+        if (data.startsWith('0xc45a0155')) return `0x${'00'.repeat(12)}${'fa'.repeat(20)}`; // factory()
+        if (data.startsWith('0x22be3de1')) return `0x${'00'.repeat(32)}`;                    // stable() -> false
+        return `0x${(80).toString(16).padStart(64, '0')}`;                                   // getFee() -> 80
+      };
+      const res = calls.map((c) => ({ jsonrpc: '2.0', id: c.id, result: answer(c) }));
+      return new Response(JSON.stringify(Array.isArray(body) ? res : res[0]), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    });
+    try {
+      const result = await createDefaultFeeReader(rpc, 1000n)(POOL, 'aerodrome');
+      expect(result).toEqual({ bps: 80, defaulted: false });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('keeps rfq at a genuine zero — a maker fill has no LP fee to resolve', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {

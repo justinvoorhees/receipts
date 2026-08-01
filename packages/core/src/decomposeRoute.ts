@@ -21,7 +21,7 @@ import { buildRouteGraph, type RouteShape, type VenueType, type Leg, type RouteB
 import { valueLegNotionalUsdc, rollupLpFee, type LegFeeInput } from './legFees.js';
 import { anchorsToUsd } from './receiptPure.js';
 import { decomposeTrade, type DecomposeTradeInput } from './decomposeTrade.js';
-import { type FeeSink } from './tradeFees.js';
+import { type FeeSink, dropLpSideSinks } from './tradeFees.js';
 import { type PairMidResult } from './tokenPricing.js';
 import {
 	scanVenues,
@@ -34,6 +34,7 @@ import {
 	createDefaultFeeReader,
 	createDefaultV3FactoryReader,
 	createDefaultRfqProbe,
+	createDefaultPoolFeesReader,
 	createDefaultV4PoolKeyReader,
 	createDefaultInfinityPoolKeyReader,
 	type V4PoolKeyReader,
@@ -82,6 +83,22 @@ const UNISWAP_V4_POOL_MANAGER =
 	'0x498581ff718922c3f8e6a244956af099b2652b2b';
 
 const LEG_FEE_CAP_BPS = 300;
+
+/**
+ * Leg types whose venue is a POOL — i.e. value it retains is an LP fee, already
+ * accounted for by that leg's fee tier, and must not also be booked as a
+ * third-party fee. See `dropLpSideSinks`.
+ *
+ * ⚠️ Deliberately excludes `rfq` (a maker's spread IS a third-party fee),
+ * `wrap`/`unwrap` (the WETH contract, already infra), and `unknown` — we have
+ * not established that an unknown venue is a pool, so its retention stays where
+ * the evidence puts it.
+ */
+export const POOL_VENUE_TYPES: ReadonlySet<VenueType> = new Set<VenueType>([
+	'univ3', 'sushiv3', 'baseswapv3', 'pancakev3', 'univ4', 'univ2',
+	'aerodrome', 'aerodrome_cl', 'curve_stableng', 'maverickv1', 'maverickv2',
+	'hydrex', 'quickswapv4', 'unipool', 'pancake_infinity',
+]);
 
 /**
  * The largest gap that could plausibly be a transfer tax, in bps.
@@ -171,6 +188,8 @@ export interface DecomposeRouteDeps {
 	midReader?: (leg: Leg, blockNumber: bigint) => Promise<PairMidResult | null> | PairMidResult | null;
 	/** Custom decimals reader (for realized-price computation). Falls back to inline USDC=6/else=18. */
 	decimalsReader?: (token: string) => Promise<number> | number;
+	/** Resolve an Aerodrome pool → its `poolFees()` accumulator (block-pinned in production). */
+	poolFeesReader?: (addr: string) => Promise<string | null> | string | null;
 	/** Structural maker probe for the rfq retype pass (block-pinned in production). */
 	rfqProbe?: (addr: string) => Promise<'eoa' | 'proxy1967' | 'contract'> | 'eoa' | 'proxy1967' | 'contract';
 	/** Resolve a V4 poolId → its two currencies (block-pinned in production). */
@@ -444,16 +463,6 @@ export async function decomposeRoute(
 	// Step 1: Get base decomposition from decomposeTrade (reuse agg fee, gas, flags)
 	const base = await decomposeTrade(input);
 
-	// Identify the dominant fee sink (largest retained value) that `aggFeeBps` is
-	// attributed to, so the receipt can record WHO received the fee, not just how
-	// much. Null when no fee sink was detected.
-	const dominantSink = base.feeSinks.length > 0
-		? base.feeSinks.reduce((max, s) => (s.totalUsdc > max.totalUsdc ? s : max))
-		: null;
-	const feeRecipient = dominantSink?.address ?? null;
-	const feeSinkSource = dominantSink?.source ?? null;
-	const feeSinks = buildFeeSinks(base.feeSinks, base.aggFeeBps);
-
 	// Step 2: Get trace (injected or from input)
 	const trace = (deps?.trace ?? input.trace) as TraceNode;
 
@@ -704,6 +713,35 @@ export async function decomposeRoute(
 		);
 	}
 
+	// Step 4c: Drop LP-side fee sinks, now that leg types are final (the rfq
+	// retype above decides which venues are makers, and makers are KEPT).
+	// A pool's fee is not a third-party fee — see `dropLpSideSinks`.
+	const poolFeesReader = deps?.poolFeesReader ?? createDefaultPoolFeesReader(input.rpcUrl, input.blockNumber);
+	const lpSideAddresses = new Set<string>();
+	for (const leg of graph.legs) {
+		if (!POOL_VENUE_TYPES.has(leg.type)) continue;
+		lpSideAddresses.add(leg.venue.toLowerCase());
+		// Aerodrome v2 routes each swap's fee to a dedicated accumulator rather
+		// than keeping it in reserves, so the pool address alone does not cover it.
+		if (leg.type === 'aerodrome') {
+			const acc = await poolFeesReader(leg.venue);
+			if (acc) lpSideAddresses.add(acc.toLowerCase());
+		}
+	}
+	const lpSide = dropLpSideSinks(base.feeSinks, lpSideAddresses, input.notionalUsdc);
+	const aggFeeBps = lpSide.aggFeeBps;
+	routeFlags.push(...lpSide.flags);
+
+	// Identify the dominant fee sink (largest retained value) that `aggFeeBps` is
+	// attributed to, so the receipt can record WHO received the fee, not just how
+	// much. Null when no fee sink survived.
+	const dominantSink = lpSide.kept.length > 0
+		? lpSide.kept.reduce((max, s) => (s.totalUsdc > max.totalUsdc ? s : max))
+		: null;
+	const feeRecipient = dominantSink?.address ?? null;
+	const feeSinkSource = dominantSink?.source ?? null;
+	const feeSinks = buildFeeSinks(lpSide.kept, aggFeeBps);
+
 	// Step 5: Resolve fee tiers for each leg
 	const feeReader = deps?.feeReader ?? createDefaultFeeReader(input.rpcUrl, input.blockNumber);
 	let allFeesResolved = true;
@@ -760,7 +798,7 @@ export async function decomposeRoute(
 
 	if (graph.reconstructed) {
 		const lpFeeBps = rollup.lpFeeBps;
-		const slippageBps = input.allInCostBps - lpFeeBps - base.aggFeeBps;
+		const slippageBps = input.allInCostBps - lpFeeBps - aggFeeBps;
 
 		// Step 9: Per-leg price-impact attribution
 		// Uses injected midReader (test stubs or production callers create one).
@@ -837,7 +875,7 @@ export async function decomposeRoute(
 		if (!hasNullMid && !hasRfqLeg && legsWithLp.some((l) => l.priceImpactBps !== null)) {
 			const sumLp = legsWithLp.reduce((s, l) => s + l.lpFeeBps, 0);
 			const sumImpact = legsWithLp.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0);
-			reconResidualBps = input.allInCostBps - (sumLp + sumImpact + base.aggFeeBps);
+			reconResidualBps = input.allInCostBps - (sumLp + sumImpact + aggFeeBps);
 		}
 
 		// Confidence assessment
@@ -887,7 +925,7 @@ export async function decomposeRoute(
 
 		return {
 			lpFeeBps,
-			aggFeeBps: base.aggFeeBps,
+			aggFeeBps,
 			slippageBps,
 			executionBps: base.executionBps,
 			gasBps,
@@ -931,7 +969,7 @@ export async function decomposeRoute(
 
 	return {
 		lpFeeBps: null,
-		aggFeeBps: base.aggFeeBps,
+		aggFeeBps,
 		slippageBps: null,
 		executionBps: base.executionBps,
 		gasBps,
