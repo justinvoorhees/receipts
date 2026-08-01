@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks, feeOnTransferFlag } from './decomposeRoute.js';
 import type { FeeSink } from './tradeFees.js';
 import { getLegMidAtBlock } from './routeReaders.js';
+import { INFINITY_SWAP_TOPIC } from './infinityLegs.js';
 import type { DecomposeTradeInput } from './decomposeTrade.js';
 import type { Leg } from './routeGraph.js';
 
@@ -1463,6 +1464,134 @@ describe('decomposeRoute V4 multi-pool extraction (id 56)', () => {
 		// route that chains but under-accounts.
 		expect(result.flags.some((f) => f.startsWith('V4_RESCUE_REJECTED'))).toBe(true);
 		expect(result.flags.some((f) => f.startsWith('V4_MULTIPOOL_LEGS'))).toBe(false);
+	}, 15000);
+});
+
+// ─── Fix-round-3 regression: adoptedExtraLegs carry-forward, decoupled from `changed` ───
+//
+// Guards two things that only `decomposeRoute` itself (not `buildRouteGraph`
+// in isolation) can prove:
+//   (A) a V4 rescue's synthesized legs actually reach a SUBSEQUENT Infinity
+//       rescue's merge, via decomposeRoute's own `adoptedExtraLegs` wiring —
+//       not just that buildRouteGraph merges a hand-built combined array
+//       correctly (routeGraph.test.ts already covers that).
+//   (B) the specific shape that breaks a `changed`-leg-count-based
+//       carry-forward: TWO DISTINCT univ4-typed emitters with ONE pool each
+//       (a real shape — id 445 has a second contract emitting the V4 Swap
+//       topic, `0x60b393a76cea4a3afff00e1fb08d0f63a8f4a314`, reused as the
+//       fixture's second emitter below). Each emitter's own collapsed leg is
+//       individually clean, so the V4 merge drops 2 collapsed legs and adds 2
+//       extras — net leg COUNT unchanged, `changed` false — even though the
+//       leg SET did change. A `changed`-gated carry-forward misses this.
+describe('decomposeRoute: adopted V4 legs survive a subsequent Infinity rescue (two V4 emitters, one pool each)', () => {
+	const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+	// The real V4 PoolManager singleton (decomposeRoute.ts's own UNISWAP_V4_POOL_MANAGER constant).
+	const pmA = '0x498581ff718922c3f8e6a244956af099b2652b2b' as `0x${string}`;
+	// A SECOND, distinct contract emitting the V4 Swap topic — the real fork address found in id 445.
+	const pmB = '0x60b393a76cea4a3afff00e1fb08d0f63a8f4a314' as `0x${string}`;
+	const vault = '0x238a358808379702088667322f80ac48bad5e6c4' as `0x${string}`;
+	const HUB = '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`;
+
+	const v4PoolAId = `0x${'aa'.repeat(32)}`;
+	const v4PoolBId = `0x${'bb'.repeat(32)}`;
+	const infPoolCId = `0x${'cc'.repeat(32)}`;
+	const infPoolDId = `0x${'dd'.repeat(32)}`;
+
+	const V4_SWAP_TOPIC = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f' as `0x${string}`;
+	const ZERO_TOPIC = `0x${'0'.repeat(64)}` as `0x${string}`;
+	const word = (v: bigint) => (v < 0n ? (2n ** 256n + v) : v).toString(16).padStart(64, '0');
+
+	/** V4 Swap log: amount0/1, sqrtPriceX96, liquidity(0), tick(0), fee — 6 words. */
+	function v4SwapLog(emitter: `0x${string}`, poolId: string, amount0: bigint, amount1: bigint, fee: bigint) {
+		return {
+			address: emitter,
+			topics: [V4_SWAP_TOPIC, poolId, ZERO_TOPIC] as unknown as readonly `0x${string}`[],
+			data: `0x${word(amount0)}${word(amount1)}${word(12345678n)}${word(0n)}${word(0n)}${word(fee)}` as `0x${string}`,
+		};
+	}
+	/** Infinity Swap log: amount0/1, sqrtPriceX96, liquidity(0), tick(0), fee, protocolFee — 7 words. */
+	function infSwapLog(poolId: string, amount0: bigint, amount1: bigint, fee: bigint, protocolFee: bigint) {
+		return {
+			address: '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b' as `0x${string}`, // CLPoolManager; filtered by topic, not address
+			topics: [INFINITY_SWAP_TOPIC as `0x${string}`, poolId as `0x${string}`, ZERO_TOPIC] as unknown as readonly `0x${string}`[],
+			data: `0x${word(amount0)}${word(amount1)}${word(12345678n)}${word(0n)}${word(0n)}${word(fee)}${word(protocolFee)}` as `0x${string}`,
+		};
+	}
+
+	// USDC →(pmA, 1 pool)→ HUB, USDC →(pmB, 1 pool)→ HUB, HUB →(Vault, 2 pools)→ WETH.
+	// Each V4 emitter is individually a clean 1-in/1-out address-derived leg —
+	// the multi-EMITTER collapse-and-replace only shows up once BOTH pools are
+	// counted together (extraPoolIds), not from either emitter alone.
+	const syntheticTrace = {
+		from: syntheticTrader,
+		to: '0xdddddddddddddddddddddddddddddddddddddddd' as `0x${string}`,
+		input: '0x' as `0x${string}`,
+		logs: [
+			v4SwapLog(pmA, v4PoolAId, -600_000n, 600_000000000000000000n, 3000n),
+			v4SwapLog(pmB, v4PoolBId, -400_000n, 400_000000000000000000n, 3000n),
+			infSwapLog(infPoolCId, -600_000000000000000000n, 600_000000000n, 70n, 23n),
+			infSwapLog(infPoolDId, -400_000000000000000000n, 400_000000000n, 70n, 23n),
+			transferLog(USDC as `0x${string}`, syntheticTrader, pmA, 600_000n),
+			transferLog(HUB, pmA, vault, 600_000000000000000000n),
+			transferLog(USDC as `0x${string}`, syntheticTrader, pmB, 400_000n),
+			transferLog(HUB, pmB, vault, 400_000000000000000000n),
+			transferLog(WETH as `0x${string}`, vault, syntheticTrader, 1_000000000000n),
+		],
+		calls: [],
+	};
+
+	const input: DecomposeTradeInput = {
+		trace: syntheticTrace as any,
+		txHash: '0x0000000000000000000000000000000000000000000000000000000000000001',
+		trader: syntheticTrader,
+		allInCostBps: 5.0,
+		notionalUsdc: 1.0,
+		realizedPrice: 1800,
+		gasCostUsd: 0.001,
+		aggregator: 'Unknown',
+		blockNumber: 100n,
+		rpcUrl: 'unused',
+		dustUsdc: 1e-6,
+		structuralFloorUsd: 0,
+		structuralFloorBps: 0.5,
+	};
+
+	const v4PoolKeyReader = async (poolId: string) => {
+		const m: Record<string, { currency0: string; currency1: string }> = {
+			[v4PoolAId]: { currency0: USDC, currency1: HUB },
+			[v4PoolBId]: { currency0: USDC, currency1: HUB },
+		};
+		return m[poolId.toLowerCase()] ?? null;
+	};
+	const infinityPoolKeyReader = async (poolId: string) => {
+		const m: Record<string, { currency0: string; currency1: string }> = {
+			[infPoolCId]: { currency0: HUB, currency1: WETH },
+			[infPoolDId]: { currency0: HUB, currency1: WETH },
+		};
+		return m[poolId.toLowerCase()] ?? null;
+	};
+
+	it('keeps the synthesized V4 per-pool legs (v4:<poolId>) after the Infinity rescue adopts', async () => {
+		const result = await decomposeRoute(input, {
+			trace: syntheticTrace as any,
+			feeReader: () => ({ bps: 30, defaulted: false }),
+			rfqProbe: () => 'contract',
+			v3FactoryReader: () => null,
+			v4PoolKeyReader,
+			infinityPoolKeyReader,
+		});
+
+		// Both V4 emitters' synthesized per-pool legs are present — NOT their
+		// naive per-emitter addresses. Fails if `adoptedExtraLegs` was not
+		// carried into the Infinity rescue's buildRouteGraph call.
+		expect(result.legs.some((l) => l.leg.venue === `v4:${v4PoolAId}`)).toBe(true);
+		expect(result.legs.some((l) => l.leg.venue === `v4:${v4PoolBId}`)).toBe(true);
+		expect(result.legs.some((l) => l.leg.venue === pmA)).toBe(false);
+		expect(result.legs.some((l) => l.leg.venue === pmB)).toBe(false);
+		// And both Infinity per-pool legs are present too.
+		expect(result.legs.some((l) => l.leg.venue === `inf:${infPoolCId}`)).toBe(true);
+		expect(result.legs.some((l) => l.leg.venue === `inf:${infPoolDId}`)).toBe(true);
+		expect(result.legs).toHaveLength(4);
 	}, 15000);
 });
 

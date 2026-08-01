@@ -576,8 +576,23 @@ export async function decomposeRoute(
 					if (changed) {
 						routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
 						v4RescueAdopted = true;
-						adoptedExtraLegs = [...adoptedExtraLegs, ...extraV4Legs];
 					}
+					// Carry forward whichever extras actually survived into the ADOPTED
+					// graph, independent of `changed` — which only tracks net leg COUNT
+					// and can miss a same-count swap: two distinct univ4 emitters with one
+					// pool each (a real shape — id 445 has a second contract emitting the
+					// V4 Swap topic) drop 2 collapsed legs and gain 2 extras, net count
+					// unchanged, `changed` false, yet the extras ARE in the adopted graph
+					// and a following Infinity rescue must not lose them. An extra's
+					// `venue` (`v4:<poolId>`) is unique per pool, so its presence in
+					// v4Graph.legs is proof it survived the merge/dedup — a de-duped extra
+					// is correctly excluded because it is NOT there, exactly the property
+					// `changed` was standing in for.
+					const survivingV4Venues = new Set(v4Graph.legs.map((l) => l.venue));
+					adoptedExtraLegs = [
+						...adoptedExtraLegs,
+						...extraV4Legs.filter((l) => survivingV4Venues.has(l.venue)),
+					];
 				} else if (shortfall) {
 					routeFlags.push(
 						`V4_RESCUE_REJECTED: synthesized legs consume ${afterIn} of the ${traderSent} input`
@@ -637,10 +652,15 @@ export async function decomposeRoute(
 				graph = infGraph;
 				if (changed) {
 					routeFlags.push(`INFINITY_LEGS: synthesized ${extraLegs.length} Infinity pool leg(s) from Swap events`);
-					// Symmetric with the V4 branch above, so a hypothetical third rescue
-					// would inherit both singletons' adopted legs.
-					adoptedExtraLegs = combinedExtraLegs;
 				}
+				// Symmetric with the V4 branch above, and for the same reason: `changed`
+				// (net leg COUNT) can miss a same-count swap. Carry forward whichever
+				// legs from the COMBINED set (V4-carried + Infinity-new) actually
+				// survived into the adopted graph, matched by venue — so a hypothetical
+				// third rescue inherits exactly what is really there, not what
+				// `changed` implied was there.
+				const survivingInfVenues = new Set(infGraph.legs.map((l) => l.venue));
+				adoptedExtraLegs = combinedExtraLegs.filter((l) => survivingInfVenues.has(l.venue));
 			} else if (shortfall) {
 				routeFlags.push(
 					`INFINITY_RESCUE_REJECTED: synthesized legs consume ${afterIn} of the ${traderSent} input`
