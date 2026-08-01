@@ -555,6 +555,99 @@ fix moves **+0.17 bps to LP Fee and +2.64 bps to slippage**. It does *not*
 
 ---
 
+## 5. Receipt 445 — identify the two BTC-side pools  ⭐ OPEN
+
+Measured 2026-07-31 against the live DB, after the Infinity work deliberately
+left 445 alone. `0x1b62fc46…` — Nordstern, **ETH → WBTC, $3,733.49**,
+`all_in_cost_bps` −24.86, `lp_fee_bps` NULL, `slippage_bps` NULL.
+
+### ⚡ This is a GATE, not a pricing failure
+
+Step 9 (per-leg price-impact attribution) lives **inside**
+`if (graph.reconstructed)` at `decomposeRoute.ts:761`. 445 is
+`reconstructed=false`, so the branch is skipped wholesale and every leg keeps the
+`priceImpactBps: null` it was initialised with at `:754`.
+
+⚠️ **Do not go looking for a broken mid reader.** Two of the five legs are
+already fully priceable — resolved tiers, real notionals, venue types with
+working mid branches:
+
+| # | type | venue | tier | notional |
+|---|---|---|---|---|
+| 0 | `wrap` | WETH | — | — |
+| 1 | `aerodrome_cl` | `0x3f0296bf…` | 4.03 bps | $608.55 |
+| 2 | `rfq` | `0x3dbe077e…` (curated MM) | — | $608.59 |
+| 3 | `univ4` | `0x60b393a7…` | 0 | $3.65 |
+| 4 | `univ3` | `0xb4cb8009…` | 1 bps | $121.39 |
+
+### The actual work: venue identification
+
+**No captured leg produces WBTC** (`0x0555e30d…`). The five legs total ~$1,342
+of $3,733 — about **36%**. The output-producing half of the route is absent
+because two pools are unrecognised, so no legs are built for them:
+
+- `0xd960b78f53e8a346c577f2c7b3f0a2394e73afb9`
+- `0xbccf37d6b538878d7c2aa56e766b56f8c043011e`
+
+Both carry *"has no USDC or WETH token, using trade notional as proxy for hop
+notional"*. Identify them and the existing machinery lights up all three
+non-maker legs with **no new pricing code**. Use the established precedence:
+event topic → `factory()` → address list (don't grow the address list).
+
+### Both rescues fired and were correctly rejected
+
+`V4_RESCUE_REJECTED` at **0.391 of the 2.0 ETH** sent; `INFINITY_RESCUE_REJECTED`
+at **0.393 of 2.0**. ~20% each. The shortfall guard doing its job — adopting
+either would have produced a confident-looking decomposition of a fifth of the
+trade. This is why the Infinity work did not move 445, as its spec predicted.
+
+⚠️ `UNBALANCED_INTERMEDIATE: token 0x8335…2913 … ~99.49%` is **USDC** — a
+symptom of the missing legs, not a cause.
+
+⚠️ Out of scope here: `0x60b393a76cea4a3afff00e1fb08d0f63a8f4a314` is a **second
+contract emitting the Uniswap V4 Swap topic** — a fork, typed `univ4`, whose fee
+and mid reads assume the real PoolManager's state view. Its leg is $3.65 of the
+trade, so it is not what blocks reconstruction. Worth its own investigation.
+
+---
+
+## 6. Singleton mid read — decimals vs pool currency order  ⭐ OPEN, LATENT
+
+Found by the whole-branch review of the Infinity work; **not a regression**, and
+deliberately not fixed there because the Infinity branch inherited it verbatim
+from `univ4` and fixing it changes V4 (~26 receipts) to repair a hole no current
+receipt reaches.
+
+`getLegMidAtBlock` (`routeReaders.ts`, the `univ4` branch and the
+`pancake_infinity` branch) calls `sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1)`
+where `dec0`/`dec1` come from the **address-sorted leg tokens**, while
+`sqrtPriceX96` is denominated in the **pool's own currency order**. Singleton
+pools hold native ETH, so `currency0 = 0x0` and the two orders can differ.
+
+The native-ETH disambiguation computes the price both ways and keeps whichever
+matches the leg's realised direction — but that inverts the **price** only, never
+the decimal adjustment `10^(dec0−dec1)` (`priceMath.ts:55`). When the pool order
+differs from the address sort **and** the decimals differ, **both candidates are
+wrong by `10^(2·Δdec)`** and the log-ratio picker returns the less absurd of two
+absurd values.
+
+⚠️ It returns **non-null**, so nothing flags it. It surfaces as an implausible
+price impact, or gets silently nulled by the `PI_IMPLAUSIBLE` clamp — the same
+signature as id 402, where a clamp hid the real cause.
+
+Not reachable for id 408: its pool is (native, USDC) and the WETH-sentinel sort
+happens to match the pool order. Reachable for any singleton native-ETH pool
+whose counter-token sorts below `0x4200…0006` with ≠18 decimals.
+
+**If you fix it:** do the decimal adjustment in the **pool's** order — resolve
+`currency0`/`currency1` from the pool key (Infinity has `poolIdToPoolKey`, a
+single `eth_call`; V4 must scan `Initialize` logs) and pass those decimals. Then
+the two-candidate trick is only inverting the price, which is what it was written
+to do. A/B the whole corpus before and after; stored `market_mid` is not a clean
+baseline.
+
+---
+
 ## Cross-cutting notes
 
 **Repopulation.** `node scripts/repopulateReceipts.mjs --ids=… [--commit]`.
