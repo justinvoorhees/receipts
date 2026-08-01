@@ -13,7 +13,7 @@
  * No DB imports — only viem RPC reads.
  */
 
-import { type PublicClient, parseAbi } from 'viem';
+import { type PublicClient, parseAbi, parseAbiItem } from 'viem';
 import { POOL_FAMILIES, mechanismForKind, pickReferenceToken } from './poolFamilies.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -216,6 +216,64 @@ export async function readV4Slot0(
       ...(blockNumber !== undefined ? { blockNumber } : {}),
     });
     return result[0] > 0n ? result[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** PancakeSwap Infinity CLPoolManager — emits Swap AND answers state reads. */
+export const INFINITY_CL_POOL_MANAGER = '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b' as const;
+
+const INFINITY_CL_ABI = [
+  parseAbiItem(
+    'function getSlot0(bytes32 id) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)',
+  ),
+  parseAbiItem(
+    'function poolIdToPoolKey(bytes32 id) view returns (address currency0, address currency1, address hooks, address poolManager, uint24 fee, bytes32 parameters)',
+  ),
+] as const;
+
+/**
+ * Read slot0 for an Infinity pool at a given block. Returns sqrtPriceX96 or null.
+ *
+ * ⚠️ Called on the CLPoolManager ITSELF. Uniswap V4 needs a separate StateView
+ * contract for this; Infinity does not, and there is no Infinity StateView to
+ * go looking for.
+ */
+export async function readInfinitySlot0(
+  client: PublicClient,
+  poolId: `0x${string}`,
+  blockNumber?: bigint,
+): Promise<bigint | null> {
+  try {
+    const result = await client.readContract({
+      address: INFINITY_CL_POOL_MANAGER,
+      abi: INFINITY_CL_ABI,
+      functionName: 'getSlot0',
+      args: [poolId],
+      ...(blockNumber !== undefined ? { blockNumber } : {}),
+    });
+    return result[0] > 0n ? result[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read an Infinity pool's two currencies at a given block, or null. */
+export async function readInfinityPoolKey(
+  client: PublicClient,
+  poolId: `0x${string}`,
+  blockNumber?: bigint,
+): Promise<{ currency0: string; currency1: string } | null> {
+  try {
+    const r = await client.readContract({
+      address: INFINITY_CL_POOL_MANAGER,
+      abi: INFINITY_CL_ABI,
+      functionName: 'poolIdToPoolKey',
+      args: [poolId],
+      ...(blockNumber !== undefined ? { blockNumber } : {}),
+    });
+    return { currency0: r[0], currency1: r[1] };
   } catch {
     return null;
   }

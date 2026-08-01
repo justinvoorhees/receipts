@@ -35,10 +35,12 @@ import {
 	createDefaultV3FactoryReader,
 	createDefaultRfqProbe,
 	createDefaultV4PoolKeyReader,
+	createDefaultInfinityPoolKeyReader,
 	type V4PoolKeyReader,
 } from './routeReaders.js';
 import { isCuratedMaker } from './makerRegistry.js';
 import { collectV4Swaps, shouldAttemptV4Rescue, synthesizeV4Legs } from './v4Legs.js';
+import { collectInfinitySwaps, shouldAttemptInfinityRescue, synthesizeInfinityLegs } from './infinityLegs.js';
 
 // ─── Fee sinks ───
 
@@ -161,8 +163,8 @@ export interface RouteDecomposeResult {
 export interface DecomposeRouteDeps {
 	/** Pre-fetched trace (skip RPC call). */
 	trace?: TraceNode;
-	/** Custom fee-tier reader. Signature: (poolAddr, venueType, v4FeeRaw?) → { bps, defaulted }. */
-	feeReader?: (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
+	/** Custom fee-tier reader. Signature: (poolAddr, venueType, feeRawPips?) → { bps, defaulted }. */
+	feeReader?: (addr: string, type: VenueType, feeRawPips?: number) => Promise<{ bps: number; defaulted: boolean }> | { bps: number; defaulted: boolean };
 	/** Custom V3-style factory reader. Signature: (poolAddr) → factory address. */
 	v3FactoryReader?: (addr: string) => Promise<string | null> | string | null;
 	/** Custom mid-price reader. Signature: (leg, blockNumber) → PairMidResult | null. */
@@ -173,6 +175,8 @@ export interface DecomposeRouteDeps {
 	rfqProbe?: (addr: string) => Promise<'eoa' | 'proxy1967' | 'contract'> | 'eoa' | 'proxy1967' | 'contract';
 	/** Resolve a V4 poolId → its two currencies (block-pinned in production). */
 	v4PoolKeyReader?: V4PoolKeyReader;
+	/** Resolve an Infinity poolId → its two currencies (block-pinned in production). */
+	infinityPoolKeyReader?: V4PoolKeyReader;
 }
 
 // ─── Helpers ───
@@ -428,6 +432,14 @@ export async function decomposeRoute(
 	// Used to suppress decomposeTrade's averaged-fee flag, which describes a
 	// value this route no longer uses (see the flags merge at the end).
 	let v4RescueAdopted = false;
+	// Extras from any rescue that was actually ADOPTED, carried forward into
+	// the next rescue's buildRouteGraph call. Each rescue rebuilds its graph
+	// from `transfers` alone (buildLegs has no memory of an earlier rescue), so
+	// without this a later rescue's adopted graph would silently discard an
+	// earlier one's synthesized legs — they exist only as extras, not as
+	// transfers. Symmetric: whichever rescue adopts appends its own extras, so
+	// a hypothetical third rescue would inherit both.
+	let adoptedExtraLegs: Leg[] = [];
 
 	// Step 1: Get base decomposition from decomposeTrade (reuse agg fee, gas, flags)
 	const base = await decomposeTrade(input);
@@ -565,12 +577,95 @@ export async function decomposeRoute(
 						routeFlags.push(`V4_MULTIPOOL_LEGS: synthesized ${extraV4Legs.length} V4 pool leg(s) from Swap events`);
 						v4RescueAdopted = true;
 					}
+					// Carry forward whichever extras actually survived into the ADOPTED
+					// graph, independent of `changed` — which only tracks net leg COUNT
+					// and can miss a same-count swap: two distinct univ4 emitters with one
+					// pool each (a real shape — id 445 has a second contract emitting the
+					// V4 Swap topic) drop 2 collapsed legs and gain 2 extras, net count
+					// unchanged, `changed` false, yet the extras ARE in the adopted graph
+					// and a following Infinity rescue must not lose them. An extra's
+					// `venue` (`v4:<poolId>`) is unique per pool, so its presence in
+					// v4Graph.legs is proof it survived the merge/dedup — a de-duped extra
+					// is correctly excluded because it is NOT there, exactly the property
+					// `changed` was standing in for.
+					const survivingV4Venues = new Set(v4Graph.legs.map((l) => l.venue));
+					adoptedExtraLegs = [
+						...adoptedExtraLegs,
+						...extraV4Legs.filter((l) => survivingV4Venues.has(l.venue)),
+					];
 				} else if (shortfall) {
 					routeFlags.push(
 						`V4_RESCUE_REJECTED: synthesized legs consume ${afterIn} of the ${traderSent} input`
 						+ ` the trader sent (a pool key likely failed to resolve); keeping the un-rescued route`,
 					);
 				}
+			}
+		}
+	}
+
+	// PancakeSwap Infinity — same shape as the V4 rescue above, separate because
+	// the two singletons are deliberately not unified (see infinityLegs.ts).
+	const infinitySwaps = collectInfinitySwaps(logs);
+	if (
+		shouldAttemptInfinityRescue({
+			reconstructed: graph.reconstructed,
+			breakReason: graph.breakReason,
+			swaps: infinitySwaps,
+		})
+	) {
+		const keyReader = deps?.infinityPoolKeyReader
+			?? createDefaultInfinityPoolKeyReader(input.rpcUrl, input.blockNumber);
+		const poolKeys = new Map<string, { currency0: string; currency1: string }>();
+		for (const s of infinitySwaps) {
+			if (poolKeys.has(s.poolId)) continue;
+			const key = await keyReader(s.poolId);
+			if (key) poolKeys.set(s.poolId, key);
+		}
+		const extraLegs = synthesizeInfinityLegs(infinitySwaps, poolKeys, WETH);
+		if (extraLegs.length > 0) {
+			// Carry forward any extras the V4 rescue already adopted: buildRouteGraph
+			// rebuilds from `transfers` alone every time, so without this the V4
+			// rescue's synthesized per-pool legs — which exist only as extras, never
+			// as transfers — would silently vanish from the graph this call adopts.
+			const combinedExtraLegs = [...adoptedExtraLegs, ...extraLegs];
+			const infGraph = buildRouteGraph({
+				transfers,
+				trader: input.trader,
+				venues,
+				denylist: extendedDenylist,
+				extraLegs: combinedExtraLegs,
+			});
+			// Same completeness guard as the V4 rescue, for the same reason:
+			// `reconstructed` compares no endpoint totals, so it accepts a rescue
+			// that under-accounts when a pool key fails to resolve.
+			const traderLc = input.trader.toLowerCase();
+			const traderSent = transfers
+				.filter((t) => t.from.toLowerCase() === traderLc && t.token.toLowerCase() === infGraph.inputToken)
+				.reduce((s, t) => s + t.value, 0n);
+			const afterIn = infGraph.legs
+				.filter((l) => l.tokenIn === infGraph.inputToken)
+				.reduce((s, l) => s + l.amountInRaw, 0n);
+			const shortfall =
+				traderSent > 0n && afterIn < traderSent && (traderSent - afterIn) * 1000n > traderSent;
+			if (infGraph.reconstructed && !shortfall) {
+				const changed = infGraph.legs.length !== graph.legs.length;
+				graph = infGraph;
+				if (changed) {
+					routeFlags.push(`INFINITY_LEGS: synthesized ${extraLegs.length} Infinity pool leg(s) from Swap events`);
+				}
+				// Symmetric with the V4 branch above, and for the same reason: `changed`
+				// (net leg COUNT) can miss a same-count swap. Carry forward whichever
+				// legs from the COMBINED set (V4-carried + Infinity-new) actually
+				// survived into the adopted graph, matched by venue — so a hypothetical
+				// third rescue inherits exactly what is really there, not what
+				// `changed` implied was there.
+				const survivingInfVenues = new Set(infGraph.legs.map((l) => l.venue));
+				adoptedExtraLegs = combinedExtraLegs.filter((l) => survivingInfVenues.has(l.venue));
+			} else if (shortfall) {
+				routeFlags.push(
+					`INFINITY_RESCUE_REJECTED: synthesized legs consume ${afterIn} of the ${traderSent} input`
+					+ ` the trader sent (a pool key likely failed to resolve); keeping the un-rescued route`,
+				);
 			}
 		}
 	}
@@ -615,8 +710,12 @@ export async function decomposeRoute(
 
 	const legFeeInputs: LegFeeInput[] = [];
 	for (const leg of graph.legs) {
-		// Resolve fee tier
-		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw);
+		// Resolve fee tier. Both singleton venues (V4 and Infinity) carry their
+		// fee on the Swap event rather than on-chain, which is why it arrives as
+		// a parameter here instead of being read by the reader itself. A leg is
+		// only ever one venue type, so exactly one of the two fields is set and
+		// `??` cannot pick the wrong one.
+		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw ?? leg.infinityFeeRaw);
 		const feeTierBps = feeResult.bps;
 
 		if (feeResult.defaulted) {

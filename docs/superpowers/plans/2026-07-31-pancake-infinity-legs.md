@@ -18,10 +18,11 @@ Spec: `docs/superpowers/specs/2026-07-31-pancake-infinity-legs-design.md`
 
 ## Global Constraints
 
-- `packages/core/src/**` — **match each file's existing indentation.**
-  `v4Legs.ts`, `receiptPure.ts` and `poolDiscovery.ts` use **2 spaces**;
-  `decomposeRoute.ts`, `routeGraph.ts`, `routeVenueScan.ts`, `routeReaders.ts`
-  and `analyzeTransaction.ts` use **TABS**. Check with `cat -t` if unsure.
+- `packages/core/src/**` — **match each file's existing indentation.** Measured
+  2026-07-31, so trust this over any earlier note: **2 spaces** —
+  `v4Legs.ts`, `receiptPure.ts`, `poolDiscovery.ts`, **`routeGraph.ts`**;
+  **TABS** — `decomposeRoute.ts`, `routeVenueScan.ts`, `routeReaders.ts`,
+  `analyzeTransaction.ts`. Verify with `grep -cP '^\t' <file>` if unsure.
   `packages/dashboard/**` uses tabs.
 - **Adding `VenueType: 'pancake_infinity'` REQUIRES both a fee-reader case AND a
   `getLegMidAtBlock` branch.** A venue type without the mid branch falls through
@@ -41,6 +42,13 @@ Spec: `docs/superpowers/specs/2026-07-31-pancake-infinity-legs-design.md`
   Run the exported and unexported suites as **separate tool calls** — chaining
   them in one shell leaks the env into the second.
 - Work from the repo root: `/Users/justinvoorhees/withfabricxyz/fabric-tca-decoder`
+- ⚠️ **The PERSISTED key in `receipts.route_legs` stays `v4Emitter`** even though
+  the in-memory field is now `replacesVenue` (`analyzeTransaction.ts:137` maps
+  one to the other). Renaming the persisted key would strand every existing row
+  — the dashboard would read `undefined` and silently lose V4 Basescan links and
+  router provenance until a full repopulation. Do not "tidy" this.
+- ⚠️ Another agent is active in this repo. **Stage files explicitly — never
+  `git add -A`** — and `git fetch` before each commit.
 
 ## File Structure
 
@@ -754,8 +762,12 @@ export function createDefaultInfinityPoolKeyReader(rpcUrl: string, blockNumber: 
 ```
 
 Extend `routeReaders.ts`'s import from `./poolDiscovery.js` to include
-`readInfinitySlot0`, `readInfinityPoolKey` **and `INFINITY_CL_POOL_MANAGER`** —
-Task 4's mid branch returns the last of these as the leg's `poolAddress`.
+**`readInfinityPoolKey` ONLY**.
+
+⚠️ Do NOT import `readInfinitySlot0` or `INFINITY_CL_POOL_MANAGER` here — this
+task does not use them, and eslint's `no-unused-vars` is an error in this repo,
+so importing them now leaves the branch failing lint until Task 4 lands. Task 4
+adds them when it uses them.
 
 - [ ] **Step 5: Run to verify they pass**
 
@@ -854,7 +866,23 @@ In `createDefaultFeeReader`'s switch, beside `case 'univ4'`:
 
 - [ ] **Step 4: Add the mid branch**
 
-In `getLegMidAtBlock`, immediately after the `univ4` block:
+First extend `routeReaders.ts`'s `./poolDiscovery.js` import with
+`readInfinitySlot0` and `INFINITY_CL_POOL_MANAGER` — Task 3 deliberately left
+them out, because it did not use them and eslint errors on unused imports.
+
+Also wire the fee through at its call site. `decomposeRoute.ts` currently
+forwards only `leg.v4FeeRaw`, so an Infinity leg's fee never reaches the reader
+and the case above would be correct in isolation but dead in the live pipeline —
+which also makes Task 5's success criterion unreachable:
+
+```ts
+		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw ?? leg.infinityFeeRaw);
+```
+
+A leg is only ever one venue type, so exactly one of the two is ever set and the
+`??` cannot pick the wrong one.
+
+Then, in `getLegMidAtBlock`, immediately after the `univ4` block:
 
 ```ts
   // Infinity pools: read slot0 by poolId from the CLPoolManager. Like V4 they
@@ -899,8 +927,10 @@ npx tsc --build
 grep -n "pancake_infinity" packages/core/src/routeReaders.ts
 ```
 
-Expected: PASS, tsc 0, and **two** hits in `routeReaders.ts` — one fee case, one
-mid branch. Exactly one hit means you shipped the half that nulls price impact.
+Expected: PASS, tsc 0, and **three** hits in `routeReaders.ts` — the fee `case`,
+plus TWO from the mid branch (`if (type === …)` and `poolKind: …`). What matters
+is that BOTH a fee case and a mid branch are present; a single hit means you
+shipped only the fee case, which is the half that nulls price impact.
 
 - [ ] **Step 6: Commit**
 
@@ -950,6 +980,28 @@ In `routeVenueScan.ts`'s scan loop, beside the V4 branch:
 			venues.set(PANCAKE_INFINITY_VAULT, { type: 'pancake_infinity' });
 		}
 ```
+
+⚠️ **Then attach the pool identity, but ONLY when there is exactly one pool.**
+After the scan loop, count the distinct Infinity poolIds via
+`collectInfinitySwaps(logs)`. If there is **exactly one**, the vault's leg is
+unambiguous, so store `infinityPoolId` and `infinityFeeRaw` (the swap's
+`lpFeePips`) on that venue entry. With **two or more**, store the type alone and
+let the rescue synthesize per-pool legs.
+
+`VenueInfo` gains `infinityPoolId?: string` and `infinityFeeRaw?: number`, and
+`routeGraph.ts` copies them onto the leg exactly as it already does for V4 at
+`:234-235`.
+
+⚠️ **This is not optional polish — without it the retype is a REGRESSION.** A
+single-pool Infinity route that already reconstructs never trips
+`shouldAttemptInfinityRescue`, so no `inf:<poolId>` leg is created; the retyped
+vault leg then has no poolId, `getLegMidAtBlock` returns null at its first
+guard, and the leg LOSES the price impact it currently gets from the `unknown`
+→ discovery fallback. Measured on id 408: 2.88 bps → null. This is exactly what
+Uniswap V4's scan avoids by storing its poolId, which is why V4 has no
+equivalent problem.
+
+⚠️ Store the **LP-only** pips from `lpFeePips`, never the event's raw `fee`.
 
 Import `INFINITY_SWAP_TOPIC` from `./infinityLegs.js` and
 `PANCAKE_INFINITY_VAULT` from `./tradeDecoders.js` — the vault address already
@@ -1092,7 +1144,14 @@ for (const r of rows) {
 ```
 
 **Success is measured on id 408**, where Infinity is the only gap:
-- its `0x238a3588…` leg is replaced by an `inf:<poolId>` leg;
+- its `0x238a3588…` leg is TYPED `pancake_infinity` and priced.
+  ⚠️ It is **not** replaced by an `inf:<poolId>` leg, and must not be. id 408 has
+  exactly one Infinity pool, so the vault's leg IS that pool and is priced in
+  place; only multi-pool routes go through the rescue that mints `inf:` venues.
+  Minting one here would be worse, not better — the vault address is real and
+  linkable on Basescan, a synthetic pool id is not. (An earlier draft of this
+  criterion said "replaced by an `inf:<poolId>` leg"; that described the design
+  before the single-pool fix and is unreachable by construction now.);
 - that leg has `feeTierBps` ≈ **0.47** and no `feeResolved: false`;
 - that leg has a **non-null `priceImpactBps`** — this is the proof the mid branch
   works, and the single most important check in this plan;

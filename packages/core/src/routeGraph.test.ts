@@ -77,9 +77,9 @@ describe('buildRouteGraph', () => {
     // it — this is the id 207 / id 211 shape (several fee tiers, one pair).
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
 
@@ -97,7 +97,7 @@ describe('buildRouteGraph', () => {
     // duplicate, exactly as before this change.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 3_000000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 3_000000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs).toHaveLength(2);
@@ -111,9 +111,9 @@ describe('buildRouteGraph', () => {
     // counting extraLegs instead of poolIds would misfire here.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
@@ -125,9 +125,9 @@ describe('buildRouteGraph', () => {
     // `undefined` would otherwise look like one pool, or worse.
     const extraLegs: Leg[] = [
       { venue: 'v4:x', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, replacesVenue: v4 },
       { venue: 'v4:y', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
@@ -151,9 +151,9 @@ describe('buildRouteGraph', () => {
     const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers: t3, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
 
@@ -183,9 +183,9 @@ describe('buildRouteGraph', () => {
     const venuesWithC = new Map([...venues, [v4c, { type: 'univ4' as const }]]);
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 333_000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers: t4, trader, venues: venuesWithC, denylist: new Set(), extraLegs });
 
@@ -217,9 +217,9 @@ describe('buildRouteGraph', () => {
     ];
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: USDC, tokenOut: HUB2,
-        amountInRaw: 2_000000n, amountOutRaw: 1_500000000000000000n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 2_000000n, amountOutRaw: 1_500000000000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:0xbbb', type: 'univ4', tokenIn: HUB2, tokenOut: WETH,
-        amountInRaw: 1_500000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xbbb', v4Emitter: v4 },
+        amountInRaw: 1_500000000000000000n, amountOutRaw: 1_000000000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers: t4, trader, venues: new Map([[v4, { type: 'univ4' as const }]]), denylist: new Set(), extraLegs });
 
@@ -237,12 +237,93 @@ describe('buildRouteGraph', () => {
     // pins the filter.
     const extraLegs: Leg[] = [
       { venue: 'v4:0xaaa', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa', v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, v4PoolId: '0xaaa', replacesVenue: v4 },
       { venue: 'v4:none', type: 'univ4', tokenIn: VIRTUAL, tokenOut: WETH,
-        amountInRaw: 1n, amountOutRaw: 1n, v4Emitter: v4 },
+        amountInRaw: 1n, amountOutRaw: 1n, replacesVenue: v4 },
     ];
     const g = buildRouteGraph({ transfers, trader, venues, denylist: new Set(), extraLegs });
     expect(g.legs.some((l) => l.venue === v4)).toBe(true);
+  });
+
+  it('extraLegs: replaces a collapsed Infinity leg when the extras describe >1 pool', () => {
+    // Same shape as the V4 "replaces a collapsed leg" test above, but for the
+    // OTHER singleton: PancakeSwap Infinity's Vault collapses every pool it
+    // custodies into one address-derived leg, exactly like V4's PoolManager.
+    // Fix-round regression: the drop filter used to test `l.type === 'univ4'`
+    // only, so this collapsed Vault leg survived ALONGSIDE its replacements —
+    // double-counting the same flow. Verified by mutation: narrowing the type
+    // test back to `l.type === 'univ4'` (dropping the `|| l.type ===
+    // 'pancake_infinity'` disjunct) makes the first assertion below fail,
+    // since the Vault leg then survives.
+    const vault = '0x238a358808379702088667322f80ac48bad5e6c4';
+    const infTransfers = [
+      { token: USDC, from: trader, to: pcs, value: 2_000000n },
+      { token: VIRTUAL, from: pcs, to: vault, value: 3_000000000000000000n },
+      { token: WETH, from: vault, to: trader, value: 1_000000000000000n },
+    ];
+    const infVenues = new Map([[pcs, { type: 'pancakev3' as const }], [vault, { type: 'pancake_infinity' as const }]]);
+    const extraLegs: Leg[] = [
+      { venue: 'inf:0xccc', type: 'pancake_infinity', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 1_000000000000000000n, amountOutRaw: 400_000000000n, infinityPoolId: '0xccc', replacesVenue: vault },
+      { venue: 'inf:0xddd', type: 'pancake_infinity', tokenIn: VIRTUAL, tokenOut: WETH,
+        amountInRaw: 2_000000000000000000n, amountOutRaw: 600_000000000n, infinityPoolId: '0xddd', replacesVenue: vault },
+    ];
+    const g = buildRouteGraph({ transfers: infTransfers, trader, venues: infVenues, denylist: new Set(), extraLegs });
+
+    // The collapsed Vault leg is gone; both per-pool legs survive.
+    expect(g.legs.filter((l) => l.venue === vault)).toHaveLength(0);
+    expect(g.legs.filter((l) => l.venue.startsWith('inf:')).map((l) => l.venue).sort())
+      .toEqual(['inf:0xccc', 'inf:0xddd']);
+    expect(g.legs).toHaveLength(3); // pancakev3 + the two Infinity pools
+    expect(g.reconstructed).toBe(true);
+  });
+
+  it('extraLegs: a V4 rescue\'s legs survive a subsequent Infinity rescue', () => {
+    // Mirrors decomposeRoute.ts's fix-round carry-forward: when the Infinity
+    // rescue runs after an already-adopted V4 rescue, it merges
+    // `[...adoptedExtraLegs (V4), ...extraLegs (Infinity)]` into ONE
+    // buildRouteGraph call — since buildLegs rebuilds the naive collapsed legs
+    // from `transfers` every time, both singletons' collapsed legs must be
+    // dropped and BOTH sets of per-pool extras must survive together, in a
+    // single pass. Route: USDC →(V4, 2 pools)→ HUB3 →(Infinity, 2 pools)→ WETH.
+    const HUB3 = '0xcccccccccccccccccccccccccccccccccccccccc';
+    const vault = '0x238a358808379702088667322f80ac48bad5e6c4';
+    const t5 = [
+      { token: USDC, from: trader, to: v4, value: 1_000000n },
+      { token: HUB3, from: v4, to: vault, value: 1_000000000000000000n },
+      { token: WETH, from: vault, to: trader, value: 1_000000000000000n },
+    ];
+    const venuesBothSingletons = new Map([
+      [v4, { type: 'univ4' as const }],
+      [vault, { type: 'pancake_infinity' as const }],
+    ]);
+    const combinedExtraLegs: Leg[] = [
+      // V4's adopted extras (as decomposeRoute.ts's `adoptedExtraLegs` would carry forward)
+      { venue: 'v4:0xaaa', type: 'univ4', tokenIn: USDC, tokenOut: HUB3,
+        amountInRaw: 600000n, amountOutRaw: 600_000000000000000n, v4PoolId: '0xaaa', replacesVenue: v4 },
+      { venue: 'v4:0xbbb', type: 'univ4', tokenIn: USDC, tokenOut: HUB3,
+        amountInRaw: 400000n, amountOutRaw: 400_000000000000000n, v4PoolId: '0xbbb', replacesVenue: v4 },
+      // Infinity's own new extras for this call
+      { venue: 'inf:0xccc', type: 'pancake_infinity', tokenIn: HUB3, tokenOut: WETH,
+        amountInRaw: 600_000000000000000n, amountOutRaw: 600_000000000000n, infinityPoolId: '0xccc', replacesVenue: vault },
+      { venue: 'inf:0xddd', type: 'pancake_infinity', tokenIn: HUB3, tokenOut: WETH,
+        amountInRaw: 400_000000000000000n, amountOutRaw: 400_000000000000n, infinityPoolId: '0xddd', replacesVenue: vault },
+    ];
+    const g = buildRouteGraph({
+      transfers: t5, trader, venues: venuesBothSingletons, denylist: new Set(), extraLegs: combinedExtraLegs,
+    });
+
+    // Both collapsed legs are gone…
+    expect(g.legs.some((l) => l.venue === v4)).toBe(false);
+    expect(g.legs.some((l) => l.venue === vault)).toBe(false);
+    // …and ALL FOUR per-pool extras survive together — the V4 pair did not get
+    // silently dropped when the Infinity rescue's graph was adopted.
+    expect(g.legs.filter((l) => l.venue.startsWith('v4:')).map((l) => l.venue).sort())
+      .toEqual(['v4:0xaaa', 'v4:0xbbb']);
+    expect(g.legs.filter((l) => l.venue.startsWith('inf:')).map((l) => l.venue).sort())
+      .toEqual(['inf:0xccc', 'inf:0xddd']);
+    expect(g.legs).toHaveLength(4);
+    expect(g.reconstructed).toBe(true);
   });
 
   it('classifies an unrecognized 1-in-1-out venue (no Swap event) as unknown', () => {

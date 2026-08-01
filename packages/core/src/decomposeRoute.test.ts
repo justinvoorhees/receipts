@@ -7,10 +7,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { decomposeRoute, extractNativeTransfers, detectWrapUnwrapSteps, venuesToUncostedLegs, weightedPriceImpactBps, buildFeeSinks, feeOnTransferFlag } from './decomposeRoute.js';
 import type { FeeSink } from './tradeFees.js';
 import { getLegMidAtBlock } from './routeReaders.js';
+import { INFINITY_SWAP_TOPIC } from './infinityLegs.js';
 import type { DecomposeTradeInput } from './decomposeTrade.js';
 import type { Leg } from './routeGraph.js';
 
@@ -1301,6 +1302,78 @@ describe('getLegMidAtBlock', () => {
 		expect(result).toBeNull();
 	});
 
+	// Fix round 4: a MISSING poolId must degrade to the SAME reference-pool
+	// discovery an `unknown` leg gets, not a hard null. This is the id-408-class
+	// regression: routeVenueScan only attaches infinityPoolId when exactly one
+	// DISTINCT Infinity pool was seen among NON-ZERO-amount swaps
+	// (collectInfinitySwaps skips no-op swaps), so a route whose only Infinity
+	// Swap moved nothing — or a rescue whose pool key failed to resolve — types
+	// the leg `pancake_infinity` with no poolId. Before this fix that produced a
+	// hard null (WORSE than the `unknown` typing it replaced, which reached
+	// discovery and got a real mid); now it degrades exactly like `unknown`.
+	//
+	// getPairMidAtBlock's discovery swallows a null/failing client's errors
+	// internally (see the quickswapv4/hydrex test below for the same
+	// constraint), so we can't spy the RPC call directly — count decimalsOf
+	// calls instead, which discovery makes and `rfq`'s deliberate null does not.
+	it('routes a pancake_infinity leg without infinityPoolId to pair-mid discovery, like unknown', async () => {
+		const mk = (type: Leg['type']): Leg => ({
+			venue: '0x238a358808379702088667322f80ac48bad5e6c4',
+			type,
+			tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+			tokenOut: '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2',
+			amountInRaw: 1000n,
+			amountOutRaw: 1000n,
+			// no infinityPoolId
+		});
+		const countDecimalsCalls = async (type: Leg['type']): Promise<number> => {
+			let n = 0;
+			await getLegMidAtBlock(null as never, mk(type), 100n, async () => {
+				n++;
+				return 6;
+			}).catch(() => {});
+			return n;
+		};
+
+		const infinity = await countDecimalsCalls('pancake_infinity');
+		const unknown = await countDecimalsCalls('unknown');
+		const rfq = await countDecimalsCalls('rfq'); // deliberately unpriced: no mid read
+
+		expect(infinity).toBe(unknown); // handled exactly like the fallback venue
+		expect(infinity).toBeGreaterThan(rfq); // and, unlike rfq, it DOES attempt a mid
+	});
+
+	// The complementary branch-reachability guard: WITH a poolId, the leg must
+	// reach readInfinitySlot0 (an RPC read on the CLPoolManager) rather than
+	// silently falling through to discovery or a hard null. Same spy-not-null
+	// technique as the univ4 test above, so a guard checking the wrong field
+	// (or a reordering that skips this branch entirely) is caught by the call
+	// count, not just by the final result's null-ness.
+	it('reaches readInfinitySlot0 (an RPC call) for a pancake_infinity leg WITH infinityPoolId', async () => {
+		const leg: Leg = {
+			venue: '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b',
+			type: 'pancake_infinity',
+			tokenIn: '0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b',
+			tokenOut: '0x4200000000000000000000000000000000000006',
+			amountInRaw: 1000n,
+			amountOutRaw: 500n,
+			infinityPoolId: '0xf6e81e5d16a7274d273905e0068f9f607b840c20bec23b2e442976ee03b29d91',
+		};
+		const readContract = vi.fn(async (args: { functionName: string }) => {
+			expect(args.functionName).toBe('getSlot0');
+			return [79228162514264337593543950336n]; // Q96 == price 1
+		});
+		const spyClient = { readContract } as never;
+		const result = await getLegMidAtBlock(
+			spyClient,
+			leg,
+			100n,
+			async () => 18,
+		);
+		expect(result).not.toBeNull();
+		expect(readContract).toHaveBeenCalledTimes(1);
+	});
+
 	// QuickSwap v4 is Algebra Integral: like Hydrex, its own mid isn't read by a
 	// V3 slot0() call, so it must route to factory-discovery for a reference mid
 	// rather than falling through to a hardcoded null (which would null its price
@@ -1429,6 +1502,292 @@ describe('decomposeRoute V4 multi-pool extraction (id 56)', () => {
 		// route that chains but under-accounts.
 		expect(result.flags.some((f) => f.startsWith('V4_RESCUE_REJECTED'))).toBe(true);
 		expect(result.flags.some((f) => f.startsWith('V4_MULTIPOOL_LEGS'))).toBe(false);
+	}, 15000);
+});
+
+// ─── Fix-round-3 regression: adoptedExtraLegs carry-forward, decoupled from `changed` ───
+//
+// Guards two things that only `decomposeRoute` itself (not `buildRouteGraph`
+// in isolation) can prove:
+//   (A) a V4 rescue's synthesized legs actually reach a SUBSEQUENT Infinity
+//       rescue's merge, via decomposeRoute's own `adoptedExtraLegs` wiring —
+//       not just that buildRouteGraph merges a hand-built combined array
+//       correctly (routeGraph.test.ts already covers that).
+//   (B) the specific shape that breaks a `changed`-leg-count-based
+//       carry-forward: TWO DISTINCT univ4-typed emitters with ONE pool each
+//       (a real shape — id 445 has a second contract emitting the V4 Swap
+//       topic, `0x60b393a76cea4a3afff00e1fb08d0f63a8f4a314`, reused as the
+//       fixture's second emitter below). Each emitter's own collapsed leg is
+//       individually clean, so the V4 merge drops 2 collapsed legs and adds 2
+//       extras — net leg COUNT unchanged, `changed` false — even though the
+//       leg SET did change. A `changed`-gated carry-forward misses this.
+describe('decomposeRoute: adopted V4 legs survive a subsequent Infinity rescue (two V4 emitters, one pool each)', () => {
+	const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+	// The real V4 PoolManager singleton (decomposeRoute.ts's own UNISWAP_V4_POOL_MANAGER constant).
+	const pmA = '0x498581ff718922c3f8e6a244956af099b2652b2b' as `0x${string}`;
+	// A SECOND, distinct contract emitting the V4 Swap topic — the real fork address found in id 445.
+	const pmB = '0x60b393a76cea4a3afff00e1fb08d0f63a8f4a314' as `0x${string}`;
+	const vault = '0x238a358808379702088667322f80ac48bad5e6c4' as `0x${string}`;
+	const HUB = '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`;
+
+	const v4PoolAId = `0x${'aa'.repeat(32)}`;
+	const v4PoolBId = `0x${'bb'.repeat(32)}`;
+	const infPoolCId = `0x${'cc'.repeat(32)}`;
+	const infPoolDId = `0x${'dd'.repeat(32)}`;
+
+	const V4_SWAP_TOPIC = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f' as `0x${string}`;
+	const ZERO_TOPIC = `0x${'0'.repeat(64)}` as `0x${string}`;
+	const word = (v: bigint) => (v < 0n ? (2n ** 256n + v) : v).toString(16).padStart(64, '0');
+
+	/** V4 Swap log: amount0/1, sqrtPriceX96, liquidity(0), tick(0), fee — 6 words. */
+	function v4SwapLog(emitter: `0x${string}`, poolId: string, amount0: bigint, amount1: bigint, fee: bigint) {
+		return {
+			address: emitter,
+			topics: [V4_SWAP_TOPIC, poolId, ZERO_TOPIC] as unknown as readonly `0x${string}`[],
+			data: `0x${word(amount0)}${word(amount1)}${word(12345678n)}${word(0n)}${word(0n)}${word(fee)}` as `0x${string}`,
+		};
+	}
+	/** Infinity Swap log: amount0/1, sqrtPriceX96, liquidity(0), tick(0), fee, protocolFee — 7 words. */
+	function infSwapLog(poolId: string, amount0: bigint, amount1: bigint, fee: bigint, protocolFee: bigint) {
+		return {
+			address: '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b' as `0x${string}`, // CLPoolManager; filtered by topic, not address
+			topics: [INFINITY_SWAP_TOPIC as `0x${string}`, poolId as `0x${string}`, ZERO_TOPIC] as unknown as readonly `0x${string}`[],
+			data: `0x${word(amount0)}${word(amount1)}${word(12345678n)}${word(0n)}${word(0n)}${word(fee)}${word(protocolFee)}` as `0x${string}`,
+		};
+	}
+
+	// USDC →(pmA, 1 pool)→ HUB, USDC →(pmB, 1 pool)→ HUB, HUB →(Vault, 2 pools)→ WETH.
+	// Each V4 emitter is individually a clean 1-in/1-out address-derived leg —
+	// the multi-EMITTER collapse-and-replace only shows up once BOTH pools are
+	// counted together (extraPoolIds), not from either emitter alone.
+	const syntheticTrace = {
+		from: syntheticTrader,
+		to: '0xdddddddddddddddddddddddddddddddddddddddd' as `0x${string}`,
+		input: '0x' as `0x${string}`,
+		logs: [
+			v4SwapLog(pmA, v4PoolAId, -600_000n, 600_000000000000000000n, 3000n),
+			v4SwapLog(pmB, v4PoolBId, -400_000n, 400_000000000000000000n, 3000n),
+			infSwapLog(infPoolCId, -600_000000000000000000n, 600_000000000n, 70n, 23n),
+			infSwapLog(infPoolDId, -400_000000000000000000n, 400_000000000n, 70n, 23n),
+			transferLog(USDC as `0x${string}`, syntheticTrader, pmA, 600_000n),
+			transferLog(HUB, pmA, vault, 600_000000000000000000n),
+			transferLog(USDC as `0x${string}`, syntheticTrader, pmB, 400_000n),
+			transferLog(HUB, pmB, vault, 400_000000000000000000n),
+			transferLog(WETH as `0x${string}`, vault, syntheticTrader, 1_000000000000n),
+		],
+		calls: [],
+	};
+
+	const input: DecomposeTradeInput = {
+		trace: syntheticTrace as any,
+		txHash: '0x0000000000000000000000000000000000000000000000000000000000000001',
+		trader: syntheticTrader,
+		allInCostBps: 5.0,
+		notionalUsdc: 1.0,
+		realizedPrice: 1800,
+		gasCostUsd: 0.001,
+		aggregator: 'Unknown',
+		blockNumber: 100n,
+		rpcUrl: 'unused',
+		dustUsdc: 1e-6,
+		structuralFloorUsd: 0,
+		structuralFloorBps: 0.5,
+	};
+
+	const v4PoolKeyReader = async (poolId: string) => {
+		const m: Record<string, { currency0: string; currency1: string }> = {
+			[v4PoolAId]: { currency0: USDC, currency1: HUB },
+			[v4PoolBId]: { currency0: USDC, currency1: HUB },
+		};
+		return m[poolId.toLowerCase()] ?? null;
+	};
+	const infinityPoolKeyReader = async (poolId: string) => {
+		const m: Record<string, { currency0: string; currency1: string }> = {
+			[infPoolCId]: { currency0: HUB, currency1: WETH },
+			[infPoolDId]: { currency0: HUB, currency1: WETH },
+		};
+		return m[poolId.toLowerCase()] ?? null;
+	};
+
+	it('keeps the synthesized V4 per-pool legs (v4:<poolId>) after the Infinity rescue adopts', async () => {
+		const result = await decomposeRoute(input, {
+			trace: syntheticTrace as any,
+			feeReader: () => ({ bps: 30, defaulted: false }),
+			rfqProbe: () => 'contract',
+			v3FactoryReader: () => null,
+			v4PoolKeyReader,
+			infinityPoolKeyReader,
+		});
+
+		// Both V4 emitters' synthesized per-pool legs are present — NOT their
+		// naive per-emitter addresses. Fails if `adoptedExtraLegs` was not
+		// carried into the Infinity rescue's buildRouteGraph call.
+		expect(result.legs.some((l) => l.leg.venue === `v4:${v4PoolAId}`)).toBe(true);
+		expect(result.legs.some((l) => l.leg.venue === `v4:${v4PoolBId}`)).toBe(true);
+		expect(result.legs.some((l) => l.leg.venue === pmA)).toBe(false);
+		expect(result.legs.some((l) => l.leg.venue === pmB)).toBe(false);
+		// And both Infinity per-pool legs are present too.
+		expect(result.legs.some((l) => l.leg.venue === `inf:${infPoolCId}`)).toBe(true);
+		expect(result.legs.some((l) => l.leg.venue === `inf:${infPoolDId}`)).toBe(true);
+		expect(result.legs).toHaveLength(4);
+	}, 15000);
+});
+
+// ─── Fix-round-4: the single-pool IN-PLACE path (what the success criteria
+// actually measure) had no decomposeRoute-level coverage at all — everything
+// added through round 3 exercised pure units or the 2+-pool rescue. This
+// guards three load-bearing lines a mutation-tester found uncovered:
+//   - routeGraph.ts:235 `if (knownVenue.infinityPoolId) leg.infinityPoolId = …`
+//   - decomposeRoute.ts `leg.v4FeeRaw ?? leg.infinityFeeRaw` (feeReader call)
+//   - routeGraph.ts:557 `|| l.type === 'pancake_infinity'` in existingUniv4Pairs
+describe('decomposeRoute: single-pool Infinity leg prices in place (no rescue)', () => {
+	const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+	const vault = '0x238a358808379702088667322f80ac48bad5e6c4' as `0x${string}`;
+	const infPoolId = `0x${'ee'.repeat(32)}`;
+	const word = (v: bigint) => (v < 0n ? (2n ** 256n + v) : v).toString(16).padStart(64, '0');
+
+	function infSwapLog(poolId: string, amount0: bigint, amount1: bigint, fee: bigint, protocolFee: bigint) {
+		return {
+			address: '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b' as `0x${string}`,
+			topics: [INFINITY_SWAP_TOPIC as `0x${string}`, poolId as `0x${string}`, `0x${'0'.repeat(64)}` as `0x${string}`] as unknown as readonly `0x${string}`[],
+			data: `0x${word(amount0)}${word(amount1)}${word(12345678n)}${word(0n)}${word(0n)}${word(fee)}${word(protocolFee)}` as `0x${string}`,
+		};
+	}
+
+	// USDC → vault (single Infinity pool) → WETH. Already reconstructs from
+	// address deltas alone (one clean 1-in/1-out leg) — no rescue should fire,
+	// so this exercises routeVenueScan's single-pool in-place identity
+	// attachment, not synthesizeInfinityLegs.
+	const syntheticTrace = {
+		from: syntheticTrader,
+		to: '0xffffffffffffffffffffffffffffffffffffffff' as `0x${string}`,
+		input: '0x' as `0x${string}`,
+		logs: [
+			infSwapLog(infPoolId, -12_071196n, 6481675202184746n, 70n, 23n), // swapFee=70, protocolFee=23 → lpFee≈47.001 pips ≈ 0.47001 bps (id 408's real values)
+			transferLog(USDC as `0x${string}`, syntheticTrader, vault, 12_071196n),
+			transferLog(WETH as `0x${string}`, vault, syntheticTrader, 6481675202184746n),
+		],
+		calls: [],
+	};
+
+	const input: DecomposeTradeInput = {
+		trace: syntheticTrace as any,
+		txHash: '0x0000000000000000000000000000000000000000000000000000000000000002',
+		trader: syntheticTrader,
+		allInCostBps: 11.0,
+		notionalUsdc: 12.071196,
+		realizedPrice: 1862.36,
+		gasCostUsd: 0.01,
+		aggregator: 'Unknown',
+		blockNumber: 100n,
+		rpcUrl: 'unused',
+		dustUsdc: 1e-6,
+		structuralFloorUsd: 0,
+		structuralFloorBps: 0.5,
+	};
+
+	it('types the vault leg pancake_infinity, resolves ≈0.47 bps fee, and prices it via an injected midReader', async () => {
+		const result = await decomposeRoute(input, {
+			trace: syntheticTrace as any,
+			// Mirrors createDefaultFeeReader's pancake_infinity/univ4 case: the fee
+			// rides the leg's feeRawPips (v4FeeRaw ?? infinityFeeRaw at the call
+			// site), not an RPC read.
+			feeReader: async (_addr, _type, feeRawPips) =>
+				feeRawPips !== undefined ? { bps: feeRawPips / 100, defaulted: false } : { bps: 0, defaulted: true },
+			// price is tokenOut(WETH)-per-tokenIn(USDC), a slight markup on the
+			// leg's own realized price (≈0.00053695) — a small, plausible cost.
+			// Conditioned on `leg.infinityPoolId` (not just `leg.type`), matching
+			// the REAL getLegMidAtBlock's own guard (routeReaders.ts): a leg that
+			// reaches here without its poolId copied on is exactly the
+			// routeGraph.ts:235 regression this test exists to catch, and a stub
+			// keyed on type alone would not notice the field went missing.
+			midReader: async (leg) =>
+				leg.type === 'pancake_infinity' && leg.infinityPoolId
+					? { price: 0.0005374908068253493, poolAddress: 'stub', poolKind: 'pancake_infinity' }
+					: null,
+		});
+
+		expect(result.legs).toHaveLength(1);
+		const leg = result.legs[0]!;
+		expect(leg.leg.type).toBe('pancake_infinity');
+		expect(leg.leg.venue).toBe(vault); // priced IN PLACE — no rescue, no `inf:` leg (round-1 adjudication)
+		expect(leg.feeTierBps).toBeCloseTo(0.47001, 3);
+		expect(leg.feeResolved).not.toBe(false);
+		expect(leg.priceImpactBps).not.toBeNull();
+	}, 15000);
+});
+
+// The single-pool-in-place fixture above never passes extraLegs into
+// buildRouteGraph at all (no rescue fires), so it cannot exercise
+// existingUniv4Pairs's type test (routeGraph.ts:557) — Finding 1's "second
+// shape": two or more distinct Infinity pools where one pool key fails to
+// resolve. `shouldAttemptInfinityRescue`'s pool-count check uses RAW swap
+// events (collectInfinitySwaps, unaffected by key-resolution), so it still
+// fires; but synthesizeInfinityLegs DROPS the unresolved swap, leaving
+// exactly ONE synthesized extra — so `extraPoolIds.size` is 1 (not >1), the
+// ADDRESS-based drop never fires, and the vault's original (type-only, no
+// poolId — 2 distinct pools were observed, so routeVenueScan never attached
+// one) collapsed leg survives untouched. Only the PAIR-based dedup
+// (existingUniv4Pairs) stands between that survivor and the lone extra
+// double-counting the same flow.
+describe('decomposeRoute: a single surviving Infinity extra is de-duped against its own un-dropped collapsed leg', () => {
+	const syntheticTrader = '0x00000000000000000000000000000000000000d0' as `0x${string}`;
+	const vault = '0x238a358808379702088667322f80ac48bad5e6c4' as `0x${string}`;
+	const infPoolGood = `0x${'11'.repeat(32)}`;
+	const infPoolBad = `0x${'22'.repeat(32)}`;
+	const word = (v: bigint) => (v < 0n ? (2n ** 256n + v) : v).toString(16).padStart(64, '0');
+
+	function infSwapLog(poolId: string, amount0: bigint, amount1: bigint, fee: bigint, protocolFee: bigint) {
+		return {
+			address: '0xa0ffb9c1ce1fe56963b0321b32e7a0302114058b' as `0x${string}`,
+			topics: [INFINITY_SWAP_TOPIC as `0x${string}`, poolId as `0x${string}`, `0x${'0'.repeat(64)}` as `0x${string}`] as unknown as readonly `0x${string}`[],
+			data: `0x${word(amount0)}${word(amount1)}${word(12345678n)}${word(0n)}${word(0n)}${word(fee)}${word(protocolFee)}` as `0x${string}`,
+		};
+	}
+
+	// Two distinct Infinity Swap logs (routeVenueScan sees 2 distinct pools ⇒
+	// the vault stays type-only), but the address-derived flow itself is a
+	// single clean USDC→vault→WETH hop, exactly like the in-place fixture
+	// above — only the SWAP LOGS claim two pools, not the transfers.
+	const syntheticTrace = {
+		from: syntheticTrader,
+		to: '0xffffffffffffffffffffffffffffffffffffffff' as `0x${string}`,
+		input: '0x' as `0x${string}`,
+		logs: [
+			infSwapLog(infPoolGood, -12_071196n, 6481675202184746n, 70n, 23n),
+			infSwapLog(infPoolBad, -1n, 1n, 70n, 23n),
+			transferLog(USDC as `0x${string}`, syntheticTrader, vault, 12_071196n),
+			transferLog(WETH as `0x${string}`, vault, syntheticTrader, 6481675202184746n),
+		],
+		calls: [],
+	};
+
+	const input: DecomposeTradeInput = {
+		trace: syntheticTrace as any,
+		txHash: '0x0000000000000000000000000000000000000000000000000000000000000003',
+		trader: syntheticTrader,
+		allInCostBps: 11.0,
+		notionalUsdc: 12.071196,
+		realizedPrice: 1862.36,
+		gasCostUsd: 0.01,
+		aggregator: 'Unknown',
+		blockNumber: 100n,
+		rpcUrl: 'unused',
+		dustUsdc: 1e-6,
+		structuralFloorUsd: 0,
+		structuralFloorBps: 0.5,
+	};
+
+	it('keeps exactly one leg for the flow — the extra is deduped, not stacked alongside the untouched collapsed leg', async () => {
+		const result = await decomposeRoute(input, {
+			trace: syntheticTrace as any,
+			// Only infPoolGood resolves; infPoolBad's swap is dropped by
+			// synthesizeInfinityLegs, so exactly one extra reaches buildRouteGraph.
+			infinityPoolKeyReader: async (poolId: string) =>
+				poolId.toLowerCase() === infPoolGood ? { currency0: USDC, currency1: WETH } : null,
+		});
+
+		expect(result.legs).toHaveLength(1);
 	}, 15000);
 });
 

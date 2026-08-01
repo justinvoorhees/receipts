@@ -119,3 +119,51 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
     }
   });
 });
+
+describe('makeInfinityPoolKeyReader', () => {
+  it('lowercases currencies and caches per poolId, including a miss', async () => {
+    let calls = 0;
+    const { makeInfinityPoolKeyReader } = await import('./routeReaders.js');
+    const reader = makeInfinityPoolKeyReader(async (poolId) => {
+      calls++;
+      return poolId === '0xaa'
+        ? { currency0: '0x0000000000000000000000000000000000000000', currency1: '0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913' }
+        : null;
+    });
+    expect(await reader('0xAA')).toEqual({
+      currency0: '0x0000000000000000000000000000000000000000',
+      currency1: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+    });
+    await reader('0xaa');
+    expect(calls).toBe(1); // cached
+
+    expect(await reader('0xbb')).toBeNull();
+    await reader('0xbb');
+    expect(calls).toBe(2); // a null miss is cached too, not retried
+  });
+
+  it('never throws — a failing fetch degrades to null', async () => {
+    const { makeInfinityPoolKeyReader } = await import('./routeReaders.js');
+    const reader = makeInfinityPoolKeyReader(async () => { throw new Error('rpc down'); });
+    await expect(reader('0xaa')).resolves.toBeNull();
+  });
+});
+
+describe('pancake_infinity fee reader', () => {
+  it('converts LP pips to bps and reports the fee as resolved', async () => {
+    const { createDefaultFeeReader } = await import('./routeReaders.js');
+    // 'unused' short-circuits the RPC client; the univ4/infinity cases read
+    // their fee off the leg, so they still answer.
+    const read = createDefaultFeeReader('unused', 1n);
+    const out = await read('inf:0xf6', 'pancake_infinity', 47);
+    expect(out.bps).toBeCloseTo(0.47, 6);
+    expect(out.defaulted).toBe(false);
+  });
+
+  it('reports unresolved when the leg carries no fee', async () => {
+    const { createDefaultFeeReader } = await import('./routeReaders.js');
+    const read = createDefaultFeeReader('unused', 1n);
+    const out = await read('inf:0xf6', 'pancake_infinity', undefined);
+    expect(out.defaulted).toBe(true);
+  });
+});

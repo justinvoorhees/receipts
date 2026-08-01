@@ -9,7 +9,7 @@
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type VenueType = 'univ3' | 'sushiv3' | 'baseswapv3' | 'pancakev3' | 'univ4' | 'univ2' | 'aerodrome' | 'aerodrome_cl' | 'curve_stableng' | 'maverickv1' | 'maverickv2' | 'hydrex' | 'quickswapv4' | 'unipool' | 'rfq' | 'unknown' | 'wrap' | 'unwrap';
+export type VenueType = 'univ3' | 'sushiv3' | 'baseswapv3' | 'pancakev3' | 'univ4' | 'univ2' | 'aerodrome' | 'aerodrome_cl' | 'curve_stableng' | 'maverickv1' | 'maverickv2' | 'hydrex' | 'quickswapv4' | 'unipool' | 'rfq' | 'unknown' | 'wrap' | 'unwrap' | 'pancake_infinity';
 
 export interface Leg {
   venue: string;            // lowercase address (or 'rfq_fill:<idx>')
@@ -23,8 +23,14 @@ export interface Leg {
   amountsNetted?: boolean;
   v4PoolId?: string;        // for univ4 (from Swap event id)
   v4FeeRaw?: number;        // for univ4 (from Swap event fee)
-  v4Emitter?: string;       // for univ4 (address that emitted this Swap log, so the
-                            // collapsed singleton leg at that address can be identified)
+  infinityPoolId?: string;  // for pancake_infinity (from Swap event id)
+  infinityFeeRaw?: number;  // LP-ONLY pips, already inverted out of swapFee
+  /** The address-derived leg these synthesized legs REPLACE. For Uniswap V4 that
+   *  is the PoolManager, which both emits Swap and custodies tokens. For
+   *  PancakeSwap Infinity the two DIFFER — the CLPoolManager emits, the Vault
+   *  custodies — and it is the custodian's leg that must be replaced. Naming it
+   *  for its role rather than for V4 is what lets both share the merge logic. */
+  replacesVenue?: string;
 }
 
 export type RouteShape = 'single' | 'linear' | 'split' | 'complex';
@@ -56,8 +62,8 @@ export interface RouteGraph {
 export interface BuildRouteArgs {
   transfers: { token: string; from: string; to: string; value: bigint }[];
   trader: string;
-  /** venue address → {type, v4PoolId?, v4FeeRaw?} from Swap-event scan */
-  venues: Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number }>;
+  /** venue address → {type, v4PoolId?, v4FeeRaw?, infinityPoolId?, infinityFeeRaw?} from Swap-event scan */
+  venues: Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number; infinityPoolId?: string; infinityFeeRaw?: number }>;
   denylist: ReadonlySet<string>;
   /** Extra legs synthesized outside address-delta reconstruction (e.g. V4
    *  multi-pool legs from Swap events) — merged with the address-derived legs
@@ -227,6 +233,8 @@ function buildLegs(
 
         if (knownVenue.v4PoolId) leg.v4PoolId = knownVenue.v4PoolId;
         if (knownVenue.v4FeeRaw !== undefined) leg.v4FeeRaw = knownVenue.v4FeeRaw;
+        if (knownVenue.infinityPoolId) leg.infinityPoolId = knownVenue.infinityPoolId;
+        if (knownVenue.infinityFeeRaw !== undefined) leg.infinityFeeRaw = knownVenue.infinityFeeRaw;
 
         legs.push(leg);
       }
@@ -475,7 +483,7 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   const traderLc = args.trader.toLowerCase();
 
   // Normalize venue keys and denylist to lowercase
-  const venuesLc = new Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number }>();
+  const venuesLc = new Map<string, { type: VenueType; v4PoolId?: string; v4FeeRaw?: number; infinityPoolId?: string; infinityFeeRaw?: number }>();
   for (const [addr, info] of args.venues) {
     venuesLc.set(addr.toLowerCase(), info);
   }
@@ -506,50 +514,62 @@ export function buildRouteGraph(args: BuildRouteArgs): RouteGraph {
   // 3. Build legs from venues + RFQ discovery
   const legs = buildLegs(argsNorm, deltas, gross, traderLc);
 
-  // 3b. Merge in any synthesized extra legs (e.g. V4 multi-pool legs from Swap
-  // events).
+  // 3b. Merge in any synthesized extra legs (e.g. V4 or Infinity multi-pool
+  // legs from Swap events).
   //
-  // When the extras describe MORE THAN ONE distinct V4 pool, buildLegs' own
-  // univ4 leg is the collapsed PoolManager artifact: routeVenueScan.ts keys
-  // venues by emitter address and the V4 singleton emits for every pool it
+  // When the extras describe MORE THAN ONE distinct pool — of EITHER singleton
+  // — buildLegs' own collapsed leg (univ4 or pancake_infinity) is the artifact
+  // of a singleton PoolManager/Vault: routeVenueScan.ts keys venues by emitter
+  // (or custodian) address and the singleton emits/settles for every pool it
   // hosts, so that leg carries only the LAST pool's fee and poolId. The
-  // per-pool legs are strictly better information, so they REPLACE it.
+  // per-pool legs are strictly better information, so they REPLACE it. This
+  // must count pool ids across BOTH singletons together, not per-type: a
+  // combined rescue call (V4's adopted extras + Infinity's own) needs the
+  // drop to fire for whichever singleton(s) it applies to.
   //
-  // With one pool (or none) the address-derived leg is trustworthy and the
-  // extra is a duplicate — no drop fires, and the pair-based dedup guard below
-  // (existingUniv4Pairs) is what stops a single-pool V4 route double-counting.
+  // With one pool (or none) FROM EACH singleton the address-derived leg is
+  // trustworthy and the extra is a duplicate — no drop fires for that
+  // singleton, and the pair-based dedup guard below (existingUniv4Pairs) is
+  // what stops a single-pool route double-counting.
   const extraPoolIds = new Set(
-    (args.extraLegs ?? []).map((l) => l.v4PoolId).filter((id): id is string => id != null),
+    (args.extraLegs ?? []).flatMap((l) => [l.v4PoolId, l.infinityPoolId]).filter((id): id is string => id != null),
   );
-  // The collapsed leg sits at the ADDRESS that emitted these Swap logs. Match on
-  // that, not on the token pair: a multi-hop through V4 collapses to a leg whose
-  // pair is the route's ENDPOINTS (USDC→CLAWD), which no individual pool covers,
-  // so a pair-scoped drop would leave it in place and double-count the flow. A
-  // different univ4-tagged contract has a different address and survives.
-  const extraV4Emitters = new Set(
-    (args.extraLegs ?? []).map((l) => l.v4Emitter).filter((a): a is string => a != null),
+  // The collapsed leg sits at the ADDRESS that emitted/settled these Swap logs
+  // (the V4 PoolManager, or the Infinity Vault). Match on that, not on the
+  // token pair: a multi-hop through a singleton collapses to a leg whose pair
+  // is the route's ENDPOINTS (USDC→CLAWD), which no individual pool covers, so
+  // a pair-scoped drop would leave it in place and double-count the flow. A
+  // different singleton-tagged contract has a different address and survives.
+  const extraReplacedVenues = new Set(
+    (args.extraLegs ?? []).map((l) => l.replacesVenue).filter((a): a is string => a != null),
   );
   const legsAfterV4 =
     extraPoolIds.size > 1
-      ? legs.filter((l) => !(l.type === 'univ4' && extraV4Emitters.has(l.venue)))
+      ? legs.filter((l) => !((l.type === 'univ4' || l.type === 'pancake_infinity') && extraReplacedVenues.has(l.venue)))
       : legs;
+  // Named for its original (V4-only) purpose; now spans both singleton types
+  // so the SAME pair-based dedup guard also protects a single-pool Infinity
+  // rescue reached via the `!reconstructed` branch of shouldAttemptInfinityRescue
+  // (breakReason-triggered, not pool-count-triggered — the collapsed vault leg
+  // can survive with exactly one pool and still need its duplicate extra
+  // dropped).
   const existingUniv4Pairs = new Set(
-    legsAfterV4.filter((l) => l.type === 'univ4').map((l) => `${l.tokenIn}>${l.tokenOut}`),
+    legsAfterV4.filter((l) => l.type === 'univ4' || l.type === 'pancake_infinity').map((l) => `${l.tokenIn}>${l.tokenOut}`),
   );
   // An extra leg whose OWN emitter's collapsed leg was just dropped above must
   // be kept unconditionally: existingUniv4Pairs is a GLOBAL set across every
-  // surviving univ4 leg, so if a second, untouched single-pool V4 emitter
-  // happens to trade the SAME token pair, pair-only de-dup would wrongly
-  // match the extra against that UNRELATED emitter's leg and delete it too —
-  // silently erasing this emitter's entire flow while `reconstructed` stays
-  // true (the unrelated leg papers over the gap). Scope the de-dup: only an
-  // extra whose emitter was NOT dropped (the single-pool case, where that
-  // emitter's own address-derived leg is still present and IS the duplicate)
-  // goes through the pair check.
+  // surviving univ4/pancake_infinity leg, so if a second, untouched
+  // single-pool emitter happens to trade the SAME token pair, pair-only
+  // de-dup would wrongly match the extra against that UNRELATED emitter's leg
+  // and delete it too — silently erasing this emitter's entire flow while
+  // `reconstructed` stays true (the unrelated leg papers over the gap). Scope
+  // the de-dup: only an extra whose emitter was NOT dropped (the single-pool
+  // case, where that emitter's own address-derived leg is still present and
+  // IS the duplicate) goes through the pair check.
   const emitterWasDropped = (emitter: string | undefined): boolean =>
-    extraPoolIds.size > 1 && emitter != null && extraV4Emitters.has(emitter);
+    extraPoolIds.size > 1 && emitter != null && extraReplacedVenues.has(emitter);
   const dedupedExtraLegs = (args.extraLegs ?? []).filter(
-    (l) => emitterWasDropped(l.v4Emitter) || !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
+    (l) => emitterWasDropped(l.replacesVenue) || !existingUniv4Pairs.has(`${l.tokenIn}>${l.tokenOut}`),
   );
   const allLegs = dedupedExtraLegs.length > 0 ? [...legsAfterV4, ...dedupedExtraLegs] : legsAfterV4;
 

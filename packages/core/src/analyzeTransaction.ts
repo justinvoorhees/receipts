@@ -109,7 +109,7 @@ export function toDisplayPrice(price: number | null, baseIsOutput: boolean): num
  */
 export function toPersistedLeg(
 	l: {
-		leg: { venue: string; type: string; tokenIn: string; tokenOut: string; v4Emitter?: string };
+		leg: { venue: string; type: string; tokenIn: string; tokenOut: string; replacesVenue?: string };
 		feeTierBps: number;
 		notionalUsdc: number;
 		lpFeeBps: number | null;
@@ -134,7 +134,7 @@ export function toPersistedLeg(
 		// a Basescan link built from it is dead. Persist the singleton that emitted
 		// the Swap so the UI has something real to link to. Omitted on every other
 		// leg, whose venue IS the address.
-		...(l.leg.v4Emitter ? { v4Emitter: l.leg.v4Emitter } : {}),
+		...(l.leg.replacesVenue ? { v4Emitter: l.leg.replacesVenue } : {}),
 	};
 }
 
@@ -399,8 +399,8 @@ export async function analyzeTransaction(
 		// Per-leg router names resolve at READ time so a growing routers.json
 		// retroactively attributes history — losing the raw frameChain forecloses
 		// that permanently. Fall back to the emitting singleton's address.
-		const frameKey = (l: { leg: { venue: string; v4Emitter?: string } }): string =>
-			(l.leg.v4Emitter ?? l.leg.venue).toLowerCase();
+		const frameKey = (l: { leg: { venue: string; replacesVenue?: string } }): string =>
+			(l.leg.replacesVenue ?? l.leg.venue).toLowerCase();
 		const venueAddresses = new Set(route.legs.map(frameKey));
 		const frameChains = extractFrameChains(trace, venueAddresses);
 

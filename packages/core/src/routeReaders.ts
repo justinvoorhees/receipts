@@ -11,7 +11,7 @@ import { createPublicClient, http, parseAbiItem, type PublicClient } from 'viem'
 import { base } from 'viem/chains';
 import type { VenueType, Leg } from './routeGraph.js';
 import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
-import { readSlot0, readV2Reserves, readV4Slot0, V4_POOL_MANAGER } from './poolDiscovery.js';
+import { readSlot0, readV2Reserves, readV4Slot0, V4_POOL_MANAGER, readInfinityPoolKey, readInfinitySlot0, INFINITY_CL_POOL_MANAGER } from './poolDiscovery.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 /** Sort two token addresses into Uniswap (token0, token1) order (lower = token0). */
@@ -105,6 +105,51 @@ export async function getLegMidAtBlock(
 		return { price, poolAddress: V4_POOL_MANAGER, poolKind: 'univ4' };
 	}
 
+	// Infinity pools: read slot0 by poolId from the CLPoolManager. Like V4 they
+	// may hold native ETH rather than WETH, so the pool's currency order need not
+	// match the address sort — compute the price both ways and keep whichever
+	// agrees with the leg's realized direction.
+	if (type === 'pancake_infinity') {
+		// No poolId: the vault-collapsed leg couldn't be pinned to a single pool
+		// (routeVenueScan only attaches one when exactly one distinct Infinity
+		// pool was touched — see routeVenueScan.ts) or a rescue-synthesized
+		// extra's pool key failed to resolve. Degrade to the SAME reference-pool
+		// discovery an `unknown` leg gets: typing a leg must never lose
+		// information it had while untyped. Deliberately asymmetric with the
+		// null below — once we DO have a poolId we have identified the EXACT
+		// pool the trade used, so an unusable slot0 there must return null
+		// rather than substitute a different pool's price, which would
+		// misattribute liquidity this leg never touched. Matches V4's guard.
+		if (!leg.infinityPoolId) {
+			return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
+		}
+		const sqrtPriceX96 = await readInfinitySlot0(client, leg.infinityPoolId as `0x${string}`, blockNumber);
+		if (sqrtPriceX96 === null) return null;
+
+		const priceA = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1);
+		const priceB = priceA > 0 ? 1 / priceA : 0;
+
+		const decIn = tokenIn === token0 ? dec0 : dec1;
+		const decOut = tokenOut === token0 ? dec0 : dec1;
+		const realized = leg.amountInRaw > 0n
+			? (Number(leg.amountOutRaw) / 10 ** decOut) / (Number(leg.amountInRaw) / 10 ** decIn)
+			: 0;
+
+		const candidateA = inverted ? priceB : priceA;
+		const candidateB = inverted ? priceA : priceB;
+
+		let price: number;
+		if (realized <= 0) {
+			price = candidateA;
+		} else {
+			const ratioA = candidateA > 0 ? Math.abs(Math.log(candidateA / realized)) : Infinity;
+			const ratioB = candidateB > 0 ? Math.abs(Math.log(candidateB / realized)) : Infinity;
+			price = ratioA <= ratioB ? candidateA : candidateB;
+		}
+
+		return { price, poolAddress: INFINITY_CL_POOL_MANAGER, poolKind: 'pancake_infinity' };
+	}
+
 	// RFQ fills are quoted off-chain — no pool mid to read. Deliberate null.
 	if (type === 'rfq') return null;
 
@@ -144,10 +189,10 @@ function unresolvedFee(addr: string, type: VenueType, cause: string): { bps: num
 	return { bps: 0, defaulted: true };
 }
 
-export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: string, type: VenueType, v4FeeRaw?: number) => Promise<{ bps: number; defaulted: boolean }> {
+export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: string, type: VenueType, feeRawPips?: number) => Promise<{ bps: number; defaulted: boolean }> {
 	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
 
-	return async (addr: string, type: VenueType, v4FeeRaw?: number): Promise<{ bps: number; defaulted: boolean }> => {
+	return async (addr: string, type: VenueType, feeRawPips?: number): Promise<{ bps: number; defaulted: boolean }> => {
 		switch (type) {
 			case 'univ3':
 			case 'sushiv3':
@@ -231,9 +276,16 @@ export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (ad
 				// The fee rides on the V4 Swap event. When it is absent the event was
 				// malformed (routeVenueScan sets `{type:'univ4'}` with no v4FeeRaw),
 				// so there is nothing to read on-chain — report it, do not imply free.
-				return v4FeeRaw !== undefined
-					? { bps: v4FeeRaw / 100, defaulted: false }
+				return feeRawPips !== undefined
+					? { bps: feeRawPips / 100, defaulted: false }
 					: unresolvedFee(addr, type, 'the V4 Swap event carried no fee (v4FeeRaw undefined)');
+			case 'pancake_infinity':
+				// The LP fee rides on the Swap event (already inverted out of the
+				// total by infinityLpFeePips), so there is nothing to read on-chain.
+				// Same pips convention as V4: 47 pips = 0.47 bps.
+				return feeRawPips !== undefined
+					? { bps: feeRawPips / 100, defaulted: false }
+					: unresolvedFee(addr, type, 'the Infinity Swap event carried no fee');
 			case 'univ2':
 				// 30 bps is the canonical V2 fee, not a guess
 				return { bps: 30, defaulted: false };
@@ -386,4 +438,46 @@ export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V
 		});
 		return logs as unknown as V4InitLog[];
 	});
+}
+
+// ─── Infinity poolId → currencies reader ───
+
+/**
+ * Pure cache over an injected Infinity pool-key fetcher. Lowercases the
+ * currencies, caches per poolId INCLUDING a null miss so a failed read is not
+ * retried on every leg, and never throws.
+ */
+export function makeInfinityPoolKeyReader(
+	fetchKey: (poolId: string) => Promise<{ currency0: string; currency1: string } | null>,
+): V4PoolKeyReader {
+	const cache = new Map<string, { currency0: string; currency1: string } | null>();
+	return async (poolId: string) => {
+		const key = poolId.toLowerCase();
+		if (cache.has(key)) return cache.get(key)!;
+		let result: { currency0: string; currency1: string } | null = null;
+		try {
+			const k = await fetchKey(key);
+			if (k) {
+				result = { currency0: k.currency0.toLowerCase(), currency1: k.currency1.toLowerCase() };
+			}
+		} catch {
+			result = null;
+		}
+		cache.set(key, result);
+		return result;
+	};
+}
+
+/**
+ * Live Infinity pool-key reader.
+ *
+ * ⚡ A single eth_call. V4's equivalent has to scan historical Initialize logs
+ * because Uniswap's PoolManager exposes no poolIdToPoolKey; Infinity does.
+ */
+export function createDefaultInfinityPoolKeyReader(rpcUrl: string, blockNumber: bigint): V4PoolKeyReader {
+	if (!rpcUrl || rpcUrl === 'unused' || rpcUrl === 'http://invalid') return async () => null;
+	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	return makeInfinityPoolKeyReader((poolId) =>
+		readInfinityPoolKey(rpc as never, poolId as `0x${string}`, blockNumber),
+	);
 }
