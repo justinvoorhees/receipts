@@ -6,75 +6,96 @@ const BASE = 'https://basescan.org/address/';
 describe('getAggregatorFeeLines', () => {
 	it('single named sink uses the verbatim name', () => {
 		const lines = getAggregatorFeeLines({
-			aggregator: 'Velora', aggFeeBps: 93.5, feeRecipient: '0x0847',
+			aggFeeBps: 93.5, feeRecipient: '0x0847',
 			feeSinks: [{ address: '0x0847', feeBps: 93.5, source: 'retained_balance', name: 'PoolFees' }],
 		});
 		expect(lines).toEqual([{ label: 'PoolFees', href: BASE + '0x0847', bps: 93.5 }]);
 	});
 
-	it('single unnamed sink falls back to generic [Aggregator] Fee', () => {
+	it('single unnamed sink renders its truncated address, naming no party', () => {
 		const lines = getAggregatorFeeLines({
-			aggregator: 'Nordstern', aggFeeBps: 19.02, feeRecipient: '0x3dbe',
-			feeSinks: [{ address: '0x3dbe', feeBps: 19.02, source: 'retained_balance', name: null }],
+			aggFeeBps: 19.02, feeRecipient: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae',
+			feeSinks: [{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null }],
 		});
-		expect(lines).toEqual([{ label: 'Nordstern Fee', href: BASE + '0x3dbe', bps: 19.02 }]);
+		expect(lines).toEqual([
+			{ label: '0x3dbe…0aae', href: BASE + '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', bps: 19.02 },
+		]);
+	});
+
+	// The label must be a function of the SINK, never of the aggregator in front
+	// of it. 0x3dbe…0aae is an RFQ maker that fills for several routers; the old
+	// dominant-sink fallback called it "Nordstern Fee" on receipt 53 and "Velora
+	// Fee" on 208/210. Same address, same money, two different accusations.
+	it('gives one sink one label regardless of which aggregator routed to it', () => {
+		const sink = { address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null };
+		const nordstern = getAggregatorFeeLines({ aggFeeBps: 19.02, feeSinks: [{ ...sink }] });
+		const velora = getAggregatorFeeLines({ aggFeeBps: 19.02, feeSinks: [{ ...sink }] });
+		expect(nordstern[0]!.label).toBe('0x3dbe…0aae');
+		expect(velora[0]!.label).toBe(nordstern[0]!.label);
 	});
 
 	it('multiple sinks: a named subsequent sink uses its name', () => {
 		const lines = getAggregatorFeeLines({
-			aggregator: 'Nordstern', aggFeeBps: 22,
+			aggFeeBps: 22,
 			feeSinks: [
 				{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null },
 				{ address: '0x5f6900000000000000000000000000000000d431', feeBps: 2.98, source: 'retained_balance', name: 'Vault' },
 			],
 		});
-		expect(lines[0]!.label).toBe('Nordstern Fee');
+		expect(lines[0]!.label).toBe('0x3dbe…0aae');
 		expect(lines[1]!.label).toBe('Vault');
 		expect(lines[1]!.href).toBe(BASE + '0x5f6900000000000000000000000000000000d431');
 	});
 
 	it('multiple sinks: an UNNAMED subsequent sink stays a truncated address', () => {
 		const lines = getAggregatorFeeLines({
-			aggregator: 'Nordstern', aggFeeBps: 22,
+			aggFeeBps: 22,
 			feeSinks: [
 				{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null },
 				{ address: '0x3912760000000000000000000000000000d24600', feeBps: 2.98, source: 'retained_balance', name: null },
 			],
 		});
-		expect(lines[0]!.label).toBe('Nordstern Fee');
+		expect(lines[0]!.label).toBe('0x3dbe…0aae');
 		expect(lines[1]!.label).toBe('0x3912…4600'); // curation cue survives for genuinely unknown sinks
 	});
 
 	it('Clanker derivatives on receipt 371 render as three distinct labels', () => {
 		const lines = getAggregatorFeeLines({
-			aggregator: '0x', aggFeeBps: 10.901872046818054,
+			aggFeeBps: 10.901872046818054,
 			feeSinks: [
 				{ address: '0xad01c20d5886137e056775af56915de824c8fce5', feeBps: 5.001914524202447, source: 'retained_balance', name: null },
 				{ address: '0xf3622742b1e446d92e45e22923ef11c2fcd55d68', feeBps: 4.916631268846352, source: 'retained_balance', name: 'ClankerFeeLocker' },
 				{ address: '0xe85a59c628f7d27878aceb4bf3b35733630083a9', feeBps: 0.9833262537692553, source: 'retained_balance', name: 'Clanker' },
 			],
 		});
-		expect(lines.map(l => l.label)).toEqual(['0x Fee', 'ClankerFeeLocker', 'Clanker']);
+		expect(lines.map(l => l.label)).toEqual(['0xad01…fce5', 'ClankerFeeLocker', 'Clanker']);
 		expect(lines[1]!.href).toBe(BASE + '0xf3622742b1e446d92e45e22923ef11c2fcd55d68');
 		expect(lines[2]!.href).toBe(BASE + '0xe85a59c628f7d27878aceb4bf3b35733630083a9');
 	});
 
-	it('fabric with a fee keeps the Integrator Fee label', () => {
+	it('a curated MANUAL_OVERRIDES name wins, as on receipt 328s Relay vault_map sink', () => {
 		const lines = getAggregatorFeeLines({
-			aggregator: 'fabric', aggFeeBps: 80.6, feeRecipient: '0x4035',
-			feeSinks: [{ address: '0x4035', feeBps: 80.6, source: 'retained_balance', name: null }],
+			aggFeeBps: 15.92,
+			feeSinks: [{ address: '0xf70da97812cb96acdf810712aa562db8dfa3dbef', feeBps: 15.92, source: 'vault_map', name: 'Relay: Solver' }],
 		});
-		expect(lines[0]!.label).toBe('Integrator Fee');
+		expect(lines[0]!.label).toBe('Relay: Solver');
+		expect(lines[0]!.href).toBe(BASE + '0xf70da97812cb96acdf810712aa562db8dfa3dbef');
 	});
 
-	it('legacy row (no feeSinks) falls back to feeRecipient link', () => {
-		const lines = getAggregatorFeeLines({ aggregator: 'KyberSwap', aggFeeBps: 1.95, feeRecipient: '0x7d94' });
-		expect(lines).toEqual([{ label: 'KyberSwap Fee', href: BASE + '0x7d94', bps: 1.95 }]);
+	it('legacy row (no feeSinks) falls back to a linked feeRecipient address', () => {
+		const lines = getAggregatorFeeLines({ aggFeeBps: 1.95, feeRecipient: '0x7d94baf661d5ed8ad30d7241d1a50f3883083ef7' });
+		expect(lines).toEqual([
+			{ label: '0x7d94…3ef7', href: BASE + '0x7d94baf661d5ed8ad30d7241d1a50f3883083ef7', bps: 1.95 },
+		]);
+	});
+
+	it('emits no line when a fee has no recipient at all', () => {
+		expect(getAggregatorFeeLines({ aggFeeBps: 12.5, feeSinks: [] })).toEqual([]);
 	});
 
 	it('returns [] when there is no fee', () => {
-		expect(getAggregatorFeeLines({ aggregator: '0x', aggFeeBps: 0 })).toEqual([]);
-		expect(getAggregatorFeeLines({ aggregator: '0x', aggFeeBps: null })).toEqual([]);
+		expect(getAggregatorFeeLines({ aggFeeBps: 0 })).toEqual([]);
+		expect(getAggregatorFeeLines({ aggFeeBps: null })).toEqual([]);
 	});
 });
 

@@ -31,7 +31,11 @@ export interface NameResolverDeps {
 	cache?: Record<string, string | null>;
 }
 
-// Curated last resort. Empty by design — see spec. Keyed by lowercased address.
+// Curated last resort, keyed by lowercased address. Add an entry ONLY for a name
+// Basescan displays but `getsourcecode` cannot return — i.e. a name TAG on an
+// unverified contract, which is Pro-API-only. Never add a name you inferred.
+// Checked ahead of the disk cache below, so an entry survives the cache being
+// rewritten with the API's `null`.
 //
 // Deliberately NOT listed here: the payout adapter
 // 0x9a972d8c3a8dd27e5811cbcb75ebdac924fb53a1. It is unverified, it is redeployed
@@ -39,7 +43,13 @@ export interface NameResolverDeps {
 // by Mayan — which makes "Mayan" the tempting and WRONG label, since Mayan is
 // only the payout `recipient`. It renders as a truncated address on purpose.
 // Investigation: docs/positive-slippage-capture.md.
-const MANUAL_OVERRIDES: Record<string, string> = {};
+const MANUAL_OVERRIDES: Record<string, string> = {
+	// Basescan name tag "Relay: Solver". Unverified contract, so the free
+	// getsourcecode API returns no ContractName and the cache holds null.
+	// It is also the corpus's only `vault_map` fee sink — a registry hit, not a
+	// guess. Receipt id 328.
+	'0xf70da97812cb96acdf810712aa562db8dfa3dbef': 'Relay: Solver',
+};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_PATH = path.resolve(__dirname, '../../../configs/contractNames.json');

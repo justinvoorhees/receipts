@@ -418,28 +418,35 @@ describe('TradesTable', () => {
 		expect(html).toContain('id="tooltip-slippage"');
 	});
 
-	it('per-sink fee lines: dominant named/generic, subsequent truncated, all linked', async () => {
+	it('per-sink fee lines: unnamed sinks stay truncated whatever the aggregator, all linked', async () => {
 		// Replaces the old curated-vault getAggregatorFeeAttribution tests. Fee
 		// attribution now flows off the persisted feeSinks[] + Basescan names;
 		// full coverage lives in receipt/receiptDisplay.test.ts.
 		const { getAggregatorFeeLines } = await import('./tradesTable');
 
-		// Fabric-router fee → neutral "Integrator Fee", linked to the recipient.
-		const fabric = getAggregatorFeeLines({
-			aggregator: 'Fabric',
-			aggFeeBps: 11.58,
-			feeSinks: [{ address: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5', feeBps: 11.58, source: 'retained_balance', name: null }],
-		} as never);
-		expect(fabric[0]!.label).toBe('Integrator Fee');
-		expect(fabric[0]!.href).toBe('https://basescan.org/address/0x403560800cb7e03a06ebbc991dba0f6ac751a1c5');
+		// The SAME unnamed sink under two different aggregators must produce the
+		// SAME label. This address really is one integrator wallet that appears
+		// under both Fabric and 0x in the corpus; the old dominant-sink fallback
+		// named it "Integrator Fee" on one and "0x Fee" on the other.
+		const sink = '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5';
+		const under = (aggregator: string) =>
+			getAggregatorFeeLines({
+				aggregator,
+				aggFeeBps: 11.58,
+				feeSinks: [{ address: sink, feeBps: 11.58, source: 'retained_balance', name: null }],
+			} as never);
 
-		// Non-Fabric unnamed sink → generic "<Provider> Fee".
-		const odos = getAggregatorFeeLines({
-			aggregator: 'odos',
+		expect(under('Fabric')[0]!.label).toBe('0x4035…a1c5');
+		expect(under('0x')[0]!.label).toBe(under('Fabric')[0]!.label);
+		expect(under('Fabric')[0]!.href).toBe(`https://basescan.org/address/${sink}`);
+
+		// A resolved name still wins, at any position.
+		const named = getAggregatorFeeLines({
+			aggregator: 'Relay',
 			aggFeeBps: 80,
-			feeSinks: [{ address: '0x1111111111111111111111111111111111111111', feeBps: 80, source: 'retained_balance', name: null }],
+			feeSinks: [{ address: '0x1111111111111111111111111111111111111111', feeBps: 80, source: 'vault_map', name: 'Relay: Solver' }],
 		} as never);
-		expect(odos[0]!.label).toBe('Odos Fee');
+		expect(named[0]!.label).toBe('Relay: Solver');
 
 		// Zero fee → no lines.
 		expect(getAggregatorFeeLines({ aggregator: 'fabric', aggFeeBps: 0 } as never)).toEqual([]);

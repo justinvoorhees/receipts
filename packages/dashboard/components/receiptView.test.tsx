@@ -275,43 +275,38 @@ describe('UniswapX Filler row', () => {
 	});
 });
 
-describe('Receipt Fabric partner-fee attribution', () => {
-	// A Fabric-routed swap where an integrator/partner feeBps (80bps here) is
-	// forwarded through the Fabric router. Fabric is only ever the router, so
-	// the receipt must NOT present this as a "Fabric Fee" — it's a neutral,
-	// no-tooltip "Integrator Fee" linking to the fee recipient's contract.
-	const fabricPartnerRow = {
+describe('Receipt unnamed fee-sink attribution', () => {
+	// An 80bps fee retained by 0x403560…a1c5. In the corpus that one address
+	// appears under BOTH Fabric and 0x routes, so it cannot belong to either —
+	// it is an integrator wallet. A retained balance never establishes whose it
+	// is, so an unnamed sink must render its address and name no one.
+	const sink = '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5';
+	const rowUnder = (aggregator: string) => ({
 		...fullUsdcWethRow,
-		aggregator: 'Fabric',
+		aggregator,
 		aggFeeBps: '80',
-		feeRecipient: '0x403560800cb7e03a06ebbc991dba0f6ac751a1c5',
-	};
-
-	it('links a large Fabric-routed integrator fee to its recipient contract, with no tooltip', async () => {
-		const { ReceiptView } = await import('./receiptView');
-		const html = renderToStaticMarkup(
-			<ReceiptView trade={fabricPartnerRow as never} hash={fabricPartnerRow.txHash} />,
-		);
-		expect(html).toContain('Integrator Fee');
-		expect(html).not.toContain('Fabric Fee');
-		expect(html).toContain('href="https://basescan.org/address/0x403560800cb7e03a06ebbc991dba0f6ac751a1c5"');
-		expect(html).not.toContain('not Fabric revenue');
+		feeRecipient: sink,
 	});
 
-	it('labels a Fabric-routed integrator fee neutrally and links out even without a known name', async () => {
+	it('renders an unnamed sink as its truncated address, linked, naming no party', async () => {
 		const { ReceiptView } = await import('./receiptView');
-		const unknownIntegratorRow = {
-			...fullUsdcWethRow,
-			aggregator: 'Fabric',
-			aggFeeBps: '80',
-			feeRecipient: '0x00000000000000000000000000000000000bad',
-		};
-		const html = renderToStaticMarkup(
-			<ReceiptView trade={unknownIntegratorRow as never} hash={unknownIntegratorRow.txHash} />,
-		);
-		expect(html).toContain('Integrator Fee');
+		const row = rowUnder('Fabric');
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain('0x4035…a1c5');
+		expect(html).toContain(`href="https://basescan.org/address/${sink}"`);
+		expect(html).not.toContain('Integrator Fee');
 		expect(html).not.toContain('Fabric Fee');
-		expect(html).toContain('href="https://basescan.org/address/0x00000000000000000000000000000000000bad"');
+	});
+
+	it('gives the same sink the same label under a different aggregator', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const fabric = rowUnder('Fabric');
+		const zeroEx = rowUnder('0x');
+		const htmlFabric = renderToStaticMarkup(<ReceiptView trade={fabric as never} hash={fabric.txHash} />);
+		const htmlZeroEx = renderToStaticMarkup(<ReceiptView trade={zeroEx as never} hash={zeroEx.txHash} />);
+		expect(htmlFabric).toContain('0x4035…a1c5');
+		expect(htmlZeroEx).toContain('0x4035…a1c5');
+		expect(htmlZeroEx).not.toContain('0x Fee');
 	});
 });
 
@@ -341,8 +336,8 @@ describe('Receipt partial state', () => {
 		expect(html).toContain('5 BBB');
 		// Unavailable treatment for price-derived sections.
 		expect(html.toLowerCase()).toContain('unavailable for this pair');
-		// Aggregator fee still shows normally (non-zero).
-		expect(html).toContain('Aggregator Fee');
+		// Third-party fee still shows normally (non-zero).
+		expect(html).toContain('>Third-Party Fee<');
 	});
 });
 
@@ -448,10 +443,16 @@ describe('Receipt route rendering (native/fallback)', () => {
 		expect(html).not.toContain('No Route Found');
 	});
 
-	// Figma node 524-1644 orders the Cost Breakdown Aggregator Fee → Liquidity
-	// Provider Fee → Price Impact. The first pair is the one that moved (Agg Fee
-	// used to sit second), and lpFeeSection's slice bounds depend on it holding.
-	it('orders the Cost Breakdown Aggregator Fee → Liquidity Provider Fee → Price Impact', async () => {
+	// Figma node 524-1644 orders the Cost Breakdown Third-Party Fee → Liquidity
+	// Provider Fee → Price Impact. The first pair is the one that moved (the fee
+	// section used to sit second), and lpFeeSection's slice bounds depend on it
+	// holding.
+	//
+	// Anchored on '>Label<', never the bare label: the Total Execution Delta
+	// tooltip enumerates "Third-Party Fee, L.P. Fee, Price Impact, and Slippage"
+	// in prose, so a bare indexOf can match tooltip copy instead of a heading and
+	// pass (or fail) for the wrong reason.
+	it('orders the Cost Breakdown Third-Party Fee → Liquidity Provider Fee → Price Impact', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const row = { ...base, pricingStatus: 'full', routeLegs: [
 			{ venue: '0x53932cbd9c700cf191b2b45e0b1cd50d69f66a1e', type: 'univ3',
@@ -460,9 +461,11 @@ describe('Receipt route rendering (native/fallback)', () => {
 				feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2 },
 		] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
-		expect(html.indexOf('Aggregator Fee')).toBeGreaterThan(-1);
-		expect(html.indexOf('Aggregator Fee')).toBeLessThan(html.indexOf('Liquidity Provider Fee'));
-		expect(html.indexOf('Liquidity Provider Fee')).toBeLessThan(html.indexOf('Price Impact'));
+		expect(html.indexOf('>Third-Party Fee<')).toBeGreaterThan(-1);
+		expect(html.indexOf('>Liquidity Provider Fee<')).toBeGreaterThan(-1);
+		expect(html.indexOf('>Price Impact<')).toBeGreaterThan(-1);
+		expect(html.indexOf('>Third-Party Fee<')).toBeLessThan(html.indexOf('>Liquidity Provider Fee<'));
+		expect(html.indexOf('>Liquidity Provider Fee<')).toBeLessThan(html.indexOf('>Price Impact<'));
 	});
 
 	// A fee we could not read must not render as "0.00bps" — that asserts the pool
@@ -481,7 +484,7 @@ describe('Receipt route rendering (native/fallback)', () => {
 			return renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		};
 
-		// Counted, not just "contains": 0.00bps also appears on the Aggregator Fee
+		// Counted, not just "contains": 0.00bps also appears on the Third-Party Fee
 		// row, so a bare toContain would pass for the wrong reason.
 		const zeroBpsCells = (html: string) => (html.match(/>0\.00bps</g) ?? []).length;
 
@@ -622,7 +625,7 @@ describe('Receipt leg context — endpoint token resolution', () => {
 	// getPriceImpactRows — a different, out-of-scope code path — so assertions
 	// are scoped to the LP Fee section to avoid coupling to that unrelated list.
 	// End-anchored on "Price Impact", the section that now FOLLOWS LP Fee. Do not
-	// anchor on "Aggregator Fee": it renders ABOVE LP Fee, so the slice would run
+	// anchor on "Third-Party Fee": it renders ABOVE LP Fee, so the slice would run
 	// backwards and return '' — silently turning every not.toContain below into a
 	// vacuous pass.
 	function lpFeeSection(html: string): string {
@@ -1067,8 +1070,8 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 	});
 });
 
-describe('Aggregator fee sinks', () => {
-	it('renders one fee line per sink: first named-or-generic, rest truncated, all linked', async () => {
+describe('Third-party fee sinks', () => {
+	it('renders one fee line per sink: every unnamed sink truncated, all linked', async () => {
 		const { Receipt } = await import('./receiptView');
 		const row = {
 			...fullUsdcWethRow,
@@ -1081,12 +1084,50 @@ describe('Aggregator fee sinks', () => {
 			],
 		};
 		const html = renderToStaticMarkup(<Receipt row={row as never} />);
-		// First sink: generic "[Aggregator] Fee", linked to its recipient.
-		expect(html).toContain('Nordstern Fee');
+		// Dominant sink: truncated address, NOT "Nordstern Fee". Being biggest is
+		// not evidence of whose wallet it is.
+		expect(html).toContain('0x3dbe…0aae');
+		expect(html).not.toContain('Nordstern Fee');
 		expect(html).toContain('href="https://basescan.org/address/0x3dbe077e7986657e95e1cc50089f17a5a4af0aae"');
 		// Second sink: truncated address as label + link (curation cue).
 		expect(html).toContain('0x5f69…d431');
 		expect(html).toContain('href="https://basescan.org/address/0x5f6900000000000000000000000000000000d431"');
+	});
+});
+
+// Figma node 288-4340 (receipt-tooltips) is the source of truth for this copy.
+// Pinned VERBATIM because the wording is load-bearing, not decorative: every
+// enumeration lists third-party fees FIRST, matching the order the Cost
+// Breakdown actually renders its rows. A find-and-replace of "aggregator" →
+// "third-party" reproduces the old, contradictory ordering and must fail here.
+describe('Cost Breakdown tooltip copy (Figma 288-4340)', () => {
+	const row = {
+		...fullUsdcWethRow,
+		aggregator: 'Nordstern',
+		aggFeeBps: '22',
+		feeSinks: [
+			{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 22, source: 'retained_balance', name: null },
+		],
+	};
+
+	it.each([
+		['Third-Party Fee', 'Value retained by third parties, not attributed to L.P. fees or price impact'],
+		['Price Impact', 'Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees'],
+		['Slippage', 'Residual cost after third-party fees, L.P. fees, and price impact'],
+		['Positive Slippage', 'Residual benefit after third-party fees, L.P. fees, and price impact'],
+		['Unattributed', 'Residual cost or benefit that could not be completely attributed to third-party fees, L.P. fees, or price impact'],
+		['Total Execution Delta', 'Delta between execution price and market price; the sum of Third-Party Fee, L.P. Fee, Price Impact, and Slippage (or Unattributed)'],
+	])('%s carries its Figma tooltip verbatim', async (_label, copy) => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		expect(html).toContain(copy);
+	});
+
+	it('names no aggregator anywhere in the Cost Breakdown copy', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		expect(html).not.toContain('aggregator fees');
+		expect(html).not.toContain('Aggregator Fee');
 	});
 });
 
@@ -1471,7 +1512,7 @@ describe('group section bottom padding (Figma 546-713)', () => {
 		return stack.some((cls) => cls.includes('pb-[22px]'));
 	}
 
-	it('adds pb-[22px] to the Aggregator Fee section only when it has fee lines', async () => {
+	it('adds pb-[22px] to the Third-Party Fee section only when it has fee lines', async () => {
 		const { Receipt } = await import('./receiptView');
 		const withFee = {
 			...fullUsdcWethRow,
@@ -1482,12 +1523,12 @@ describe('group section bottom padding (Figma 546-713)', () => {
 			],
 		};
 		const htmlWithFee = renderToStaticMarkup(<Receipt row={withFee as never} />);
-		const withFeeLabel = htmlWithFee.indexOf('>Aggregator Fee<');
+		const withFeeLabel = htmlWithFee.indexOf('>Third-Party Fee<');
 		expect(withFeeLabel).toBeGreaterThan(-1);
 		expect(hasPb22Ancestor(htmlWithFee, withFeeLabel)).toBe(true);
 
 		const htmlStandalone = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
-		const standaloneLabel = htmlStandalone.indexOf('>Aggregator Fee<');
+		const standaloneLabel = htmlStandalone.indexOf('>Third-Party Fee<');
 		expect(standaloneLabel).toBeGreaterThan(-1);
 		expect(hasPb22Ancestor(htmlStandalone, standaloneLabel)).toBe(false);
 	});
@@ -1782,7 +1823,7 @@ describe('Receipt Unattributed row', () => {
 			<ReceiptView trade={partialRow as never} hash={partialRow.txHash} />,
 		);
 		expect(html).toContain(
-			'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact',
+			'Residual cost or benefit that could not be completely attributed to third-party fees, L.P. fees, or price impact',
 		);
 	});
 

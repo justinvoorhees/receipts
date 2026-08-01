@@ -159,14 +159,31 @@ lp_fee_bps     = pool_fee_tier / 1e4                 # 500 -> 5 bps, 3000 -> 30 
 
 **Note:** LP fee is deterministic from the pool's `fee()` function. Call once at startup per pool and cache. For the 0.05% pool this is always exactly 5 bps.
 
-### 5.5 Aggregator Fee
+### 5.5 Third-Party Fee
 
 ```
-agg_fee_usd    = sum of Transfer amounts to known fee recipient addresses
+agg_fee_usd    = sum of value RETAINED by non-infra addresses (excl. counterparties)
 agg_fee_bps    = agg_fee_usd / notional_usd * 10000
 ```
 
-Fee recipient addresses must be maintained per aggregator in the router config. If no known fee recipient transfer is detected, `agg_fee_bps = 0` (aggregator may capture fee as positive slippage — indistinguishable without the original quote).
+⚠️ **The per-aggregator fee-recipient registry described below was never built.**
+`configs/routers.json` records that its `fee_recipients` array "was never populated
+and was REMOVED 2026-07-28". What ships instead is `computeAggFee`
+(`packages/core/src/tradeFees.ts`): any address that ends the transaction holding a
+small amount of USDC/WETH — above a dust floor, below `COUNTERPARTY_THRESHOLD` —
+becomes a fee sink. Nothing verifies the sink belongs to the aggregator.
+
+A 2026-07-31 corpus sweep found 15 of 28 receipts whose entire "Aggregator Fee" was
+demonstrably not an aggregator's: integrator wallets, RFQ maker spread, an Aerodrome
+`PoolFees` accumulator, and a token launchpad's creator fee. The row was therefore
+renamed **Third-Party Fee**, and the UI no longer names a collector it cannot verify
+— see the anti-re-add note on `getAggregatorFeeLines`. Do not restore an
+"[Aggregator] Fee" label without first populating a verified recipient registry.
+
+Original design, retained for context: fee recipient addresses maintained per
+aggregator in the router config; if no known fee recipient transfer is detected,
+`agg_fee_bps = 0` (aggregator may capture fee as positive slippage — indistinguishable
+without the original quote).
 
 ### 5.6 Execution Quality (Price Impact + Slippage, Combined)
 

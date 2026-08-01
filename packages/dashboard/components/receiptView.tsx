@@ -21,6 +21,7 @@ import {
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
 	UNATTRIBUTED_TOOLTIP,
+	THIRD_PARTY_FEE_TOOLTIP,
 } from './receipt/receiptDisplay';
 import { receiptDollars } from './receipt/qualityNotionals';
 import type { PriceDeltaRow } from './receipt/priceFormat';
@@ -48,7 +49,7 @@ import {
 
 // A Cost Breakdown section (heading + its rows) gets 22px of extra bottom
 // padding — but only when it actually has rows beneath the heading (Figma
-// 546-713). A bare standalone heading (e.g. Aggregator Fee with no fee
+// 546-713). A bare standalone heading (e.g. Third-Party Fee with no fee
 // lines, or the unpriced Price Impact/Slippage pair) stays on the plain
 // 20px rhythm and is never wrapped in this.
 const GROUP_SECTION = 'flex flex-col gap-[20px] pb-[22px]';
@@ -272,7 +273,7 @@ export function Receipt({
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
 				{hasAggFee ? (
 					<div className={GROUP_SECTION}>
-						<BkdHeading label="Aggregator Fee" plain />
+						<BkdHeading label="Third-Party Fee" tooltip={THIRD_PARTY_FEE_TOOLTIP} />
 						{feeLines.map((line, i) => {
 							const d = formatDialogBps(-line.bps);
 							return (
@@ -288,7 +289,12 @@ export function Receipt({
 						})}
 					</div>
 				) : (
-					<BkdHeading label="Aggregator Fee" value="0.00bps" plain standalone />
+					<BkdHeading
+						label="Third-Party Fee"
+						value="0.00bps"
+						tooltip={THIRD_PARTY_FEE_TOOLTIP}
+						standalone
+					/>
 				)}
 
 				{legs.length === 0 ? (
@@ -346,14 +352,14 @@ export function Receipt({
 							label="Price Impact"
 							value="N/A"
 							valueTooltip={NULL_PRICE_TOOLTIP}
-							tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
+							tooltip="Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees"
 							standalone
 						/>
 						<BkdHeading
 							label="Slippage"
 							value="N/A"
 							valueTooltip={NULL_PRICE_TOOLTIP}
-							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+							tooltip="Residual cost after third-party fees, L.P. fees, and price impact"
 							standalone
 						/>
 					</>
@@ -362,7 +368,7 @@ export function Receipt({
 						<div className={GROUP_SECTION}>
 							<BkdHeading
 								label="Price Impact"
-								tooltip="Per-venue delta between execution price and the prior-block mid, excluding L.P. fee"
+								tooltip="Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees"
 							/>
 							{priceImpactRows.length > 0 ? (
 								priceImpactRows.map((impact, index) => (
@@ -386,7 +392,7 @@ export function Receipt({
 							label="Slippage"
 							value={execution.slippageDisplay.text}
 							color={execution.slippageDisplay.color}
-							tooltip="Residual cost after L.P. fees, aggregator fees, and price impact"
+							tooltip="Residual cost after third-party fees, L.P. fees, and price impact"
 							valueTooltip={
 								execution.slippageUnavailableTooltip
 							}
@@ -396,7 +402,7 @@ export function Receipt({
 							label="Positive Slippage"
 							value={execution.positiveSlippageDisplay.text}
 							color={execution.positiveSlippageDisplay.color}
-							tooltip="Residual benefit after L.P. fees, aggregator fees, and price impact"
+							tooltip="Residual benefit after third-party fees, L.P. fees, and price impact"
 							valueTooltip={
 								execution.slippageUnavailableTooltip
 							}
@@ -422,7 +428,7 @@ export function Receipt({
 							label="Total Execution Delta"
 							value={accuracy}
 							color={accuracyColor}
-							tooltip="Delta between execution price and market price; the sum of L.P. Fee, Aggregator Fee, Price Impact, and Slippage (or Unattributed)"
+							tooltip="Delta between execution price and market price; the sum of Third-Party Fee, L.P. Fee, Price Impact, and Slippage (or Unattributed)"
 							standalone
 						/>
 					</>

@@ -12,7 +12,7 @@
  */
 import { useState } from 'react';
 import { costedLegs, isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
-import { formatProvider, shortTxHash } from '../../lib/formatters';
+import { shortTxHash } from '../../lib/formatters';
 import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 import { formatUsdMagnitude } from './usdFormat';
@@ -137,9 +137,17 @@ export function legLinkAddress(leg: Pick<RouteLeg, 'venue' | 'v4Emitter'>): stri
  */
 export const RFQ_UNATTRIBUTABLE_TOOLTIP = 'No calculation available due to market maker inventory.';
 
+/**
+ * Copy for the Third-Party Fee heading. Deliberately says "third parties" and
+ * not "the aggregator": the underlying number is retained value, and nothing
+ * verifies who retained it. See `getAggregatorFeeLines` below.
+ */
+export const THIRD_PARTY_FEE_TOOLTIP =
+	'Value retained by third parties, not attributed to L.P. fees or price impact';
+
 /** Copy for the Unattributed row's label. */
 export const UNATTRIBUTED_TOOLTIP =
-	'Residual cost or benefit that could not be completely attributed to L.P. fees, aggregator fees, or price impact';
+	'Residual cost or benefit that could not be completely attributed to third-party fees, L.P. fees, or price impact';
 
 const NOT_AVAILABLE = { text: 'N/A', color: undefined };
 
@@ -572,13 +580,6 @@ export function getStepContext(legType: RouteLeg['type']): string | undefined {
 	return undefined;
 }
 
-// Fabric is the *router* for every trade routed through it, so any retained
-// fee we detect there is really an integrator/partner's `feeBps` being
-// forwarded to their `feeRecipient`, not Fabric's own revenue — label it
-// neutrally as "Integrator Fee" and link out to the recipient's contract
-// rather than naming or explaining it inline.
-const FABRIC_AGGREGATOR_SLUG = 'fabric';
-
 export interface FeeLine {
 	label: string;
 	href?: string;
@@ -592,22 +593,23 @@ interface FeeSinkNamed {
 	name: string | null;
 }
 
-// Generic label for a fee whose recipient contract has no verified Basescan
-// name. Fabric is only ever the *router*, so a retained fee there belongs to an
-// integrator/partner — labeled neutrally as "Integrator Fee", never "Fabric Fee".
-function genericFeeLabel(aggregator: string): string {
-	if (aggregator.toLowerCase() === FABRIC_AGGREGATOR_SLUG) return 'Integrator Fee';
-	return `${formatProvider(aggregator.toLowerCase())} Fee`;
-}
-
-// One clickable line per aggregator fee sink. A sink with a verified Basescan
-// contract name is labeled with it, wherever it sits in the list. An UNNAMED
-// sink falls back to the generic "[Aggregator] Fee" if it's the dominant
-// (first) one, otherwise to its truncated address — a deliberate visual cue
-// that the sink still needs curation/investigation. All sinks link to their
+// One clickable line per third-party fee sink. A sink with a verified Basescan
+// contract name (or a `MANUAL_OVERRIDES` entry) is labeled with it, wherever it
+// sits in the list. An UNNAMED sink renders its truncated address — a deliberate
+// visual cue that the sink still needs curation. All sinks link to their
 // Basescan address page.
+//
+// ⚠️ DO NOT re-add a generic "[Aggregator] Fee" / "Integrator Fee" fallback.
+// A sink is just an address that RETAINED value (core's `computeAggFee`); nothing
+// verifies it belongs to the router. `configs/routers.json` says the per-router
+// `fee_recipients` array "was never populated and was REMOVED 2026-07-28", so the
+// aggregator's name is not evidence of anything here. Naming the dominant sink
+// after the router was measurably wrong on the corpus: 0x403560…a1c5 is one
+// integrator wallet that rendered as "Integrator Fee" on Fabric routes and
+// "0x Fee" on 0x routes, and 0x3dbe077e…0aae — an RFQ maker — rendered as both
+// "Nordstern Fee" and "Velora Fee". Position in a size-sorted list is not
+// identity. Earn a name via `MANUAL_OVERRIDES`, never infer one.
 export function getAggregatorFeeLines(row: {
-	aggregator: string;
 	aggFeeBps: string | number | null;
 	feeRecipient?: string | null;
 	feeSinks?: FeeSinkNamed[] | null;
@@ -622,13 +624,11 @@ export function getAggregatorFeeLines(row: {
 				? [{ address: row.feeRecipient, feeBps: totalBps, source: 'retained_balance', name: null }]
 				: [];
 
-	if (sinks.length === 0) {
-		// Fee detected but no recipient — show the generic label, unlinked.
-		return [{ label: genericFeeLabel(row.aggregator), bps: totalBps }];
-	}
-
-	return sinks.map((s, i) => ({
-		label: s.name ?? (i === 0 ? genericFeeLabel(row.aggregator) : shortTxHash(s.address)),
+	// Fee detected but no recipient at all: there is nothing to name and nothing
+	// to link, so emit no lines. The heading falls through to its standalone
+	// rendering rather than inventing a label for an unknown collector.
+	return sinks.map((s) => ({
+		label: s.name ?? shortTxHash(s.address),
 		href: `https://basescan.org/address/${s.address}`,
 		bps: s.feeBps,
 	}));
