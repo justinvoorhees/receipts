@@ -30,9 +30,15 @@ const swapLog = (
 describe('infinityLpFeePips', () => {
   it('inverts calculateSwapFee to the LP-only share', () => {
     // Pancake: swapFee = protocolFee + lpFee − protocolFee·lpFee/1e6.
-    // id 408 emitted swapFee=70, protocolFee=23 → lpFee 47.001, and the pool
+    // id 408 emitted swapFee=70, protocolFee=23 → lpFee 47.00108, and the pool
     // key's static fee for that pool reads exactly 47. Both agree.
-    expect(infinityLpFeePips(70, 23)).toBeCloseTo(47.001, 2);
+    //
+    // Precision note (fix round 5): 2 decimal places (±0.005 tolerance) is
+    // WIDER than the denominator term this is meant to pin — mutating
+    // `net / (1 - protocolFee / 1_000_000)` down to plain `net` (i.e. 47,
+    // dropping the division entirely) still lands within ±0.005 of 47.001 and
+    // would pass. 4 places (±0.00005) is tighter than that 0.00108 gap.
+    expect(infinityLpFeePips(70, 23)).toBeCloseTo(47.00108, 4);
   });
 
   it('returns the whole fee when no protocol cut is taken', () => {
@@ -61,7 +67,9 @@ describe('collectInfinitySwaps', () => {
     expect(out[0]!.amount0).toBe(1605452779327540n);
     expect(out[0]!.amount1).toBe(-2991046n);
     // 47, not the event's 70 — storing the total would overstate the LP fee.
-    expect(out[0]!.lpFeePips).toBeCloseTo(47.001, 2);
+    // Tightened alongside infinityLpFeePips's own test above — see that
+    // comment for why 2 places is too loose to pin the division.
+    expect(out[0]!.lpFeePips).toBeCloseTo(47.00108, 4);
   });
 
   it('skips a swap that moved nothing', () => {

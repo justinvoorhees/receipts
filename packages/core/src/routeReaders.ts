@@ -110,7 +110,19 @@ export async function getLegMidAtBlock(
 	// match the address sort — compute the price both ways and keep whichever
 	// agrees with the leg's realized direction.
 	if (type === 'pancake_infinity') {
-		if (!leg.infinityPoolId) return null;
+		// No poolId: the vault-collapsed leg couldn't be pinned to a single pool
+		// (routeVenueScan only attaches one when exactly one distinct Infinity
+		// pool was touched — see routeVenueScan.ts) or a rescue-synthesized
+		// extra's pool key failed to resolve. Degrade to the SAME reference-pool
+		// discovery an `unknown` leg gets: typing a leg must never lose
+		// information it had while untyped. Deliberately asymmetric with the
+		// null below — once we DO have a poolId we have identified the EXACT
+		// pool the trade used, so an unusable slot0 there must return null
+		// rather than substitute a different pool's price, which would
+		// misattribute liquidity this leg never touched. Matches V4's guard.
+		if (!leg.infinityPoolId) {
+			return getPairMidAtBlock(client, tokenIn, tokenOut, blockNumber, decimalsOf);
+		}
 		const sqrtPriceX96 = await readInfinitySlot0(client, leg.infinityPoolId as `0x${string}`, blockNumber);
 		if (sqrtPriceX96 === null) return null;
 
