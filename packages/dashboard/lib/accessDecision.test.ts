@@ -16,8 +16,11 @@ describe('decideAccess — public receipt tool, private history', () => {
 		expect(decideAccess({ ...anon, pathname: '/api/receipts', method: 'POST' })).toBe('allow');
 	});
 
-	it('sends an anonymous visitor on /trades to the login screen', () => {
-		expect(decideAccess({ ...anon, pathname: '/trades', method: GET })).toBe('redirect-login');
+	// Rendered in place, not redirected: the design calls this "/trades-auth",
+	// i.e. the logged-out STATE of /trades. The URL stays put so signing in
+	// returns you to where you were, and a bookmark still points at /trades.
+	it('shows the login screen in place for an anonymous visitor on /trades', () => {
+		expect(decideAccess({ ...anon, pathname: '/trades', method: GET })).toBe('show-login');
 	});
 
 	it('serves /trades to a logged-in user', () => {
@@ -58,6 +61,12 @@ describe('decideAccess — public receipt tool, private history', () => {
 		expect(
 			decideAccess({ configured: false, hasValidSession: false, pathname: '/api/receipts', method: 'POST' }),
 		).toBe('allow');
+	});
+
+	// The API keeps getting a status code, not a rendered page — a rewrite would
+	// hand an API client HTML with a 200 attached, which reads as success.
+	it('still answers an anonymous protected API request with a status, not a page', () => {
+		expect(decideAccess({ ...anon, pathname: '/api/receipts', method: 'DELETE' })).toBe('unauthorized');
 	});
 
 	it('refuses protected routes when the gate is unconfigured, rather than opening them', () => {

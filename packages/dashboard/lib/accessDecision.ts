@@ -13,7 +13,7 @@
 
 export type AccessOutcome =
 	| 'allow'
-	| 'redirect-login'
+	| 'show-login'
 	| 'redirect-home'
 	| 'unauthorized'
 	| 'misconfigured';
@@ -67,7 +67,8 @@ export function decideAccess(input: {
 	if (!configured) return 'misconfigured';
 	if (hasValidSession) return 'allow';
 
-	// An API client cannot act on a 302 to an HTML login page, and a naive script
-	// would read the 200 that follows it as success.
-	return pathname.startsWith('/api/') ? 'unauthorized' : 'redirect-login';
+	// API paths get a status code. A page gets the login screen rendered IN PLACE
+	// (middleware rewrites, keeping the URL) — handing an API client HTML with a
+	// 200 attached would read as success to a naive script.
+	return pathname.startsWith('/api/') ? 'unauthorized' : 'show-login';
 }

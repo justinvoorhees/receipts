@@ -32,12 +32,16 @@ export async function middleware(req: NextRequest) {
 		case 'redirect-home':
 			return NextResponse.redirect(new URL('/', req.url));
 
-		case 'redirect-login': {
+		case 'show-login': {
+			// Rewrite, not redirect: the browser stays on /trades and renders the
+			// login screen there — the logged-out STATE of the page rather than a
+			// detour to a different URL. The /trades component never executes, so
+			// no receipt data is fetched for an anonymous visitor.
 			const url = new URL('/login', req.url);
-			// Preserve where they were headed, but only as a path — taking a full
-			// URL here would make this an open redirect.
+			// Where to land after signing in. A path only — passing a full URL
+			// through would turn the post-login navigation into an open redirect.
 			url.searchParams.set('next', pathname + req.nextUrl.search);
-			return NextResponse.redirect(url);
+			return NextResponse.rewrite(url);
 		}
 
 		case 'unauthorized':
