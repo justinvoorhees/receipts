@@ -14,7 +14,14 @@ import { TradesTable } from '../../components/tradesTable';
 import { Divider } from '../../components/receipt/receiptRows';
 import { clampPagination } from '../../lib/pagination';
 
-export const revalidate = 30;
+/**
+ * Never cached. This page reads the session cookie to decide whether to render
+ * history or the signed-out state, so a cached copy is a correctness AND a
+ * security problem: one visitor's rendered page could be served to another.
+ * Replaces `revalidate = 30`, which asked for exactly that caching and was set
+ * before this page read cookies at all.
+ */
+export const dynamic = 'force-dynamic';
 
 const VALID_SORT_COLUMNS = new Set(Object.keys(TRADES_SORT_COLUMNS) as TradesSortColumn[]);
 const DEFAULT_SORT: TradesSort = { column: 'block', direction: 'desc' };

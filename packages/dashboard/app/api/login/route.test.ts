@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { POST } from './route.js';
-import { SESSION_COOKIE, verifySession } from '../../../lib/auth';
+import { verifySession } from '../../../lib/auth';
 
 const PASSWORD = 'correct-horse-battery-staple';
 const SECRET = 'session-secret-at-least-32-characters';
