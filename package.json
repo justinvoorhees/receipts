@@ -12,6 +12,7 @@
 		"typecheck": "tsc --build",
 		"test": "vitest run",
 		"build": "tsc --build && npm --workspace packages/dashboard run build",
+		"start": "npm --workspace packages/dashboard run start",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:check": "drizzle-kit check",
