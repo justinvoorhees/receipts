@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { makeV4PoolKeyReader, createDefaultV4PoolKeyReader, createDefaultFeeReader } from './routeReaders.js';
+import {
+  makeV4PoolKeyReader,
+  createDefaultV4PoolKeyReader,
+  createDefaultFeeReader,
+  findInitializeLogByBisect,
+} from './routeReaders.js';
 
 describe('makeV4PoolKeyReader', () => {
   const POOL = '0xAbC123';
@@ -37,6 +42,102 @@ describe('createDefaultV4PoolKeyReader', () => {
   it('returns a no-op reader (always null) when rpcUrl is empty', async () => {
     const reader = createDefaultV4PoolKeyReader('', 1000n);
     expect(await reader('0xabc')).toBeNull();
+  });
+
+  // Guards the provider-portability bug that shipped with the QuickNode
+  // migration: the old implementation asked for a ~24M-block eth_getLogs, which
+  // Alchemy served and QuickNode rejected. The reader swallows throws, so the
+  // rejection surfaced only as null currencies — V4 legs collapsed and lpFeeBps
+  // went null. This resolves a REAL pool against whatever RPC is configured, so
+  // it fails on any provider that cannot answer the wide query.
+  it.skipIf(!process.env.TCA_RPC_URL)(
+    'resolves a real V4 pool key against the configured RPC',
+    async () => {
+      // id 207's V4 pool; Initialize emitted at block 35,830,683.
+      const poolId = '0xa45b43f690974df2ff5d1f9807786fab3adec320d26c76570ea2e483c80d08e1';
+      const reader = createDefaultV4PoolKeyReader(process.env.TCA_RPC_URL!, 49_000_000n);
+      expect(await reader(poolId)).toEqual({
+        currency0: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC
+        currency1: '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca', // USDbC
+      });
+    },
+    60_000,
+  );
+});
+
+// Uniswap's PoolManager exposes no poolIdToPoolKey, so the currencies can only
+// come from the historical Initialize log. Scanning for it from the deploy block
+// is a ~24M-block eth_getLogs, which QuickNode rejects outright (10,000-block
+// range cap) — and because makeV4PoolKeyReader swallows the throw, the failure
+// was indistinguishable from "this pool does not exist": V4 legs silently
+// collapsed and lpFeeBps went null. Bisect on initialized-ness instead, using
+// state reads, then fetch logs for the ONE block the search lands on.
+describe('findInitializeLogByBisect', () => {
+  const DEPLOY = 25_350_988n;
+  const HEAD = 49_493_825n;
+  const INIT = 35_830_683n; // real Initialize block for id 207's pool
+  const LOG = { args: { currency0: '0xAAAA1111', currency1: '0xBBBB2222' } };
+
+  /** A chain where the pool becomes initialized at INIT and stays so. */
+  const chainWithInit = (initBlock: bigint | null) => {
+    const probed: bigint[] = [];
+    const ranges: { from: bigint; to: bigint }[] = [];
+    return {
+      probed,
+      ranges,
+      isInitializedAt: async (b: bigint) => {
+        probed.push(b);
+        return initBlock !== null && b >= initBlock;
+      },
+      getLogsInRange: async (from: bigint, to: bigint) => {
+        ranges.push({ from, to });
+        return initBlock !== null && from <= initBlock && initBlock <= to ? [LOG] : [];
+      },
+    };
+  };
+
+  it('finds the Initialize log by bisecting on initialized-ness', async () => {
+    const chain = chainWithInit(INIT);
+    const logs = await findInitializeLogByBisect(chain, DEPLOY, HEAD);
+    expect(logs).toEqual([LOG]);
+  });
+
+  it('lands on the exact initialization block, so the log query spans a single block', async () => {
+    const chain = chainWithInit(INIT);
+    await findInitializeLogByBisect(chain, DEPLOY, HEAD);
+    expect(chain.ranges).toEqual([{ from: INIT, to: INIT }]);
+  });
+
+  // The whole point: a range cap can never be hit if we never ask for a range.
+  it('never requests a block range wide enough to trip a provider cap', async () => {
+    const chain = chainWithInit(INIT);
+    await findInitializeLogByBisect(chain, DEPLOY, HEAD);
+    for (const r of chain.ranges) expect(r.to - r.from).toBeLessThan(10_000n);
+  });
+
+  it('probes logarithmically, not linearly, across a 24M-block span', async () => {
+    const chain = chainWithInit(INIT);
+    await findInitializeLogByBisect(chain, DEPLOY, HEAD);
+    // log2(24.1M) ≈ 24.5; allow headroom but stay far below a chunked scan's ~2400
+    expect(chain.probed.length).toBeLessThanOrEqual(30);
+  });
+
+  it('returns [] without fetching any logs when the pool is not initialized at toBlock', async () => {
+    const chain = chainWithInit(null);
+    expect(await findInitializeLogByBisect(chain, DEPLOY, HEAD)).toEqual([]);
+    expect(chain.ranges).toEqual([]);
+  });
+
+  it('handles a pool initialized in the deploy block itself', async () => {
+    const chain = chainWithInit(DEPLOY);
+    expect(await findInitializeLogByBisect(chain, DEPLOY, HEAD)).toEqual([LOG]);
+    expect(chain.ranges).toEqual([{ from: DEPLOY, to: DEPLOY }]);
+  });
+
+  it('handles a pool initialized in the toBlock itself', async () => {
+    const chain = chainWithInit(HEAD);
+    expect(await findInitializeLogByBisect(chain, DEPLOY, HEAD)).toEqual([LOG]);
+    expect(chain.ranges).toEqual([{ from: HEAD, to: HEAD }]);
   });
 });
 

@@ -7,7 +7,7 @@
  * module. getLegMidAtBlock lives here too — createDefaultMidReader is its only
  * production caller, so co-locating them keeps the graph acyclic.
  */
-import { createPublicClient, http, parseAbiItem, type PublicClient } from 'viem';
+import { createPublicClient, encodeAbiParameters, http, keccak256, parseAbiItem, type PublicClient } from 'viem';
 import { base } from 'viem/chains';
 import type { VenueType, Leg } from './routeGraph.js';
 import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
@@ -479,21 +479,102 @@ export function makeV4PoolKeyReader(
 }
 
 /**
- * Production V4 poolId → currencies reader: queries the PoolManager's indexed
- * Initialize event via viem and delegates decode/cache to makeV4PoolKeyReader.
+ * Chain access needed to locate a pool's Initialize log without a wide log scan.
+ * Injected so the search logic is testable without an RPC.
+ */
+export type V4InitProbe = {
+	/** True once the pool exists at `block` — a state read, not a log query. */
+	isInitializedAt: (block: bigint) => Promise<boolean>;
+	getLogsInRange: (fromBlock: bigint, toBlock: bigint) => Promise<V4InitLog[]>;
+};
+
+/**
+ * Locate a pool's Initialize log by bisecting on initialized-ness.
+ *
+ * The obvious implementation — one eth_getLogs from the PoolManager's deploy
+ * block — is a ~24M-block range that QuickNode rejects outright (10,000-block
+ * cap). Chunking it is worse: pools sit anywhere in that span, so it costs
+ * hundreds to thousands of requests per poolId in whichever direction you scan.
+ *
+ * Initialized-ness is monotonic (a pool never un-initializes), so a binary
+ * search over cheap state reads finds the EXACT initialization block in
+ * ~log2(span) ≈ 25 probes. The log query is then a single block — a range of
+ * one, which no provider cap can reject.
+ */
+export async function findInitializeLogByBisect(
+	probe: V4InitProbe,
+	deployBlock: bigint,
+	toBlock: bigint,
+): Promise<V4InitLog[]> {
+	// Not initialized by toBlock ⇒ the pool does not exist as of this trade.
+	if (!(await probe.isInitializedAt(toBlock))) return [];
+
+	let initBlock = deployBlock;
+	if (!(await probe.isInitializedAt(deployBlock))) {
+		// Invariant: `lo` is never initialized, `hi` always is. Converges on the
+		// smallest initialized block, which is where Initialize was emitted.
+		let lo = deployBlock;
+		let hi = toBlock;
+		while (hi - lo > 1n) {
+			const mid = lo + (hi - lo) / 2n;
+			if (await probe.isInitializedAt(mid)) hi = mid;
+			else lo = mid;
+		}
+		initBlock = hi;
+	}
+	return probe.getLogsInRange(initBlock, initBlock);
+}
+
+// The PoolManager keeps pool state in a `pools` mapping at storage slot 6, read
+// through its `extsload` escape hatch. The first word is slot0, whose low 160
+// bits are sqrtPriceX96 — non-zero exactly when the pool has been initialized.
+const V4_POOLS_MAPPING_SLOT = 6n;
+const V4_EXTSLOAD = parseAbiItem('function extsload(bytes32 slot) view returns (bytes32)');
+const SQRT_PRICE_X96_MASK = (1n << 160n) - 1n;
+
+/**
+ * Production V4 poolId → currencies reader: locates the PoolManager's indexed
+ * Initialize event and delegates decode/cache to makeV4PoolKeyReader.
+ *
+ * Finds the log by bisecting on state rather than scanning logs from the deploy
+ * block — see findInitializeLogByBisect for why the wide scan is not portable.
  */
 export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader {
 	if (!rpcUrl || rpcUrl === 'unused' || rpcUrl === 'http://invalid') return async () => null;
 	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
 	return makeV4PoolKeyReader(async (poolId: string) => {
-		const logs = await rpc.getLogs({
-			address: V4_POOL_MANAGER,
-			event: V4_INITIALIZE_EVENT,
-			args: { id: poolId as `0x${string}` },
-			fromBlock: V4_POOL_MANAGER_DEPLOY_BLOCK,
+		const slot0Key = keccak256(
+			encodeAbiParameters(
+				[{ type: 'bytes32' }, { type: 'uint256' }],
+				[poolId as `0x${string}`, V4_POOLS_MAPPING_SLOT],
+			),
+		);
+		return findInitializeLogByBisect(
+			{
+				isInitializedAt: async (blockNumber) => {
+					const slot0 = await rpc.readContract({
+						address: V4_POOL_MANAGER,
+						abi: [V4_EXTSLOAD],
+						functionName: 'extsload',
+						args: [slot0Key],
+						blockNumber,
+					});
+					return (BigInt(slot0) & SQRT_PRICE_X96_MASK) !== 0n;
+				},
+				getLogsInRange: async (fromBlock, toBlockInner) => {
+					const logs = await rpc.getLogs({
+						address: V4_POOL_MANAGER,
+						event: V4_INITIALIZE_EVENT,
+						args: { id: poolId as `0x${string}` },
+						fromBlock,
+						toBlock: toBlockInner,
+					});
+					return logs as unknown as V4InitLog[];
+				},
+			},
+			V4_POOL_MANAGER_DEPLOY_BLOCK,
 			toBlock,
-		});
-		return logs as unknown as V4InitLog[];
+		);
 	});
 }
 

@@ -20,6 +20,7 @@ Some need `packages/core/dist` — run `npx tsc --build packages/core` first.
 | `blastRadius.mjs` | no | If every fix on the worklist landed, how many bps actually move? (Answer: almost none.) |
 | `referencePoolInRoute.mjs` | **yes** | Is the Market Price ruler even measuring a pool this trade touched? |
 | `preTxRulerError.mjs` | **yes** | Is the N−1 block lag costing us anything (no), and what did the trade itself move (the free "own footprint" number)? |
+| `rpcProviderAB.mjs` | **yes** | Do two RPC providers produce identical receipts? Re-analyzes the corpus twice on the SAME code, once per provider, and diffs the full `Receipt` — not just the watched columns. Run `--control` first: it A/As one provider against itself, so anything it flags is non-determinism rather than the provider. Needs `TCA_RPC_URL_PREV`. |
 
 ## Baselines at 2026-07-30 (62 receipts with `route_legs`)
 
