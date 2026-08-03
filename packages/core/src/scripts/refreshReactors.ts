@@ -20,23 +20,41 @@ import { FILL_TOPIC0 } from '../settlementDecoders.js';
 
 const WINDOW_BLOCKS = 2_000_000n; // ~6 weeks on Base; widen if the set looks thin
 
+// QuickNode returns transient errors ("block meta not found for block #N" — the
+// block it names is unrelated to the range asked for) while its log index
+// settles. A single blip is enough to abort the whole scan, and the 10k chunking
+// below means one run now makes ~200 sequential calls rather than 4, so a run is
+// far more likely to encounter one. Retry a few times before giving up; a genuine
+// error (bad range, missing add-on) still fails after exhausting the attempts.
+const RPC_ATTEMPTS = 4;
+
 async function rpc(url: string, method: string, params: unknown[]): Promise<unknown> {
-	const res = await fetch(url, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-	});
-	const json = (await res.json()) as { result?: unknown; error?: { message: string } };
-	if (json.error) throw new Error(`${method} failed: ${json.error.message}`);
-	return json.result;
+	let lastError = '';
+	for (let attempt = 1; attempt <= RPC_ATTEMPTS; attempt++) {
+		const res = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+		});
+		const json = (await res.json()) as { result?: unknown; error?: { message: string } };
+		if (!json.error) return json.result;
+		lastError = json.error.message;
+		if (attempt < RPC_ATTEMPTS) await new Promise((r) => setTimeout(r, 500 * attempt));
+	}
+	throw new Error(`${method} failed after ${RPC_ATTEMPTS} attempts: ${lastError}`);
 }
 
-// Alchemy (our RPC provider) caps eth_getLogs responses at a 10,000-block
-// range OR 10,000 logs, whichever binds first — an unranged query over the
-// full WINDOW_BLOCKS throws "Log response size exceeded". Page the scan in
-// fixed-size chunks and concatenate; this still derives the candidate set
-// purely from live Fill logs, just paginated to respect the provider limit.
-const CHUNK_BLOCKS = 500_000n;
+// QuickNode (our RPC provider) enforces a hard 10,000-BLOCK RANGE cap on
+// eth_getLogs: a wider window returns HTTP 413 even when only a handful of logs
+// match, so this is a range limit, not a response-size limit. Page the scan in
+// fixed-size chunks and concatenate; this still derives the candidate set purely
+// from live Fill logs, just paginated to respect the provider limit.
+//
+// Do not raise this above 10_000 without re-probing. (The previous value of
+// 500_000 worked only because Alchemy capped on response SIZE instead — under
+// that provider a sparse topic like Fill could span far more blocks per call.
+// At WINDOW_BLOCKS = 2M this now costs ~200 sequential requests, not 4.)
+const CHUNK_BLOCKS = 10_000n;
 
 async function getLogsChunked(
 	rpcUrl: string,

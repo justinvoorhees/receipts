@@ -221,7 +221,7 @@ Parse the call tree for: (1) all Transfer events on USDC and WETH token contract
 
 ### 6.3 Archive Node Requirement
 
-`debug_traceTransaction` and `eth_call` at historical block heights both require an archive node. Public RPCs do not support this. Use Alchemy or QuickNode on Base with an archive-enabled endpoint. Budget ~2-3 compute units per trade for the trace call.
+`debug_traceTransaction` and `eth_call` at historical block heights both require an archive node. Public RPCs do not support this. We run QuickNode on Base with an archive-enabled endpoint plus the paid Trace Mode add-on (the trace methods are gated behind it and off by default); Alchemy's archive plan is an equivalent fallback. Budget ~2-3 compute units per trade for the trace call.
 
 ## 7. Data Storage Schema
 
@@ -295,7 +295,7 @@ CREATE TABLE p99_thresholds (
 |---|---|---|
 | Runtime | Python 3.11+ | Better for numeric/data work; cleaner for RPC client libraries |
 | RPC client | web3.py | Archive node support, `eth_call` at block height, debug namespace |
-| RPC provider | Alchemy (Base) archive plan | `debug_traceTransaction` requires archive. QuickNode is an equivalent fallback. |
+| RPC provider | QuickNode (Base) archive plan + Trace Mode | `debug_traceTransaction` requires archive, and on QuickNode the paid Trace Mode add-on. Alchemy's archive plan is an equivalent fallback. Superseded Alchemy 2026-08-03. |
 | Database | SQLite (MVP), Postgres (v2) | Zero-ops for POC. Migrate when concurrent writes or dashboard queries are needed. |
 | Scheduler | APScheduler or simple `threading.Timer` | No external queue needed at MVP throughput. |
 | Config | `.env` + JSON router registry | RPC URL, poll interval, router registry path, P99 floor, DB path |

@@ -79,7 +79,8 @@ npm run dev                   # dashboard on http://localhost:3000
 ## Gotchas
 
 - **Never run `next build` over a live dev server.** The root `npm run build` writes into the same `.next` that `next dev` owns; the app then renders unstyled and looks like a CSS bug. To compile core, use `npx tsc --build`.
-- **Archive node required.** `debug_traceTransaction` and historical `eth_call` need an Alchemy archive plan (or QuickNode equivalent). Free tiers return "Requested resource not found".
+- **Archive node + Trace Mode required.** `debug_traceTransaction` and historical `eth_call` need an archive plan. We run QuickNode, where the trace methods additionally require the paid **Trace Mode** add-on — it is off by default, and without it the decoder yields no receipts at all rather than degrading. Free tiers return "Requested resource not found".
+- **QuickNode caps `eth_getLogs` at a 10,000-block range.** Past that it returns HTTP 413 regardless of how few logs match — a range limit, not a size limit. Any new log scan must page in ≤10k chunks; see `CHUNK_BLOCKS` in `refreshReactors.ts`.
 - **Registry edits need a server restart**, not a browser refresh — configs are read from disk at module load.
 - **Persisted receipts go stale silently.** The API route never recomputes a cache hit, so a change to pricing or decomposition leaves old rows on the old logic. Run `scripts/repopulateReceipts.mjs` after any such change; never patch columns onto stale rows.
 - **RPC e2e tests skip without `TCA_RPC_URL` exported.** `source .env` alone does not export — use `set -a && source .env && set +a`. A bare `npm test` is a weaker gate than it looks.
