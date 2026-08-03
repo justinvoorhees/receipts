@@ -6,7 +6,7 @@ import {
 	numeric,
 	jsonb,
 	timestamp,
-	uniqueIndex,
+	unique,
 	serial,
 } from 'drizzle-orm/pg-core';
 
@@ -97,7 +97,14 @@ export const receipts = pgTable(
 		chainlinkStalenessSecs: numeric('chainlink_staleness_secs'),
 	},
 	(t) => ({
-		byUserTxChain: uniqueIndex('receipts_user_tx_chain_idx').on(t.userId, t.txHash, t.chainId),
+		// NULLS NOT DISTINCT is load-bearing, not decoration. Postgres treats NULLs
+		// as distinct by default, and user_id is NULL on every row until auth
+		// lands — so the plain unique index this replaces never fired at all, and
+		// duplicate (tx_hash, chain_id) rows could be inserted freely. Verified
+		// against the live DB: a duplicate insert succeeded under the old index.
+		byUserTxChain: unique('receipts_user_tx_chain_uq')
+			.on(t.userId, t.txHash, t.chainId)
+			.nullsNotDistinct(),
 	}),
 );
 

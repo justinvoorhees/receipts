@@ -81,7 +81,10 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	const textColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
 
 	return (
-		<div className="flex flex-col gap-[20px] w-full">
+		// gap-[10px]: Figma 628:234. Was 20px, which put this bar's error line at a
+		// different distance from the one on /trades — the two are the same control
+		// and must not disagree.
+		<div className="flex flex-col gap-[10px] w-full">
 			<div
 				className="relative flex h-[40px] w-full items-stretch overflow-hidden rounded-[2px] border transition-colors"
 				style={{

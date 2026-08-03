@@ -12,9 +12,10 @@
  * starts empty; add an entry only when the free API can't produce an
  * acceptable name.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { atomicWriteJson } from './atomicWrite.js';
 import type { FeeSinkOut } from './decomposeRoute.js';
 
 export interface FeeSinkNamed {
@@ -65,13 +66,16 @@ function loadCacheSeed(): Record<string, string | null> {
 	}
 }
 
-/** Best-effort write-through of the process cache. Never throws. */
+/**
+ * Best-effort write-through of the process cache. Never throws.
+ *
+ * Atomic because this fires on a user-triggered request path: a plain
+ * writeFileSync lets two concurrent resolutions interleave and corrupt the
+ * file. A failed write is fine — read-only FS (e.g. serverless) → the DB
+ * remains the durable store.
+ */
 function persistCache(): void {
-	try {
-		writeFileSync(CACHE_PATH, JSON.stringify(processCache, null, 2) + '\n');
-	} catch {
-		// Read-only FS (e.g. serverless) → the DB remains the durable store.
-	}
+	atomicWriteJson(CACHE_PATH, processCache);
 }
 
 const ETHERSCAN_V2 = 'https://api.etherscan.io/v2/api';
