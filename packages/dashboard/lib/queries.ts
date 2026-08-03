@@ -10,11 +10,29 @@ import { resolveAggregator, resolveLegRouter, type ResolvedLegRouter } from '@fa
 export type ReceiptRow = typeof schema.receipts.$inferSelect;
 export type NewReceipt = typeof schema.receipts.$inferInsert;
 
-/** All receipts, most recently created first. */
-export async function listReceipts(): Promise<ReceiptRow[]> {
+/**
+ * A page of receipts, most recently created first.
+ *
+ * Always bounded: an unlimited select pulled the whole table into memory and
+ * serialised it to the client, which is the query that gets worse the more the
+ * table is spammed. Callers pass bounds already clamped by clampPagination.
+ */
+export async function listReceipts(opts: { limit: number; offset: number }): Promise<ReceiptRow[]> {
 	const db = getDb();
-	const rows = await db.select().from(schema.receipts).orderBy(desc(schema.receipts.createdAt));
+	const rows = await db
+		.select()
+		.from(schema.receipts)
+		.orderBy(desc(schema.receipts.createdAt))
+		.limit(opts.limit)
+		.offset(opts.offset);
 	return rows.map(enrichLegRouters);
+}
+
+/** Total receipts, for rendering the pager. */
+export async function countReceipts(): Promise<number> {
+	const db = getDb();
+	const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.receipts);
+	return row?.n ?? 0;
 }
 
 /** Looks up a receipt by transaction hash, case-insensitively. Returns null if not found. */

@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import {
+	countReceipts,
 	listReceipts,
 	TRADES_SORT_COLUMNS,
 	type SortDirection,
@@ -7,6 +9,7 @@ import {
 } from '../../lib/queries';
 import { TradesTable } from '../../components/tradesTable';
 import { Divider } from '../../components/receipt/receiptRows';
+import { clampPagination } from '../../lib/pagination';
 
 export const revalidate = 30;
 
@@ -16,13 +19,15 @@ const DEFAULT_SORT: TradesSort = { column: 'block', direction: 'desc' };
 export default async function TradesPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ sort?: string; dir?: string }>;
+	searchParams: Promise<{ sort?: string; dir?: string; page?: string; size?: string }>;
 }) {
 	const sp = await searchParams;
 	const sort = parseSort(sp);
+	const { limit, offset, page } = clampPagination(sp);
 	// Receipts arrive newest-first (createdAt desc). The table applies the active
-	// column sort client-side on top of this order.
-	const rows = await listReceipts();
+	// column sort client-side on top of this page's rows.
+	const [rows, total] = await Promise.all([listReceipts({ limit, offset }), countReceipts()]);
+	const lastPage = Math.max(1, Math.ceil(total / limit));
 
 	return (
 		<div className="pb-5">
@@ -42,14 +47,20 @@ export default async function TradesPage({
 					className="flex items-center gap-[10px] font-['Sohne_Mono'] font-medium text-[12px] leading-[12px] uppercase text-[var(--color-secondary)] text-center"
 					style={{ fontFeatureSettings: '"calt" 0' }}
 				>
-					<span>{rows.length.toLocaleString()} receipts</span>
+					<span>
+						{total.toLocaleString()} receipts
+						{lastPage > 1 ? ` · page ${page} of ${lastPage.toLocaleString()}` : ''}
+					</span>
 				</div>
 			</div>
 
 			{rows.length === 0 ? (
 				<EmptyState />
 			) : (
-				<TradesTable rows={rows} initialSort={sort} />
+				<>
+					<TradesTable rows={rows} initialSort={sort} />
+					<Pager page={page} lastPage={lastPage} sp={sp} />
+				</>
 			)}
 
 			{/* Mirrors the top rule: the footer's border-t was removed in the Figma
@@ -67,6 +78,44 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 	if (!VALID_SORT_COLUMNS.has(column)) return DEFAULT_SORT;
 	const direction: SortDirection = params.dir === 'asc' ? 'asc' : 'desc';
 	return { column, direction };
+}
+
+/**
+ * Prev/next links. Rebuilds the query string from the params we recognise
+ * rather than passing the incoming one through, so an arbitrary `?foo=` cannot
+ * ride along into the rendered links.
+ */
+function Pager({
+	page,
+	lastPage,
+	sp,
+}: {
+	page: number;
+	lastPage: number;
+	sp: { sort?: string; dir?: string; size?: string };
+}) {
+	if (lastPage <= 1) return null;
+	const href = (p: number) => {
+		const q = new URLSearchParams();
+		if (sp.sort) q.set('sort', sp.sort);
+		if (sp.dir) q.set('dir', sp.dir);
+		if (sp.size) q.set('size', sp.size);
+		if (p > 1) q.set('page', String(p));
+		const s = q.toString();
+		return (s ? `/trades?${s}` : '/trades') as never;
+	};
+	const cls =
+		"font-['Sohne_Mono'] font-medium text-[12px] leading-[12px] uppercase text-[var(--color-secondary)]";
+	return (
+		<div className={`flex items-center gap-[20px] mt-[40px] ${cls}`}>
+			{page > 1 ? <Link href={href(page - 1)}>← Newer</Link> : <span className="opacity-40">← Newer</span>}
+			{page < lastPage ? (
+				<Link href={href(page + 1)}>Older →</Link>
+			) : (
+				<span className="opacity-40">Older →</span>
+			)}
+		</div>
+	);
 }
 
 function EmptyState() {

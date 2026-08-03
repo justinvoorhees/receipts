@@ -73,6 +73,11 @@ npm run dev                   # dashboard on http://localhost:3000
 |---|---|
 | `TCA_DATABASE_URL` | Postgres. Required by the dashboard and the scripts. |
 | `TCA_RPC_URL` | Base archive endpoint. Required. |
+| `APP_ACCESS_PASSWORD` | **Required.** Shared password for the access gate. Without it the app serves nothing (503). |
+| `APP_SESSION_SECRET` | **Required.** Signs the session cookie. Rotate to log every session out. `openssl rand -base64 32`. |
+| `RATE_LIMIT_ANALYSES_PER_MIN` | Optional, default 20. Fresh receipt analyses per IP — the one that guards the RPC bill (~40 calls each). |
+| `RATE_LIMIT_REQUESTS_PER_MIN` | Optional, default 120. Cheaper ceiling covering cache hits. |
+| `RATE_LIMIT_DIAGNOSIS_PER_MIN` | Optional, default 30. Covers `GET /?tx=`, which spends RPC on a cache miss. |
 | `ETHERSCAN_API_KEY` | Optional. Names verified fee-sink contracts on the receipt; without it those lines fall back to a generic label. |
 | `DUNE_API_KEY` | Currently inert — `DUNE_ETH_USD_QUERY_ID` in `duneOracle.ts` is still `0`. |
 
@@ -84,6 +89,9 @@ npm run dev                   # dashboard on http://localhost:3000
 - **Registry edits need a server restart**, not a browser refresh — configs are read from disk at module load.
 - **Persisted receipts go stale silently.** The API route never recomputes a cache hit, so a change to pricing or decomposition leaves old rows on the old logic. Run `scripts/repopulateReceipts.mjs` after any such change; never patch columns onto stale rows.
 - **RPC e2e tests skip without `TCA_RPC_URL` exported.** `source .env` alone does not export — use `set -a && source .env && set +a`. A bare `npm test` is a weaker gate than it looks.
+- **The access gate fails closed.** `middleware.ts` covers pages *and* API routes; with `APP_ACCESS_PASSWORD` or `APP_SESSION_SECRET` unset, every request returns 503. That is deliberate — a missing env var must not silently degrade into a public app. Gating only a page would leave `/api/receipts` open, which is where both the cost and the destructive `DELETE` live.
+- **⚠️ Rate-limit counters live in process memory.** Correct on a single container (Railway). On a multi-instance or serverless deploy each instance keeps its own counters, so the effective limit multiplies by the instance count and the gate quietly weakens. Swap the store in `lib/rateLimit.ts` for Redis before scaling out — the interface exists so call sites do not change.
+- **`user_id` is NULL on every row, and that used to void the unique index.** Postgres treats NULLs as distinct, so `UNIQUE(user_id, tx_hash, chain_id)` never fired. It is now `NULLS NOT DISTINCT` (migration `0001`), which means concurrent inserts of the same hash now *conflict* instead of duplicating — the API route resolves that to the winning row.
 
 ## v1 carryover
 
