@@ -16,11 +16,11 @@ describe('decideAccess — public receipt tool, private history', () => {
 		expect(decideAccess({ ...anon, pathname: '/api/receipts', method: 'POST' })).toBe('allow');
 	});
 
-	// Rendered in place, not redirected: the design calls this "/trades-auth",
-	// i.e. the logged-out STATE of /trades. The URL stays put so signing in
-	// returns you to where you were, and a bookmark still points at /trades.
-	it('shows the login screen in place for an anonymous visitor on /trades', () => {
-		expect(decideAccess({ ...anon, pathname: '/trades', method: GET })).toBe('show-login');
+	// /trades renders its OWN signed-out state, so middleware lets the request
+	// through and the page decides. There is no separate login route to rewrite
+	// to. The page must therefore gate its data fetch — see trades/page.test.tsx.
+	it('lets /trades through so the page can render its own signed-out state', () => {
+		expect(decideAccess({ ...anon, pathname: '/trades', method: GET })).toBe('allow');
 	});
 
 	it('serves /trades to a logged-in user', () => {
@@ -44,13 +44,8 @@ describe('decideAccess — public receipt tool, private history', () => {
 		expect(decideAccess({ ...anon, pathname: '/api/receipts', method })).toBe('unauthorized');
 	});
 
-	it('lets an anonymous user reach the login page and endpoint', () => {
-		expect(decideAccess({ ...anon, pathname: '/login', method: GET })).toBe('allow');
+	it('lets an anonymous user reach the login endpoint', () => {
 		expect(decideAccess({ ...anon, pathname: '/api/login', method: 'POST' })).toBe('allow');
-	});
-
-	it('sends an already-authenticated user away from the login page', () => {
-		expect(decideAccess({ ...ok, pathname: '/login', method: GET })).toBe('redirect-home');
 	});
 
 	// Fail closed applies only to what the gate actually protects. The public
@@ -69,10 +64,7 @@ describe('decideAccess — public receipt tool, private history', () => {
 		expect(decideAccess({ ...anon, pathname: '/api/receipts', method: 'DELETE' })).toBe('unauthorized');
 	});
 
-	it('refuses protected routes when the gate is unconfigured, rather than opening them', () => {
-		expect(decideAccess({ configured: false, hasValidSession: false, pathname: '/trades', method: GET })).toBe(
-			'misconfigured',
-		);
+	it('refuses protected API routes when the gate is unconfigured, rather than opening them', () => {
 		expect(
 			decideAccess({ configured: false, hasValidSession: false, pathname: '/api/receipts', method: 'DELETE' }),
 		).toBe('misconfigured');
@@ -80,18 +72,15 @@ describe('decideAccess — public receipt tool, private history', () => {
 });
 
 describe('isProtected', () => {
-	it.each(['/trades', '/trades/', '/trades/anything'])('protects %s', (p) => {
-		expect(isProtected(p, GET)).toBe(true);
-	});
-
-	it.each(['/', '/methodology', '/login'])('leaves %s public', (p) => {
+	// Pages are all served; /trades gates itself in-page.
+	it.each(['/', '/methodology', '/trades'])('leaves page %s to the page', (p) => {
 		expect(isProtected(p, GET)).toBe(false);
 	});
 
-	// A bare prefix test would let /tradesXYZ through as public — or, written the
-	// other way, would wrongly protect it. Segment boundaries are what matter.
-	it('does not treat a path that merely starts with /trades as the trades page', () => {
-		expect(isProtected('/tradesomething', GET)).toBe(false);
+	// Any API path not explicitly opened is protected, so a new endpoint is
+	// closed by default even if nobody remembers to list it.
+	it.each(['/api/anything', '/api/admin/purge'])('protects unlisted API path %s', (p) => {
+		expect(isProtected(p, GET)).toBe(true);
 	});
 
 	it('protects DELETE on the receipts API regardless of path casing of the verb', () => {

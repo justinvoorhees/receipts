@@ -1,4 +1,7 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
+import { LoginForm } from '../../components/loginForm';
+import { SESSION_COOKIE, verifySession } from '../../lib/auth';
 import {
 	countReceipts,
 	listReceipts,
@@ -22,6 +25,18 @@ export default async function TradesPage({
 	searchParams: Promise<{ sort?: string; dir?: string; page?: string; size?: string }>;
 }) {
 	const sp = await searchParams;
+
+	// This page is its own gate. Middleware protects the API but lets /trades
+	// through, because there is no separate login route to rewrite to — so the
+	// session check MUST sit in front of the queries below. Rendering the
+	// signed-out UI while still querying would show nothing, but would pull every
+	// receipt into server memory on an anonymous request.
+	const secret = process.env.APP_SESSION_SECRET;
+	const token = (await cookies()).get(SESSION_COOKIE)?.value;
+	// No secret configured ⇒ fail closed. An unset env var is not "no check needed".
+	const signedIn = Boolean(secret) && (await verifySession(token, secret!));
+	if (!signedIn) return <SignedOut />;
+
 	const sort = parseSort(sp);
 	const { limit, offset, page } = clampPagination(sp);
 	// Receipts arrive newest-first (createdAt desc). The table applies the active
@@ -78,6 +93,37 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 	if (!VALID_SORT_COLUMNS.has(column)) return DEFAULT_SORT;
 	const direction: SortDirection = params.dir === 'asc' ? 'asc' : 'desc';
 	return { column, direction };
+}
+
+/**
+ * The signed-out state of this page (Figma 625:148 "/trades-auth", 628:234 for
+ * the error). Rendered in place — the URL stays on /trades, so signing in
+ * returns you here and a bookmark still points at the right thing.
+ */
+function SignedOut() {
+	const configured = Boolean(process.env.APP_ACCESS_PASSWORD && process.env.APP_SESSION_SECRET);
+	return (
+		<div className="pb-5">
+			<div className="mt-[40px]">
+				{configured ? (
+					<LoginForm next="/trades" />
+				) : (
+					<p
+						className="font-['Sohne_Mono'] text-[12px] leading-[20px] text-[var(--color-secondary)]"
+						style={{ fontFeatureSettings: '"calt" 0' }}
+					>
+						Access gate not configured — set <code>APP_ACCESS_PASSWORD</code> and{' '}
+						<code>APP_SESSION_SECRET</code> on the server. The receipt tool is unaffected.
+					</p>
+				)}
+			</div>
+			{/* Mirrors the rule the signed-in view renders above the footer, so the
+			    page keeps the same bottom edge in both states. */}
+			<div className="mt-[40px]">
+				<Divider />
+			</div>
+		</div>
+	);
 }
 
 /**

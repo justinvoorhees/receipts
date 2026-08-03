@@ -13,17 +13,20 @@
 
 export type AccessOutcome =
 	| 'allow'
-	| 'show-login'
-	| 'redirect-home'
 	| 'unauthorized'
 	| 'misconfigured';
 
 /**
- * Page prefixes behind the password. Matched on segment boundaries, so
- * `/trades` and `/trades/x` are covered while `/tradesomething` is not
- * silently swept in.
+ * Page prefixes middleware refuses outright.
+ *
+ * Empty on purpose: middleware cannot render, only rewrite, and there is no
+ * login route to rewrite to — so /trades renders its OWN signed-out state and
+ * gates its data fetch in the page (see app/trades/page.tsx). This hook stays
+ * for a page that should be refused rather than shown a signed-out view.
+ * Matched on segment boundaries, so `/x` and `/x/y` are covered while `/xy` is
+ * not silently swept in.
  */
-const PROTECTED_PAGE_PREFIXES = ['/trades'];
+const PROTECTED_PAGE_PREFIXES: string[] = [];
 
 /**
  * Methods allowed WITHOUT a session, per API path. Anything not listed is
@@ -54,10 +57,6 @@ export function decideAccess(input: {
 }): AccessOutcome {
 	const { pathname, method, configured, hasValidSession } = input;
 
-	if (pathname === '/login') {
-		return configured && hasValidSession ? 'redirect-home' : 'allow';
-	}
-
 	// Public surface is served regardless of gate configuration: a missing
 	// password env var must not take down the receipt tool itself, only close
 	// what the password was protecting.
@@ -67,8 +66,5 @@ export function decideAccess(input: {
 	if (!configured) return 'misconfigured';
 	if (hasValidSession) return 'allow';
 
-	// API paths get a status code. A page gets the login screen rendered IN PLACE
-	// (middleware rewrites, keeping the URL) — handing an API client HTML with a
-	// 200 attached would read as success to a naive script.
-	return pathname.startsWith('/api/') ? 'unauthorized' : 'show-login';
+	return 'unauthorized';
 }
