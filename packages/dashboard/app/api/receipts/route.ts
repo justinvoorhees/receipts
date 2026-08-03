@@ -41,6 +41,24 @@ const analysisLimiter = createRateLimiter(createMemoryStore(), {
 	windowMs: 60_000,
 });
 
+/**
+ * Circuit breaker on total spend, counted across every client.
+ *
+ * POST /api/receipts is public, so per-IP limits alone do not bound the bill —
+ * a flood just uses more IPs, and each new one arrives with a full budget. This
+ * is the only ceiling a distributed source cannot walk around. It is blunt on
+ * purpose: when it trips, receipt generation pauses for everyone rather than
+ * quietly running up an RPC invoice.
+ *
+ * Sized in analyses/hour: at ~40 RPC calls each, the default caps a worst-case
+ * hour at roughly 20k calls.
+ */
+const globalAnalysisLimiter = createRateLimiter(createMemoryStore(), {
+	limit: envInt('RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR', 500),
+	windowMs: 60 * 60 * 1000,
+});
+const GLOBAL_KEY = 'global';
+
 function tooMany(retryAfterSecs: number): Response {
 	return NextResponse.json(
 		{ error: 'Rate limit exceeded. Please slow down.' },
@@ -156,9 +174,17 @@ export async function POST(req: Request): Promise<Response> {
 	}
 
 	// Only a cache MISS reaches the expensive tier, so honest re-views of an
-	// already-analyzed trade never consume this budget.
+	// already-analyzed trade never consume either budget.
 	const analysis = await analysisLimiter(client);
 	if (!analysis.allowed) return tooMany(analysis.retryAfterSecs);
+
+	// Per-IP last, global check second-to-last: both are cheap, but the global
+	// one is what holds when the caller can supply unlimited source addresses.
+	const globalBudget = await globalAnalysisLimiter(GLOBAL_KEY);
+	if (!globalBudget.allowed) {
+		console.warn('[api/receipts] global analysis ceiling reached — pausing new analyses');
+		return tooMany(globalBudget.retryAfterSecs);
+	}
 
 	const receipt = await analyzeTransaction(hash, chainId, { rpcUrl });
 	if (!receipt) {

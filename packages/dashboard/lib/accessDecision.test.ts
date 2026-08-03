@@ -1,76 +1,96 @@
 import { describe, it, expect } from 'vitest';
-import { decideAccess, isPublicPath } from './accessDecision';
+import { decideAccess, isProtected } from './accessDecision';
 
 const ok = { configured: true, hasValidSession: true };
 const anon = { configured: true, hasValidSession: false };
+const GET = 'GET';
 
-describe('decideAccess', () => {
-	it('allows a page request that carries a valid session', () => {
-		expect(decideAccess({ ...ok, pathname: '/trades' })).toBe('allow');
+describe('decideAccess — public receipt tool, private history', () => {
+	// The product is a paste-a-hash tool. The index and the receipt API are meant
+	// to be usable by anyone; only the shared history is private.
+	it.each(['/', '/methodology'])('serves %s to an anonymous visitor', (pathname) => {
+		expect(decideAccess({ ...anon, pathname, method: GET })).toBe('allow');
 	});
 
-	it('sends an anonymous page request to the login screen', () => {
-		expect(decideAccess({ ...anon, pathname: '/trades' })).toBe('redirect-login');
+	it('lets an anonymous visitor generate a receipt', () => {
+		expect(decideAccess({ ...anon, pathname: '/api/receipts', method: 'POST' })).toBe('allow');
 	});
 
-	// A redirect to an HTML page is useless to an API client and, worse, a 30x
-	// looks like success to a naive script. API paths must get a hard 401.
-	it('returns 401 rather than a redirect for an anonymous API request', () => {
-		expect(decideAccess({ ...anon, pathname: '/api/receipts' })).toBe('unauthorized');
+	it('sends an anonymous visitor on /trades to the login screen', () => {
+		expect(decideAccess({ ...anon, pathname: '/trades', method: GET })).toBe('redirect-login');
 	});
 
-	it('allows an API request that carries a valid session', () => {
-		expect(decideAccess({ ...ok, pathname: '/api/receipts' })).toBe('allow');
+	it('serves /trades to a logged-in user', () => {
+		expect(decideAccess({ ...ok, pathname: '/trades', method: GET })).toBe('allow');
 	});
 
-	// The gate must fail CLOSED. A missing password env var in production is
-	// exactly the misconfiguration that would otherwise expose everything.
-	it('refuses every request when the gate is not configured', () => {
-		expect(decideAccess({ configured: false, hasValidSession: true, pathname: '/trades' })).toBe('misconfigured');
-		expect(decideAccess({ configured: false, hasValidSession: false, pathname: '/api/receipts' })).toBe('misconfigured');
+	// DELETE stays closed even though its path is otherwise public. It is the one
+	// destructive endpoint, it takes no ownership check, and an unauthenticated
+	// loop over ids previously emptied the table.
+	it('refuses an anonymous DELETE on the otherwise-public receipts path', () => {
+		expect(decideAccess({ ...anon, pathname: '/api/receipts', method: 'DELETE' })).toBe('unauthorized');
 	});
 
-	it('lets an anonymous user reach the login page, or it could never log in', () => {
-		expect(decideAccess({ ...anon, pathname: '/login' })).toBe('allow');
+	it('allows DELETE for a logged-in user', () => {
+		expect(decideAccess({ ...ok, pathname: '/api/receipts', method: 'DELETE' })).toBe('allow');
 	});
 
-	// Still true when unconfigured: otherwise the operator sees a blank refusal
-	// with no hint of what is wrong. The login POST itself rejects on no password.
-	it('lets the login page render even when the gate is unconfigured', () => {
-		expect(decideAccess({ configured: false, hasValidSession: false, pathname: '/login' })).toBe('allow');
+	// Anything not explicitly allowed on a public API path is refused, so a new
+	// verb (PUT, PATCH) cannot become publicly reachable by being forgotten.
+	it.each(['PUT', 'PATCH'])('refuses an anonymous %s on the receipts path', (method) => {
+		expect(decideAccess({ ...anon, pathname: '/api/receipts', method })).toBe('unauthorized');
+	});
+
+	it('lets an anonymous user reach the login page and endpoint', () => {
+		expect(decideAccess({ ...anon, pathname: '/login', method: GET })).toBe('allow');
+		expect(decideAccess({ ...anon, pathname: '/api/login', method: 'POST' })).toBe('allow');
 	});
 
 	it('sends an already-authenticated user away from the login page', () => {
-		expect(decideAccess({ ...ok, pathname: '/login' })).toBe('redirect-home');
+		expect(decideAccess({ ...ok, pathname: '/login', method: GET })).toBe('redirect-home');
 	});
 
-	// The endpoint that ACCEPTS the password must be reachable without a session,
-	// or logging in is impossible. It is the one API path that is public — and so
-	// the one that needs its own brute-force limit (see route).
-	it('allows the login endpoint without a session', () => {
-		expect(decideAccess({ ...anon, pathname: '/api/login' })).toBe('allow');
+	// Fail closed applies only to what the gate actually protects. The public
+	// receipt tool must keep working even if the password is not configured —
+	// otherwise a missing env var takes down the whole product, not just history.
+	it('still serves the public tool when the gate is unconfigured', () => {
+		expect(decideAccess({ configured: false, hasValidSession: false, pathname: '/', method: GET })).toBe('allow');
+		expect(
+			decideAccess({ configured: false, hasValidSession: false, pathname: '/api/receipts', method: 'POST' }),
+		).toBe('allow');
 	});
 
-	it('still allows the login endpoint when unconfigured, so it can report why', () => {
-		expect(decideAccess({ configured: false, hasValidSession: false, pathname: '/api/login' })).toBe('allow');
+	it('refuses protected routes when the gate is unconfigured, rather than opening them', () => {
+		expect(decideAccess({ configured: false, hasValidSession: false, pathname: '/trades', method: GET })).toBe(
+			'misconfigured',
+		);
+		expect(
+			decideAccess({ configured: false, hasValidSession: false, pathname: '/api/receipts', method: 'DELETE' }),
+		).toBe('misconfigured');
 	});
 });
 
-describe('isPublicPath', () => {
-	it.each(['/login', '/api/login', '/_next/static/chunk.js', '/_next/image', '/favicon.ico'])(
-		'treats %s as public',
-		(p) => expect(isPublicPath(p)).toBe(true),
-	);
+describe('isProtected', () => {
+	it.each(['/trades', '/trades/', '/trades/anything'])('protects %s', (p) => {
+		expect(isProtected(p, GET)).toBe(true);
+	});
 
-	it.each(['/', '/trades', '/methodology', '/api/receipts'])(
-		'treats %s as protected',
-		(p) => expect(isPublicPath(p)).toBe(false),
-	);
+	it.each(['/', '/methodology', '/login'])('leaves %s public', (p) => {
+		expect(isProtected(p, GET)).toBe(false);
+	});
 
-	// A prefix check written as `startsWith('/login')` would also open
-	// /loginhack; and one written loosely on /_next would open /_nextdoor.
-	it('does not open paths that merely start with a public prefix', () => {
-		expect(isPublicPath('/loginhack')).toBe(false);
-		expect(isPublicPath('/_nextdoor')).toBe(false);
+	// A bare prefix test would let /tradesXYZ through as public — or, written the
+	// other way, would wrongly protect it. Segment boundaries are what matter.
+	it('does not treat a path that merely starts with /trades as the trades page', () => {
+		expect(isProtected('/tradesomething', GET)).toBe(false);
+	});
+
+	it('protects DELETE on the receipts API regardless of path casing of the verb', () => {
+		expect(isProtected('/api/receipts', 'DELETE')).toBe(true);
+		expect(isProtected('/api/receipts', 'delete')).toBe(true);
+	});
+
+	it('leaves POST on the receipts API public', () => {
+		expect(isProtected('/api/receipts', 'POST')).toBe(false);
 	});
 });

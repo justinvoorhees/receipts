@@ -3,12 +3,15 @@ import { SESSION_COOKIE, verifySession } from './lib/auth';
 import { decideAccess } from './lib/accessDecision';
 
 /**
- * Access gate for the whole app.
+ * Access gate.
  *
- * This sits in middleware rather than on individual pages on purpose. Gating
- * only /trades would leave /api/receipts open — and the API is where both the
- * cost (a receipt analysis is ~40 RPC calls) and the destructive operation
- * (DELETE) live. The boundary has to cover pages and API together.
+ * The receipt tool is public by design — anyone can paste a hash on the index
+ * and get a receipt. The password protects /trades (the shared history of what
+ * everyone has analyzed) and DELETE (the one destructive endpoint).
+ *
+ * Because POST /api/receipts is public, RATE LIMITING is the only thing standing
+ * between an anonymous visitor and the RPC bill — see lib/rateLimit and the
+ * per-IP plus global ceilings in the receipts route.
  *
  * Policy lives in lib/accessDecision so it can be unit-tested; this file only
  * maps outcomes onto responses.
@@ -22,7 +25,7 @@ export async function middleware(req: NextRequest) {
 	const hasValidSession = configured ? await verifySession(token, secret!) : false;
 
 	const { pathname } = req.nextUrl;
-	switch (decideAccess({ pathname, configured, hasValidSession })) {
+	switch (decideAccess({ pathname, method: req.method, configured, hasValidSession })) {
 		case 'allow':
 			return NextResponse.next();
 
