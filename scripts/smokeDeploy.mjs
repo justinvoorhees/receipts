@@ -59,10 +59,26 @@ check('  …without leaking history', !trades.body.includes('>History<'));
 check('  …and shows the password bar', trades.body.includes('type="password"'),
 	trades.body.includes('not configured') ? 'GATE NOT CONFIGURED — set APP_ACCESS_PASSWORD + APP_SESSION_SECRET' : '');
 check('  …with no transaction hashes in the HTML', !/0x[a-f0-9]{64}/.test(trades.body));
-check('DELETE /api/receipts is refused', (await req('/api/receipts?id=1', { method: 'DELETE' })).status === 401);
-check('PUT /api/receipts is refused', (await req('/api/receipts', { method: 'PUT' })).status === 401);
-check('GET /api/receipts is refused', (await req('/api/receipts')).status === 401);
-check('/login no longer exists', (await req('/login')).status === 404);
+// 401 = gate working. 503 = gate not configured on the server — still REFUSED,
+// so nothing is exposed, but it means the APP_ env vars are not reaching the
+// process. Report the actual status either way; a bare "FAIL" sends you looking
+// for a security hole when the answer is a missing variable.
+for (const [label, path, init] of [
+	['DELETE /api/receipts', '/api/receipts?id=1', { method: 'DELETE' }],
+	['PUT /api/receipts', '/api/receipts', { method: 'PUT' }],
+	['GET /api/receipts', '/api/receipts', {}],
+]) {
+	const r = await req(path, init);
+	check(
+		`${label} is refused`,
+		r.status === 401,
+		r.status === 503
+			? 'got 503 — REFUSED, but the gate is unconfigured (APP_ env vars not reaching the server)'
+			: `got ${r.status}${r.status === 200 ? ' — THIS IS A HOLE' : ''}`,
+	);
+}
+const login404 = await req('/login');
+check('/login no longer exists', login404.status === 404, `got ${login404.status}`);
 
 console.log('\nconfiguration:');
 const badLogin = await req('/api/login', {
@@ -81,6 +97,22 @@ console.log(`\n${results.length - failed.length}/${results.length} passed.`);
 if (failed.length) {
 	console.log('Failures:');
 	for (const f of failed) console.log(`  - ${f.name}${f.detail ? `: ${f.detail}` : ''}`);
+
+	// Distinguish "not configured" from "insecure" in the summary, because they
+	// look identical in a list of FAILs and demand completely different responses.
+	const unconfigured = failed.some((f) => /503|NOT CONFIGURED/i.test(f.detail ?? ''));
+	const hole = failed.some((f) => /THIS IS A HOLE/.test(f.detail ?? ''));
+	if (hole) {
+		console.log('\n⚠️  A protected route answered 200. Treat as an exposure.');
+	} else if (unconfigured) {
+		console.log(
+			'\nDiagnosis: the app is REFUSING correctly — nothing is exposed. The APP_ env\n' +
+				'vars are not reaching the running process. On Railway, check that they are set\n' +
+				'on the SERVICE (project-level "shared" variables are not inherited unless the\n' +
+				'service references them), in the environment that is actually deployed, and\n' +
+				'that a redeploy has happened since they were added.',
+		);
+	}
 }
 console.log();
 process.exit(failed.length ? 1 : 0);
