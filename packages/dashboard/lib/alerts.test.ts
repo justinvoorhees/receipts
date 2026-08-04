@@ -87,6 +87,29 @@ describe('createNotifier', () => {
 		await notify('receipt_created', 'two');
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
 	});
+
+	// A transient outage must not blank the next genuine incident of the same kind.
+	it('does not consume the debounce window when the send fails', async () => {
+		const clock = fakeClock();
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+		const notify = createNotifier({
+			webhookUrl: 'https://hook.test/x', fetchImpl, now: clock.now, debounceMs: 60_000, log: () => {},
+		});
+		await notify('ceiling_reached', 'first');
+		clock.advance(1_000);
+		await notify('ceiling_reached', 'second');
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not reject when the injected logger throws', async () => {
+		const log = vi.fn(() => { throw new Error('logger exploded'); });
+		const notify = createNotifier({ log });
+		await expect(notify('ceiling_reached', 'no url configured')).resolves.toBeUndefined();
+		expect(log).toHaveBeenCalled();
+	});
 });
 
 describe('message formatting', () => {

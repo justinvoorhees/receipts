@@ -42,6 +42,16 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 		log = (m: string) => console.warn(m),
 	} = opts;
 
+	// `log` is caller-supplied, so it can throw. Nothing in this module may reject:
+	// a broken logger must not turn a 429 into a 500.
+	const safeLog = (message: string) => {
+		try {
+			log(message);
+		} catch {
+			/* deliberately swallowed — see above */
+		}
+	};
+
 	// Per-kind, so a ceiling alert never suppresses a budget warning. Held in
 	// the closure, so the notifier must be created ONCE at module scope — a
 	// per-request notifier would have nothing to debounce against.
@@ -52,10 +62,11 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 			const previous = lastSent.get(kind);
 			if (previous != null && now() - previous < debounceMs) return;
 		}
+		const previousSent = lastSent.get(kind);
 		lastSent.set(kind, now());
 
 		if (!webhookUrl) {
-			log(`[notify:${kind}] ${text}`);
+			safeLog(`[notify:${kind}] ${text}`);
 			return;
 		}
 
@@ -69,7 +80,14 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 				signal: AbortSignal.timeout(TIMEOUT_MS),
 			});
 		} catch (err) {
-			log(`[notify:${kind}] webhook failed: ${err instanceof Error ? err.message : String(err)}`);
+			// A failed send must not consume the debounce window: a transient outage
+			// during the first incident would otherwise blank alerting until the window
+			// elapsed, even after the endpoint recovered. Restore the prior timestamp so
+			// the next occurrence may try again.
+			if (previousSent == null) lastSent.delete(kind);
+			else lastSent.set(kind, previousSent);
+
+			safeLog(`[notify:${kind}] webhook failed: ${err instanceof Error ? err.message : String(err)}`);
 		}
 	};
 }
