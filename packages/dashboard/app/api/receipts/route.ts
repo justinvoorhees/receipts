@@ -9,6 +9,13 @@ import {
 } from '../../../lib/queries.js';
 import { clientKeyFromHeaders, createMemoryStore, createRateLimiter } from '../../../lib/rateLimit';
 import { SESSION_COOKIE, verifySession } from '../../../lib/auth';
+import {
+	baseUrlFrom,
+	budgetWarningMessage,
+	ceilingReachedMessage,
+	createNotifier,
+	receiptCreatedMessage,
+} from '../../../lib/alerts.js';
 
 // core uses viem + fs (config load in tagging.ts) — must run on Node, not edge.
 export const runtime = 'nodejs';
@@ -53,11 +60,36 @@ const analysisLimiter = createRateLimiter(createMemoryStore(), {
  * Sized in analyses/hour: at ~40 RPC calls each, the default caps a worst-case
  * hour at roughly 20k calls.
  */
+const GLOBAL_ANALYSES_PER_HOUR = envInt('RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR', 500);
 const globalAnalysisLimiter = createRateLimiter(createMemoryStore(), {
-	limit: envInt('RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR', 500),
+	limit: GLOBAL_ANALYSES_PER_HOUR,
 	windowMs: 60 * 60 * 1000,
 });
 const GLOBAL_KEY = 'global';
+
+/** Warn with a fifth of the hourly budget left. Once the ceiling trips the tool is already down, so the warning is the only actionable signal. */
+const BUDGET_WARNING_FRACTION = 0.2;
+
+/**
+ * Debounced to one message per kind per window: without it, a sustained flood
+ * sends a webhook per rejected request and the alert becomes its own outage.
+ * Created once at module scope so that state survives across requests.
+ */
+const alertNotify = createNotifier({
+	webhookUrl: process.env.ALERT_WEBHOOK_URL,
+	debounceMs: 60 * 60 * 1000,
+});
+
+/**
+ * Deliberately NOT debounced — a launch-day burst of real receipts should all
+ * be reported. Volume needs no separate cap because the global ceiling above
+ * already bounds it (~8/min at the default), comfortably inside Slack's
+ * incoming-webhook throughput.
+ *
+ * Its own URL, independent of ALERT_WEBHOOK_URL: sharing a channel would bury
+ * a ceiling warning under activity during a flood.
+ */
+const activityNotify = createNotifier({ webhookUrl: process.env.ACTIVITY_WEBHOOK_URL });
 
 function tooMany(retryAfterSecs: number): Response {
 	return NextResponse.json(
@@ -183,7 +215,17 @@ export async function POST(req: Request): Promise<Response> {
 	const globalBudget = await globalAnalysisLimiter(GLOBAL_KEY);
 	if (!globalBudget.allowed) {
 		console.warn('[api/receipts] global analysis ceiling reached — pausing new analyses');
+		void alertNotify(
+			'ceiling_reached',
+			ceilingReachedMessage(GLOBAL_ANALYSES_PER_HOUR, globalBudget.retryAfterSecs),
+		);
 		return tooMany(globalBudget.retryAfterSecs);
+	}
+	if (globalBudget.remaining <= GLOBAL_ANALYSES_PER_HOUR * BUDGET_WARNING_FRACTION) {
+		void alertNotify(
+			'budget_warning',
+			budgetWarningMessage(GLOBAL_ANALYSES_PER_HOUR, globalBudget.remaining),
+		);
 	}
 
 	const receipt = await analyzeTransaction(hash, chainId, { rpcUrl });
@@ -204,6 +246,9 @@ export async function POST(req: Request): Promise<Response> {
 	// genuine failure and must surface.
 	try {
 		const inserted = await insertReceipt(await toNewReceipt(receipt));
+		// Only here. A cache hit is a VIEW, not a generation, and the conflict
+		// path below belongs to a request whose twin already notified.
+		void activityNotify('receipt_created', receiptCreatedMessage(inserted, baseUrlFrom(req)));
 		return NextResponse.json(enrichLegRouters(inserted), { status: 200 });
 	} catch (err) {
 		const winner = await getReceiptByHash(hash);
