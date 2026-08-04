@@ -5,6 +5,7 @@
 import { config as loadEnv } from 'dotenv';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { securityHeaders } from './lib/securityHeaders.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 loadEnv({ path: resolve(here, '..', '..', '.env') });
@@ -21,6 +22,9 @@ const config = {
 	// Next.js 15.5.x has a devtools bug where segment-explorer-node.js#SegmentViewNode
 	// is not found in the React Client Manifest, crashing the webpack module system.
 	devIndicators: false,
+	async headers() {
+		return [{ source: '/:path*', headers: securityHeaders(process.env.NODE_ENV === 'production') }];
+	},
 	// @fabric-tca/core is consumed as TypeScript source (see transpilePackages) and
 	// uses ESM `.js` import specifiers that actually resolve to `.ts` files (e.g.
 	// `./analyzeTransaction.js` → `analyzeTransaction.ts`). Webpack does not do this
