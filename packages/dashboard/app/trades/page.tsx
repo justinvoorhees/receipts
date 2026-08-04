@@ -110,7 +110,9 @@ function parseSort(params: { sort?: string; dir?: string }): TradesSort {
 function SignedOut() {
 	const configured = Boolean(process.env.APP_ACCESS_PASSWORD && process.env.APP_SESSION_SECRET);
 	return (
-		<div className="pb-5">
+		// No `pb-5` (10px) here, unlike the signed-in view: the footer's own
+		// mt-[40px] is the whole gap below this page's closing rule.
+		<div>
 			<div className="mt-[40px]">
 				{configured ? (
 					<LoginForm next="/trades" />

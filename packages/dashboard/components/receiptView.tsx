@@ -266,7 +266,7 @@ export function Receipt({
 				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
 				style={{ fontFeatureSettings: '"calt" 0' }}
 			>
-				Cost Breakdown
+				Transaction Cost
 			</h2>
 
 			{/* Cost breakdown */}

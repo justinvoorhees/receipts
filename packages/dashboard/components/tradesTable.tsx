@@ -165,7 +165,7 @@ function HeaderRow({
 	return (
 		<tr className="text-[var(--color-secondary)] uppercase font-medium">
 			<th className={TH_FIRST}>
-				<SortHeader col="aggregator" sort={sort} onSort={onSort} align="left">Aggregator</SortHeader>
+				<SortHeader col="aggregator" sort={sort} onSort={onSort} align="left">Provider</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="id" sort={sort} onSort={onSort}>ID</SortHeader>
@@ -177,25 +177,25 @@ function HeaderRow({
 				<SortHeader col="size" sort={sort} onSort={onSort}>Size</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="aggFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-agg-fee', text: 'Fees paid to aggregators' }}>Agg. Fee</SortHeader>
+				<SortHeader col="aggFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-agg-fee', text: 'Fees paid to third-party providers' }}>T.P. Fee</SortHeader>
 			</th>
 			<th className={TH}>
 				<SortHeader col="lpFee" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-lp-fee', text: 'Fees paid to liquidity providers' }}>L.P. Fee</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: 'Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee' }}>P. IMPACT</SortHeader>
+				<SortHeader col="impact" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-impact', text: 'Per-venue delta between execution price and the prior-block mid, excluding T.P. Fee and L.P. Fee' }}>P. IMPACT</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual cost after L.P. Fee, Agg. Fee, and P. Impact' }}>Slippage</SortHeader>
+				<SortHeader col="slippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-slippage', text: 'Residual cost after T.P. Fee, L.P. Fee, and P. Impact' }}>Slippage</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="posSlippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-pos-slippage', text: 'Residual benefit after L.P. Fee, Agg. Fee, and P. Impact' }}>Pos. Slippage</SortHeader>
+				<SortHeader col="posSlippage" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-pos-slippage', text: 'Residual benefit after T.P. Fee, L.P. Fee, and P. Impact' }}>Pos. Slippage</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="unattributed" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-unattributed', text: 'Residual cost or benefit that could not be completely attributed, because some legs of this route were not priced' }}>Unattributed</SortHeader>
+				<SortHeader col="unattributed" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-unattributed', text: 'Residual cost or benefit that could not be completely attributed to T.P. Fee, L.P. Fee, or P. Impact' }}>Unattributed</SortHeader>
 			</th>
 			<th className={TH}>
-				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage (or Unattributed)' }}>EX. QUALITY</SortHeader>
+				<SortHeader col="accuracy" sort={sort} onSort={onSort} tooltip={{ id: 'tooltip-accuracy', text: 'Delta between execution price and market price; the sum of T.P. Fee, L.P. Fee, P. Impact, and Slippage (or Unattributed)' }}>Ex. Delta</SortHeader>
 			</th>
 		</tr>
 	);

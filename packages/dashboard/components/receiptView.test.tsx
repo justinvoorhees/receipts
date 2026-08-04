@@ -1433,10 +1433,10 @@ describe('receipt dividers', () => {
 		expect(html).not.toContain('repeating-linear-gradient');
 	});
 
-	it('renders a primary rule immediately above the Cost Breakdown heading', async () => {
+	it('renders a primary rule immediately above the Transaction Cost heading', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
-		const heading = html.indexOf('>Cost Breakdown<');
+		const heading = html.indexOf('>Transaction Cost<');
 		const rule = html.lastIndexOf('h-px w-full shrink-0 bg-[var(--color-primary)]', heading);
 		expect(heading).toBeGreaterThan(-1);
 		expect(rule).toBeGreaterThan(-1);

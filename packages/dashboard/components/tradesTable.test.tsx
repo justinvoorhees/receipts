@@ -389,11 +389,22 @@ describe('TradesTable', () => {
 			/>,
 		);
 
-		expect(html).toContain('Delta between execution price and market price; the sum of L.P. Fee, Agg. Fee, P. Impact, and Slippage (or Unattributed)');
+		// Verbatim from Figma 288:4284 "/trades-tooltips". All six strings are
+		// pinned, including Pos. Slippage — it shares "Residual …fter T.P. Fee,
+		// L.P. Fee, and P. Impact" with Slippage, so asserting only one of the
+		// pair passes even if the other still carries the pre-rename copy.
+		expect(html).toContain('Delta between execution price and market price; the sum of T.P. Fee, L.P. Fee, P. Impact, and Slippage (or Unattributed)');
 		expect(html).toContain('Fees paid to liquidity providers');
-		expect(html).toContain('Fees paid to aggregators');
-		expect(html).toContain('Per-venue delta between execution price and the prior-block mid, excluding L.P. Fee');
-		expect(html).toContain('Residual cost after L.P. Fee, Agg. Fee, and P. Impact');
+		expect(html).toContain('Fees paid to third-party providers');
+		expect(html).toContain('Per-venue delta between execution price and the prior-block mid, excluding T.P. Fee and L.P. Fee');
+		expect(html).toContain('Residual cost after T.P. Fee, L.P. Fee, and P. Impact');
+		expect(html).toContain('Residual benefit after T.P. Fee, L.P. Fee, and P. Impact');
+		// Not in the Figma frame — its copy names the same three cost buckets the
+		// residual strings do, so it belongs to this set even though it was
+		// specified separately.
+		expect(html).toContain('Residual cost or benefit that could not be completely attributed to T.P. Fee, L.P. Fee, or P. Impact');
+		// No column may still be describing itself in the pre-rename vocabulary.
+		expect(html).not.toContain('Agg. Fee');
 		expect(html).toContain('role="tooltip"');
 	});
 
@@ -771,9 +782,9 @@ describe('TradesTable slippage columns', () => {
 				initialSort={{ column: 'block', direction: 'desc' }}
 			/>,
 		);
-		// Position matters: the ID header must sit between Aggregator and Pair.
+		// Position matters: the ID header must sit between Provider and Pair.
 		const head = html.slice(html.indexOf('<thead'), html.indexOf('</thead>'));
-		expect(head.indexOf('>Aggregator')).toBeLessThan(head.indexOf('>ID'));
+		expect(head.indexOf('>Provider')).toBeLessThan(head.indexOf('>ID'));
 		expect(head.indexOf('>ID')).toBeLessThan(head.indexOf('>Pair'));
 
 		// And the cell carries the receipt's own id, right-aligned.
@@ -783,7 +794,7 @@ describe('TradesTable slippage columns', () => {
 		expect(cells[1]).toContain('text-right');
 	});
 
-	it('orders the fee columns Agg. Fee before L.P. Fee', async () => {
+	it('orders the fee columns T.P. Fee before L.P. Fee', async () => {
 		const { TradesTable } = await import('./tradesTable');
 		const html = renderToStaticMarkup(
 			<TradesTable
@@ -792,8 +803,8 @@ describe('TradesTable slippage columns', () => {
 			/>,
 		);
 		const head = html.slice(html.indexOf('<thead'), html.indexOf('</thead>'));
-		expect(head.indexOf('>Size')).toBeLessThan(head.indexOf('>Agg. Fee'));
-		expect(head.indexOf('>Agg. Fee')).toBeLessThan(head.indexOf('>L.P. Fee'));
+		expect(head.indexOf('>Size')).toBeLessThan(head.indexOf('>T.P. Fee'));
+		expect(head.indexOf('>T.P. Fee')).toBeLessThan(head.indexOf('>L.P. Fee'));
 		expect(head.indexOf('>L.P. Fee')).toBeLessThan(head.indexOf('>P. IMPACT'));
 
 		// And the cells follow the headers — distinct values so a swap is visible.
