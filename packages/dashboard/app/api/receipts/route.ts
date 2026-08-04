@@ -9,6 +9,11 @@ import {
 } from '../../../lib/queries.js';
 import { clientKeyFromHeaders, createMemoryStore, createRateLimiter } from '../../../lib/rateLimit';
 import { SESSION_COOKIE, verifySession } from '../../../lib/auth';
+import {
+	budgetWarningMessage,
+	ceilingReachedMessage,
+	createNotifier,
+} from '../../../lib/alerts.js';
 
 // core uses viem + fs (config load in tagging.ts) — must run on Node, not edge.
 export const runtime = 'nodejs';
@@ -53,11 +58,25 @@ const analysisLimiter = createRateLimiter(createMemoryStore(), {
  * Sized in analyses/hour: at ~40 RPC calls each, the default caps a worst-case
  * hour at roughly 20k calls.
  */
+const GLOBAL_ANALYSES_PER_HOUR = envInt('RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR', 500);
 const globalAnalysisLimiter = createRateLimiter(createMemoryStore(), {
-	limit: envInt('RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR', 500),
+	limit: GLOBAL_ANALYSES_PER_HOUR,
 	windowMs: 60 * 60 * 1000,
 });
 const GLOBAL_KEY = 'global';
+
+/** Warn with a fifth of the hourly budget left. Once the ceiling trips the tool is already down, so the warning is the only actionable signal. */
+const BUDGET_WARNING_FRACTION = 0.2;
+
+/**
+ * Debounced to one message per kind per window: without it, a sustained flood
+ * sends a webhook per rejected request and the alert becomes its own outage.
+ * Created once at module scope so that state survives across requests.
+ */
+const alertNotify = createNotifier({
+	webhookUrl: process.env.ALERT_WEBHOOK_URL,
+	debounceMs: 60 * 60 * 1000,
+});
 
 function tooMany(retryAfterSecs: number): Response {
 	return NextResponse.json(
@@ -183,7 +202,17 @@ export async function POST(req: Request): Promise<Response> {
 	const globalBudget = await globalAnalysisLimiter(GLOBAL_KEY);
 	if (!globalBudget.allowed) {
 		console.warn('[api/receipts] global analysis ceiling reached — pausing new analyses');
+		void alertNotify(
+			'ceiling_reached',
+			ceilingReachedMessage(GLOBAL_ANALYSES_PER_HOUR, globalBudget.retryAfterSecs),
+		);
 		return tooMany(globalBudget.retryAfterSecs);
+	}
+	if (globalBudget.remaining <= GLOBAL_ANALYSES_PER_HOUR * BUDGET_WARNING_FRACTION) {
+		void alertNotify(
+			'budget_warning',
+			budgetWarningMessage(GLOBAL_ANALYSES_PER_HOUR, globalBudget.remaining),
+		);
 	}
 
 	const receipt = await analyzeTransaction(hash, chainId, { rpcUrl });
