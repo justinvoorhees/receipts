@@ -8,7 +8,9 @@ import {
 	timestamp,
 	unique,
 	serial,
+	index,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 /**
  * On-demand cost receipts. One row per computed cost-receipt for an
@@ -105,6 +107,13 @@ export const receipts = pgTable(
 		byUserTxChain: unique('receipts_user_tx_chain_uq')
 			.on(t.userId, t.txHash, t.chainId)
 			.nullsNotDistinct(),
+
+		// getReceiptByHash matches on `lower(tx_hash)` so a pasted hash resolves
+		// regardless of case. A plain B-tree on tx_hash cannot serve a query that
+		// wraps the column in a function, so without THIS index every lookup is a
+		// sequential scan — verified against the live DB. Invisible at 67 rows,
+		// linear in table size, and public users grow the table without bound.
+		byTxHashLower: index('receipts_tx_hash_lower_idx').on(sql`lower(${t.txHash})`),
 	}),
 );
 
