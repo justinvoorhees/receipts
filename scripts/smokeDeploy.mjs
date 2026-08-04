@@ -57,7 +57,10 @@ const csp = home.headers.get('content-security-policy') ?? '';
 check('CSP is set', csp.length > 0);
 check("CSP blocks framing", csp.includes("frame-ancestors 'none'"), csp.slice(0, 60));
 // 'unsafe-eval' is a dev-only allowance; finding it here means a dev build shipped.
-check("CSP has no 'unsafe-eval'", !csp.includes("'unsafe-eval'"));
+// Require a non-empty CSP too — otherwise a missing header makes this PASS
+// having verified nothing (the "CSP is set" check above already fails in that
+// case, so the exit code stays non-zero, but a PASS here reads as confirmation).
+check("CSP has no 'unsafe-eval'", csp.length > 0 && !csp.includes("'unsafe-eval'"));
 check('X-Content-Type-Options: nosniff', home.headers.get('x-content-type-options') === 'nosniff');
 check('X-Frame-Options: DENY', home.headers.get('x-frame-options') === 'DENY');
 check('HSTS is set', (home.headers.get('strict-transport-security') ?? '').includes('max-age='));

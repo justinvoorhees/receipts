@@ -81,6 +81,9 @@ npm run dev                   # dashboard on http://localhost:3000
 | `RATE_LIMIT_DIAGNOSIS_PER_MIN` | Optional, default 30. Covers `GET /?tx=`, which spends RPC on a cache miss. |
 | `ETHERSCAN_API_KEY` | Optional. Names verified fee-sink contracts on the receipt; without it those lines fall back to a generic label. |
 | `DUNE_API_KEY` | Currently inert — `DUNE_ETH_USD_QUERY_ID` in `duneOracle.ts` is still `0`. |
+| `ALERT_WEBHOOK_URL` | Optional. Slack/Discord incoming-webhook URL for incidents (the global spend ceiling), debounced to one message/hour. Unset ⇒ log-only. **Set on the deployment, not locally** — local and production share one database, so a local receipt is a real receipt and posts to the same channel as production. |
+| `ACTIVITY_WEBHOOK_URL` | Optional. Separate webhook URL, one message per newly generated receipt, not debounced. Independent of `ALERT_WEBHOOK_URL` — an unset URL never falls back to the other stream's URL. Same local-vs-production caveat as above. |
+| `APP_BASE_URL` | Optional. Base URL used to build the receipt link in the activity webhook message. Without it the link is derived from the request's `Host` header, which is caller-controlled on this public endpoint. |
 
 ## Gotchas
 

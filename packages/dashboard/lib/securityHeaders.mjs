@@ -27,7 +27,11 @@ export function securityHeaders(isProduction) {
 		"base-uri 'self'",
 		"form-action 'self'",
 		"object-src 'none'",
-		'upgrade-insecure-requests',
+		// A transport assertion, not a content policy: over plain http://localhost
+		// there is no https to upgrade to, and Safari has honored it there anyway,
+		// rewriting dev subresources to https and breaking CSS/fonts — a false
+		// "the app is unstyled" bug report. Production-only.
+		...(isProduction ? ['upgrade-insecure-requests'] : []),
 	].join('; ');
 
 	return [
@@ -37,7 +41,12 @@ export function securityHeaders(isProduction) {
 		{ key: 'X-Content-Type-Options', value: 'nosniff' },
 		{ key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
 		// No `preload`: it is effectively irreversible and the domain is not settled.
-		{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
+		// Production-only: dev over ngrok (see allowedDevOrigins in next.config.mjs)
+		// IS https, and a 2-year HSTS entry would pin against a rotating
+		// *.ngrok-free.app hostname.
+		...(isProduction
+			? [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' }]
+			: []),
 		{ key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
 	];
 }

@@ -73,12 +73,18 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 		try {
 			// `text` is what Slack reads and `content` is what Discord reads; each
 			// ignores the other's key, so one URL works with either service.
-			await fetchImpl(webhookUrl, {
+			const res = await fetchImpl(webhookUrl, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ text, content: text }),
 				signal: AbortSignal.timeout(TIMEOUT_MS),
 			});
+			// fetch only rejects on transport failure. Slack and Discord report a
+			// revoked webhook (404), a disabled one (403), a rejected payload (400)
+			// and throttling (429) as a status on a RESOLVED response — so without
+			// this check a permanently dead webhook is byte-identical to a working
+			// one, and the debounce window is consumed by a send that never landed.
+			if (!res.ok) throw new Error(`webhook responded ${res.status} ${res.statusText}`);
 		} catch (err) {
 			// A failed send must not consume the debounce window: a transient outage
 			// during the first incident would otherwise blank alerting until the window
@@ -128,9 +134,30 @@ export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): strin
 /**
  * The public origin of this request. Derived from headers rather than an env
  * var so it is correct in local dev and behind Railway's proxy without config.
+ *
+ * Trusts `Host` / `X-Forwarded-Proto`, both caller-controlled on a public,
+ * unauthenticated endpoint — do not use this directly to build a link that is
+ * posted somewhere trusted (e.g. Slack). Use `baseUrlFrom` for that, which
+ * prefers `APP_BASE_URL` and only falls back to this derivation when unset.
  */
 export function originFrom(req: Request): string {
 	const host = req.headers.get('host') ?? 'localhost:3000';
 	const proto = req.headers.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
 	return `${proto}://${host}`;
+}
+
+/**
+ * The base URL to use in outbound links (e.g. the Slack receipt-created
+ * message). Prefers the explicit `APP_BASE_URL` env var; falls back to
+ * `originFrom(req)` when unset.
+ *
+ * `originFrom` trusts request headers (`Host`, `X-Forwarded-Proto`), which are
+ * attacker-controlled on this public endpoint — a forged `Host` header would
+ * otherwise land a convincing phishing link in the team's own Slack, sent by
+ * the team's own bot. `APP_BASE_URL` removes that header from the trust chain
+ * once it is set.
+ */
+export function baseUrlFrom(req: Request): string {
+	const configured = process.env.APP_BASE_URL;
+	return configured && configured.length > 0 ? configured.replace(/\/$/, '') : originFrom(req);
 }

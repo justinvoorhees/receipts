@@ -10,10 +10,10 @@ import {
 import { clientKeyFromHeaders, createMemoryStore, createRateLimiter } from '../../../lib/rateLimit';
 import { SESSION_COOKIE, verifySession } from '../../../lib/auth';
 import {
+	baseUrlFrom,
 	budgetWarningMessage,
 	ceilingReachedMessage,
 	createNotifier,
-	originFrom,
 	receiptCreatedMessage,
 } from '../../../lib/alerts.js';
 
@@ -248,7 +248,7 @@ export async function POST(req: Request): Promise<Response> {
 		const inserted = await insertReceipt(await toNewReceipt(receipt));
 		// Only here. A cache hit is a VIEW, not a generation, and the conflict
 		// path below belongs to a request whose twin already notified.
-		void activityNotify('receipt_created', receiptCreatedMessage(inserted, originFrom(req)));
+		void activityNotify('receipt_created', receiptCreatedMessage(inserted, baseUrlFrom(req)));
 		return NextResponse.json(enrichLegRouters(inserted), { status: 200 });
 	} catch (err) {
 		const winner = await getReceiptByHash(hash);

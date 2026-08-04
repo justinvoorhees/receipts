@@ -1,10 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
 	createNotifier,
 	ceilingReachedMessage,
 	budgetWarningMessage,
 	receiptCreatedMessage,
 	originFrom,
+	baseUrlFrom,
 } from './alerts';
 
 /** A controllable clock, matching the pattern in rateLimit.test.ts. */
@@ -104,6 +105,31 @@ describe('createNotifier', () => {
 		expect(fetchImpl).toHaveBeenCalledTimes(2);
 	});
 
+	// A dead webhook must not look like a working one.
+	it('treats a non-2xx response as a failure', async () => {
+		const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 404, statusText: 'Not Found' }));
+		const log = vi.fn();
+		const notify = createNotifier({ webhookUrl: 'https://hook.test/x', fetchImpl, log });
+		await expect(notify('ceiling_reached', 'boom')).resolves.toBeUndefined();
+		expect(log).toHaveBeenCalled();
+		expect(String(log.mock.calls[0]![0])).toContain('404');
+	});
+
+	it('does not consume the debounce window on a non-2xx response', async () => {
+		const clock = fakeClock();
+		const fetchImpl = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(new Response(null, { status: 500, statusText: 'Server Error' }))
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+		const notify = createNotifier({
+			webhookUrl: 'https://hook.test/x', fetchImpl, now: clock.now, debounceMs: 60_000, log: () => {},
+		});
+		await notify('ceiling_reached', 'first');
+		clock.advance(1_000);
+		await notify('ceiling_reached', 'second');
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+	});
+
 	it('does not reject when the injected logger throws', async () => {
 		const log = vi.fn(() => { throw new Error('logger exploded'); });
 		const notify = createNotifier({ log });
@@ -169,5 +195,31 @@ describe('originFrom', () => {
 	it('falls back to http for localhost', () => {
 		const req = new Request('http://internal/api/receipts', { headers: { host: 'localhost:3000' } });
 		expect(originFrom(req)).toBe('http://localhost:3000');
+	});
+});
+
+describe('baseUrlFrom', () => {
+	const originalEnv = process.env.APP_BASE_URL;
+	afterEach(() => {
+		if (originalEnv === undefined) delete process.env.APP_BASE_URL;
+		else process.env.APP_BASE_URL = originalEnv;
+	});
+
+	// The request's Host header is attacker-controlled on this public endpoint;
+	// APP_BASE_URL must win so a forged Host can't land a phishing link in Slack.
+	it('prefers APP_BASE_URL over a hostile Host header', () => {
+		process.env.APP_BASE_URL = 'https://app.example.com';
+		const req = new Request('http://internal/api/receipts', {
+			headers: { host: 'evil.com', 'x-forwarded-proto': 'https' },
+		});
+		expect(baseUrlFrom(req)).toBe('https://app.example.com');
+	});
+
+	it('falls back to originFrom when APP_BASE_URL is unset', () => {
+		delete process.env.APP_BASE_URL;
+		const req = new Request('http://internal/api/receipts', {
+			headers: { host: 'app.up.railway.app', 'x-forwarded-proto': 'https' },
+		});
+		expect(baseUrlFrom(req)).toBe('https://app.up.railway.app');
 	});
 });

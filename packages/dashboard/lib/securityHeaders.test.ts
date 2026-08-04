@@ -45,4 +45,18 @@ describe('securityHeaders', () => {
 		expect(csp).toContain("default-src 'self'");
 		expect(csp).toContain("object-src 'none'");
 	});
+
+	// Transport assertions that only make sense once there is real https to
+	// enforce. Over plain http://localhost, upgrade-insecure-requests has
+	// caused Safari to rewrite dev subresources to https and break rendering;
+	// pinning HSTS in dev would also apply to a rotating ngrok hostname.
+	it('emits upgrade-insecure-requests and HSTS only in production', () => {
+		const prod = asMap(true);
+		expect(prod['Content-Security-Policy']).toContain('upgrade-insecure-requests');
+		expect(prod['Strict-Transport-Security']).toBeDefined();
+
+		const dev = asMap(false);
+		expect(dev['Content-Security-Policy']).not.toContain('upgrade-insecure-requests');
+		expect(dev['Strict-Transport-Security']).toBeUndefined();
+	});
 });
