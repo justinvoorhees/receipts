@@ -75,7 +75,10 @@ describe('ceiling alerting', () => {
 
 	it('stays quiet while the budget is healthy', async () => {
 		await POST(post('10.0.0.1')); // cumulative: 1 of 10, remaining 9
-		expect(notified).toHaveLength(0);
+		// Scoped to the alert stream: a successful insert also emits a
+		// `receipt_created` on the separate activity stream, which is expected
+		// here and says nothing about budget health.
+		expect(notified.filter((n) => n.kind !== 'receipt_created')).toHaveLength(0);
 	});
 
 	it('warns before the ceiling is reached, not only after', async () => {

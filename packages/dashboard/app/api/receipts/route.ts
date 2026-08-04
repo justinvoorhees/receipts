@@ -13,6 +13,8 @@ import {
 	budgetWarningMessage,
 	ceilingReachedMessage,
 	createNotifier,
+	originFrom,
+	receiptCreatedMessage,
 } from '../../../lib/alerts.js';
 
 // core uses viem + fs (config load in tagging.ts) — must run on Node, not edge.
@@ -77,6 +79,17 @@ const alertNotify = createNotifier({
 	webhookUrl: process.env.ALERT_WEBHOOK_URL,
 	debounceMs: 60 * 60 * 1000,
 });
+
+/**
+ * Deliberately NOT debounced — a launch-day burst of real receipts should all
+ * be reported. Volume needs no separate cap because the global ceiling above
+ * already bounds it (~8/min at the default), comfortably inside Slack's
+ * incoming-webhook throughput.
+ *
+ * Its own URL, independent of ALERT_WEBHOOK_URL: sharing a channel would bury
+ * a ceiling warning under activity during a flood.
+ */
+const activityNotify = createNotifier({ webhookUrl: process.env.ACTIVITY_WEBHOOK_URL });
 
 function tooMany(retryAfterSecs: number): Response {
 	return NextResponse.json(
@@ -233,6 +246,9 @@ export async function POST(req: Request): Promise<Response> {
 	// genuine failure and must surface.
 	try {
 		const inserted = await insertReceipt(await toNewReceipt(receipt));
+		// Only here. A cache hit is a VIEW, not a generation, and the conflict
+		// path below belongs to a request whose twin already notified.
+		void activityNotify('receipt_created', receiptCreatedMessage(inserted, originFrom(req)));
 		return NextResponse.json(enrichLegRouters(inserted), { status: 200 });
 	} catch (err) {
 		const winner = await getReceiptByHash(hash);
