@@ -13,7 +13,7 @@ function fakeClock(start = 1_000_000) {
 	return { now: () => t, advance: (ms: number) => (t += ms) };
 }
 
-const okFetch = () => vi.fn(async () => new Response(null, { status: 200 }));
+const okFetch = () => vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
 
 describe('createNotifier', () => {
 	it('posts the message to the webhook', async () => {
