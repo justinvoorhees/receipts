@@ -8,9 +8,9 @@
 
 Three changes, in the order they should be built:
 
-1. **Receipt lookup index** — make `getReceiptByHash` index-usable.
-2. **Rate-limit alerting** — push a webhook when the global analysis ceiling is approached or hit.
-3. **Security headers** — static headers including a non-nonce CSP.
+1. **Receipt lookup index** (§1) — make `getReceiptByHash` index-usable.
+2. **Webhook notifications** (§2) — one notifier module serving two independently-configured streams: *alerting* when the global analysis ceiling is approached or hit (§2a), and *activity* each time a receipt is newly generated (§2b).
+3. **Security headers** (§3) — static headers including a non-nonce CSP.
 
 Explicitly **out of scope**, with reasons recorded below: response caching, per-user data scoping (`user_id`), password revocation, the drizzle major bump.
 
@@ -75,13 +75,17 @@ CREATE INDEX receipts_tx_hash_lower_idx ON receipts (lower(tx_hash));
 
 Re-run the `EXPLAIN` above after migrating; the plan must change from `Seq Scan` to an index scan on `receipts_tx_hash_lower_idx`. This is the acceptance test — a passing unit suite does not demonstrate a query plan.
 
-## 2. Rate-limit alerting
+## 2. Webhook notifications (alerts + activity)
 
-### Problem
+Two notification streams share one module but are configured, routed, and rate-shaped independently.
+
+### 2a. Rate-limit alerting
+
+#### Problem
 
 When the global hourly ceiling trips, the only signal is a `console.warn` (`app/api/receipts/route.ts:185`). New analyses then pause for **everyone** — a deliberate hard spend cap over availability — with no notification. The limit's default of 500/hour is an untuned guess, so week one needs both incident alerts and enough signal to tune it.
 
-### Design
+#### Design
 
 A new `packages/dashboard/lib/alerts.ts`, following the same discipline as `lib/rateLimit.ts`: a factory taking its dependencies so it is unit-testable without network or wall-clock.
 
@@ -107,13 +111,33 @@ Behavioural requirements:
 - **Carries no secrets.** Payload is limited to event kind, limit, remaining, window reset time, and host. No env values, no hashes, no connection strings.
 - **Slack and Discord compatible.** The body sets both `text` (Slack) and `content` (Discord); each service ignores the key it does not recognise, so one env var works with either.
 
-### Call site
+#### Call site
 
 In `app/api/receipts/route.ts`:
 
 - Instantiate the alerter once at module scope from `process.env.ALERT_WEBHOOK_URL`, alongside the existing limiters, so the debounce state is shared across requests. A per-request alerter would never debounce anything.
 - The global limiter's configured limit is currently inline inside `envInt(...)` at line 57. Extract it to a named constant so the limiter and the 80% threshold read the same number — a threshold derived from a second, independently-computed limit is a bug waiting to happen.
 - Both alert checks read the `RateLimitResult` already returned at line 183; no second call to the limiter, which would consume budget.
+
+### 2b. Activity notifications
+
+#### Goal
+
+A Slack message each time a receipt is **newly generated**, as an early-traction signal during launch.
+
+#### Design
+
+Reuses the notifier from §2a with a third event kind, `receipt_created`, but differs from the alert stream in three deliberate ways:
+
+- **Separate destination: `ACTIVITY_WEBHOOK_URL`,** independent of `ALERT_WEBHOOK_URL` and independently optional. Sharing a channel would bury the ceiling warning under activity messages *during a flood* — precisely when the warning matters. Two variables also let routing be a configuration choice: same URL for one channel, different URLs for two. Unset ⇒ no activity notifications, no fallback to the alert webhook (silently redirecting activity into an incident channel would be a surprise).
+- **Not debounced.** Debouncing would defeat the purpose. No safeguard is needed because **the existing rate limits already cap the volume**: activity messages cannot exceed the global ceiling of 500/hour (~8/min sustained), comfortably within Slack's incoming-webhook throughput. The spend cap doubles as the notification cap.
+- **Fires only on a genuine new analysis.** Placement is immediately after a successful `insertReceipt` (`route.ts:206`). The cache-hit return (line 166) and the conflict-resolution path (line 209) must stay silent — otherwise every view of a shared link notifies, so one viral receipt generated once would produce thousands of messages for the same trade, and the conflict loser would duplicate a message its twin already sent.
+
+Payload: transaction hash, aggregator, input/output symbols and amounts, notional, all-in cost bps, and a link to the receipt at `/?tx=<hash>`.
+
+Shared with §2a: fire-and-forget, 3-second timeout, errors caught and logged. A Slack outage must never fail a receipt.
+
+⚠️ Note this streams trader addresses and trade details into Slack. All of it is public on-chain data already visible on `/trades`, so it is not new exposure — but aggregating it into a feed is a new posture and should be a conscious choice.
 
 ## 3. Security headers
 
@@ -167,7 +191,8 @@ Notes on specific directives:
 | Area | Test |
 |---|---|
 | Index | `EXPLAIN` shows an index scan post-migration (manual, against the real DB — the acceptance criterion). Plus a static assertion that the index is not silently lost: on the schema declaration if drizzle can express it, otherwise on the migration SQL. |
-| Alerts | Unit tests with injected `fetch` and clock: debounce suppresses a second alert inside the window and permits one after it; unset webhook URL performs no fetch and does not throw; a rejecting `fetch` does not propagate; payload contains no environment values; warning fires at the 80% boundary and not below it. |
+| Alerts (§2a) | Unit tests with injected `fetch` and clock: debounce suppresses a second alert inside the window and permits one after it; unset webhook URL performs no fetch and does not throw; a rejecting `fetch` does not propagate; payload contains no environment values; warning fires at the 80% boundary and not below it. |
+| Activity (§2b) | A cache hit sends nothing; a conflict-resolved insert sends nothing; a successful new insert sends exactly one message. These are the three paths that distinguish "generated" from "viewed", and getting them wrong is the difference between a useful feed and thousands of duplicate messages — so assert on each explicitly. Also: activity is not debounced, and an unset `ACTIVITY_WEBHOOK_URL` does not fall back to `ALERT_WEBHOOK_URL`. |
 | Headers | Unit test over the `headers()` output asserting each header and the absence of `'unsafe-eval'` in a production-mode policy. |
 | Live | Extend `scripts/smokeDeploy.mjs` (118 lines, already gates the access boundary and exits non-zero) to assert the security headers are present on a real deployment. |
 
@@ -178,7 +203,7 @@ Ordering and hazards, drawn from prior incidents in this repo:
 1. **Local and production share one Supabase database.** Running `npm run db:migrate` locally applies migration `0002` to production. This is expected here — it is the same instance by deliberate choice — but it must be a conscious act, not a side effect of a local test run.
 2. **Rebuild `@fabric-tca/db` dist after the schema edit**, or drizzle silently omits the change downstream.
 3. **Run a real `next build` before pushing.** `next build` runs ESLint and a lint error fails the build; `next dev` does not lint. A broken CSP also only surfaces in a production build. Kill any dev server first — a root build writes into the same `.next` that `next dev` owns.
-4. **Push auto-deploys to Railway.** Set `ALERT_WEBHOOK_URL` in the service variables *before* pushing, so the first deploy is already instrumented.
+4. **Push auto-deploys to Railway.** Set `ALERT_WEBHOOK_URL` and `ACTIVITY_WEBHOOK_URL` in the service variables *before* pushing, so the first deploy is already instrumented. ⚠️ Do **not** set either locally unless you want local testing to post into the same Slack channels — local and production share one database, and a local receipt is a real receipt.
 5. **Run `scripts/smokeDeploy.mjs <url>`** against the live deployment afterwards. It is read-only and costs no RPC.
 
 ## Deferred, with reasons
