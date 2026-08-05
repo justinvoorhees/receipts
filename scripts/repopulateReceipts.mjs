@@ -28,6 +28,9 @@ if (!rpcUrl || !dbUrl) { console.error('Missing TCA_RPC_URL or TCA_DATABASE_URL'
 const COMMIT = process.argv.includes('--commit');
 const idsArg = process.argv.find(a => a.startsWith('--ids='));
 const onlyIds = idsArg ? new Set(idsArg.slice('--ids='.length).split(',').map(Number)) : null;
+const snapArg = process.argv.find(a => a.startsWith('--snapshot='));
+const snapPath = snapArg ? snapArg.slice('--snapshot='.length) : null;
+const snapshot = [];
 
 const num = v => (v == null ? null : String(v));
 
@@ -76,6 +79,9 @@ for (const row of rows) {
 
 	const feeSinks = await enrichFeeSinkNames(r.feeSinks);
 	const upd = toUpdate(r, feeSinks);
+	// Serialize what repopulation WOULD write. Keyed off toUpdate's return value
+	// so new columns are picked up automatically — no second list to keep in sync.
+	if (snapPath) snapshot.push({ id: row.id, txHash: row.txHash, ...upd });
 	const diffs = WATCH.filter(k => norm(row[k]) !== norm(upd[k])).map(k => `${k}:${norm(row[k])}→${norm(upd[k])}`);
 	const tag = diffs.length ? `Δ ${diffs.join('  ')}` : 'no change';
 	console.log(`id ${String(row.id).padStart(3)}  ${(r.inputSymbol + '->' + r.outputSymbol).padEnd(16)} ${tag}`);
@@ -87,4 +93,9 @@ for (const row of rows) {
 	if (COMMIT) await db.update(schema.receipts).set(upd).where(eq(schema.receipts.id, row.id));
 }
 console.log(`\n${COMMIT ? 'WROTE' : 'WOULD WRITE'}: ${rows.length} rows · changed=${changed} · null-now(skipped)=${nulled} · errors=${failed}`);
+if (snapPath) {
+	const { writeFileSync } = await import('node:fs');
+	writeFileSync(snapPath, JSON.stringify(snapshot, (_k, v) => (typeof v === 'bigint' ? String(v) : v), 2));
+	console.log(`snapshot: wrote ${snapshot.length} computed rows to ${snapPath}`);
+}
 process.exit(0);
