@@ -24,10 +24,10 @@ import {
 	THIRD_PARTY_FEE_TOOLTIP,
 } from './receipt/receiptDisplay';
 import { receiptDollars } from './receipt/qualityNotionals';
+import { dispersionClause } from './receipt/priceDispersion';
 import type { PriceDeltaRow } from './receipt/priceFormat';
 import {
 	formatExecutionDelta,
-	formatPriceDeltaUsd,
 	formatPriceDeltaToken,
 	fallbackMethodology,
 	receiptPairTitle,
@@ -45,7 +45,14 @@ import {
 	LegRow,
 	legContext,
 	MethodologyText,
+	MarketPriceTable,
 } from './receipt/receiptRows';
+
+// An unreadable block renders the same em dash the LP-fee rows use for an
+// unresolved value. Never 0 — absent is not a measurement.
+function formatMidCell(mid: unknown, base: string, quote: string): React.ReactNode {
+	return mid == null ? '–' : formatExecutionPrice(mid, base, quote);
+}
 
 // A Cost Breakdown section (heading + its rows) gets 22px of extra bottom
 // padding — but only when it actually has rows beneath the heading (Figma
@@ -101,6 +108,10 @@ export function Receipt({
 	// (positional, not a *-linkage) on every tier, including the unpriced one.
 	// Rows persisted before the column was populated fall back to a tier-derived string.
 	const methodologyText = row.methodology ?? fallbackMethodology(row.pricingStatus);
+	// Empty string when the triple is incomplete — see priceDispersion.ts.
+	const dispersion = hasMarketPrice
+		? dispersionClause(row.marketMidBefore, row.marketMid, row.marketMidAfter)
+		: '';
 	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	const feeLines = getAggregatorFeeLines(row);
@@ -114,26 +125,19 @@ export function Receipt({
 	// {notionalIn, notionalOut, execResultUsd} + the base (volatile) leg's amount.
 	const dollars = receiptDollars(row);
 	const anchored = dollars != null;
-	const baseAmount = Number(baseIsOutput ? row.outputAmount : row.inputAmount);
-	const execUsdPerBase = dollars != null && baseAmount > 0 ? dollars.notionalIn / baseAmount : null;
-	const marketUsdPerBase = dollars != null && baseAmount > 0 ? dollars.notionalOut / baseAmount : null;
-	const deltaUsdPerBase = dollars != null && baseAmount > 0 ? Math.abs(dollars.execResultUsd) / baseAmount : null;
 	// Execution Delta states the gap on THIS trade; Price Delta states it per 1 base.
 	// Same sentence, same direction source — they can never disagree.
 	const executionDelta =
 		dollars != null
 			? formatExecutionDelta(dollars.execResultUsd, base, baseIsOutput, formatTokenIn(row))
 			: null;
-	// Price Delta takes ONE sentence shape everywhere; only the denomination differs.
-	// An anchored pair states the gap in USD (from the same execResultUsd the
-	// Execution Delta row uses); everything else states it in the quote token,
-	// since the stored mid/realized are already quote-per-base. Direction lives
-	// in the text now, so neither path carries a tooltip.
+	// Price Delta now lives in the notional-free Price Range section (Task 8),
+	// so it always states the gap in the quote token — never USD, even on an
+	// anchored pair. The USD figure for the whole trade is Execution Delta's
+	// job, in the top block. Direction lives in the text, so no tooltip.
 	const priceDelta: PriceDeltaRow | null = !hasMarketPrice
 		? null
-		: dollars != null && deltaUsdPerBase != null
-			? formatPriceDeltaUsd(deltaUsdPerBase, base, baseIsOutput, dollars.execResultUsd)
-			: formatPriceDeltaToken(row.marketMid, row.realizedPrice, base, quote, baseIsOutput);
+		: formatPriceDeltaToken(row.marketMid, row.realizedPrice, base, quote, baseIsOutput);
 
 	return (
 		<>
@@ -206,10 +210,26 @@ export function Receipt({
 					</DetailRow>
 				)}
 
-				<DetailRow
-					label="Execution Price"
-					subValue={execUsdPerBase != null ? formatSubvalueUsd(execUsdPerBase) : undefined}
-				>
+				{/* Gas is paid separately in ETH, outside the swap — it is not a price,
+				    so it stays in the top block and does not enter Price Range below. */}
+				<DetailRow label="Gas Cost" subValue="Paid separately in ETH">
+					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
+				</DetailRow>
+			</div>
+
+			<Divider />
+
+			<h2
+				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
+				style={{ fontFeatureSettings: '"calt" 0' }}
+			>
+				Price Range
+			</h2>
+
+			{/* Price Range is deliberately notional-free: every row here is a price,
+			    not a dollar amount, on every tier. */}
+			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
+				<DetailRow label="Execution Price">
 					{row.realizedPrice == null
 						? UNAVAILABLE
 						: formatExecutionPrice(row.realizedPrice, base, quote)}
@@ -219,29 +239,38 @@ export function Receipt({
 				    is why the row hugs and the wrapper owns the gap. The old
 				    `*`-linkage is gone — position carries it now. */}
 				<div className="flex flex-col gap-[10px]">
-					<DetailRow
-						label="Market Price"
-						hug
-						subValue={marketUsdPerBase != null ? formatSubvalueUsd(marketUsdPerBase) : undefined}
-						{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
-					>
-						{hasMarketPrice ? formatExecutionPrice(row.marketMid, base, quote) : 'N/A'}
-						{hasMarketPrice && row.manipulationFlag ? (
-							<span
-								className="ml-2"
-								style={{ color: 'var(--color-yellow)' }}
-								title="Median pool mid deviates from the reference oracle by more than 0.5% at N-1"
-							>
-								⚠ Possible manipulation
-							</span>
-						) : null}
-					</DetailRow>
+					{hasMarketPrice ? (
+						<MarketPriceTable
+							before={formatMidCell(row.marketMidBefore, base, quote)}
+							at={
+								<>
+									{formatMidCell(row.marketMid, base, quote)}
+									{row.manipulationFlag ? (
+										<span
+											className="ml-2"
+											style={{ color: 'var(--color-yellow)' }}
+											title="Median pool mid deviates from the reference oracle by more than 0.5% at N-1"
+										>
+											⚠ Possible manipulation
+										</span>
+									) : null}
+								</>
+							}
+							after={formatMidCell(row.marketMidAfter, base, quote)}
+						/>
+					) : (
+						<DetailRow label="Market Price" hug valueTooltip={NULL_PRICE_TOOLTIP}>
+							N/A
+						</DetailRow>
+					)}
 					{/* Renders on every tier — the unpriced tier's descriptor is the
 					    "Unavailable: …" string, which the frames show under `N/A`. Each
 					    of the three methodology phrases (if present) links to
-					    /methodology in a new tab (Figma 546-694). */}
+					    /methodology in a new tab (Figma 546-694). The dispersion clause
+					    appends only when all three blocks priced (priceDispersion.ts). */}
 					<p className="text-[10px] leading-[16px] text-[var(--color-secondary)]">
 						<MethodologyText text={methodologyText} />
+						{dispersion ? ` ${dispersion}` : ''}
 					</p>
 				</div>
 
@@ -251,12 +280,6 @@ export function Receipt({
 					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
 					{priceDelta?.text ?? 'N/A'}
-				</DetailRow>
-
-				{/* The descriptor is a property of the row, not of the number: gas is paid
-				    in ETH outside the swap regardless of whether we could price it. */}
-				<DetailRow label="Gas Cost" subValue="Paid separately in ETH">
-					{formatGasUsd(row.gasCostUsd != null ? Number(row.gasCostUsd) : null)}
 				</DetailRow>
 			</div>
 

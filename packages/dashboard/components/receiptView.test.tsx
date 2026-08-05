@@ -963,19 +963,25 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 	it('reconciles: Execution Delta magnitude = per-base delta × base amount', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
-		// $159.76 below Market Price per WBTC × 0.02862539 WBTC ≈ $4.57 Execution Delta.
-		expect(html).toContain('WBTC bought at $159.76 below Market Price');
+		// Price Delta lives in the notional-free Price Range section (Task 8), so it
+		// states the gap in the quote token (ETH) — 0.0892 ETH below the mid, per WBTC.
+		expect(html).toContain('WBTC bought at 0.0892 ETH below Market Price');
 		expect(html).toContain('per 1 WBTC');
-		// Execution Delta states the SAME direction on the whole-trade magnitude.
+		// Execution Delta states the SAME direction on the whole-trade magnitude, in USD —
+		// it lives in the top block, which keeps its USD.
 		expect(html).toContain('WBTC bought at $4.57 below Market Price');
 		expect(html).toContain('Per 1 ETH');
 	});
 
-	it('renders USD sublines on the price rows, keeping the token-denominated main lines', async () => {
+	it('renders no USD sublines on Price Range rows, keeping the token-denominated main lines', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'full' } as never} />);
-		expect(html).toContain('$62,731.32'); // Market Price in USD (per WBTC)
-		expect(html).toContain('$62,571.56'); // Execution Price in USD (per WBTC)
+		// Price Range is notional-free (Task 8): no USD subvalue on Execution Price
+		// or Market Price, and Price Delta states its gap in the quote token.
+		const priceRange = html.indexOf('>Price Range<');
+		const txCost = html.indexOf('>Transaction Cost<');
+		const section = html.slice(priceRange, txCost);
+		expect(section).not.toMatch(/\$[0-9]/);
 		expect(html).toContain('34.934 ETH = 1 WBTC'); // token-denominated main lines preserved
 		expect(html).toContain('35.0232 ETH = 1 WBTC');
 	});
@@ -1958,5 +1964,77 @@ describe('MarketPriceTable (Figma 647-3599)', () => {
 		);
 		expect(html).toContain('–');
 		expect(html).not.toContain('0.0000');
+	});
+});
+
+describe('Price Range section (Figma 647-3415)', () => {
+	// fullUsdcWethRow plus a three-block mid triple (same values used in
+	// priceDispersion.test.ts's 1.13bps case).
+	const tripleMidRow = {
+		...fullUsdcWethRow,
+		marketMidBefore: '35.0269',
+		marketMid: '35.0232',
+		marketMidAfter: '35.0173',
+	};
+	// The file's other partial/unpriced fixtures are scoped inside their own
+	// describe blocks (e.g. 'Market Price composite'); built the same way here
+	// per Task 8's brief — fullUsdcWethRow with the tier fields nulled out the
+	// way core persists an unpriced receipt.
+	const unpricedRow = {
+		...fullUsdcWethRow,
+		marketMid: null,
+		pricingStatus: 'partial',
+		allInCostBps: null,
+	};
+
+	it('renders a Price Range heading between Gas Cost and Transaction Cost', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
+		const gas = html.indexOf('>Gas Cost<');
+		const priceRange = html.indexOf('>Price Range<');
+		const txCost = html.indexOf('>Transaction Cost<');
+		expect(gas).toBeGreaterThan(-1);
+		expect(priceRange).toBeGreaterThan(gas);
+		expect(txCost).toBeGreaterThan(priceRange);
+	});
+
+	it('moves Gas Cost above Execution Price', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
+		// Gas is not a price and must not sit inside Price Range.
+		expect(html.indexOf('>Gas Cost<')).toBeLessThan(html.indexOf('>Execution Price<'));
+	});
+
+	it('appends the dispersion clause to the methodology descriptor', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
+		expect(html).toContain('Price deviates 1.13bps between blocks.');
+	});
+
+	it('omits the dispersion clause when a block is missing', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...tripleMidRow, marketMidAfter: null } as never} />,
+		);
+		expect(html).not.toContain('between blocks');
+	});
+
+	it('renders no USD subvalue on any Price Range row', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
+		const priceRange = html.indexOf('>Price Range<');
+		const txCost = html.indexOf('>Transaction Cost<');
+		const section = html.slice(priceRange, txCost);
+		// Price Range is deliberately notional-free across all tiers. The top
+		// block keeps its USD; this section must not.
+		expect(section).not.toMatch(/\$[0-9]/);
+	});
+
+	it('renders N/A for Market Price and Price Delta on the unpriced tier', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={unpricedRow as never} />);
+		expect(html).toContain('>Price Range<');
+		expect(html).toContain('Unavailable: No reliable market price could be calculated.');
+		expect(html).not.toContain('>Before Block<');
 	});
 });
