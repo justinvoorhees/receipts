@@ -456,3 +456,43 @@ export function LegRow({
 		/>
 	);
 }
+
+/**
+ * Market Price rendered as three adjacent-block samples (Figma 647-3599).
+ *
+ * `At Block` is the ruler (N-1) and is the only row in primary — the two
+ * neighbours are context. All three come from the SAME pool; see the design
+ * spec for why re-discovering per block would be wrong.
+ */
+export function MarketPriceTable({
+	before,
+	at,
+	after,
+}: {
+	before: React.ReactNode;
+	at: React.ReactNode;
+	after: React.ReactNode;
+}) {
+	const SEC = 'var(--color-secondary)';
+	const PRI = 'var(--color-primary)';
+	const rows: [string, React.ReactNode, string][] = [
+		['Before Block', before, SEC],
+		['At Block', at, PRI],
+		['After Block', after, SEC],
+	];
+	return (
+		<div className="flex items-start justify-between text-[12px] leading-[12px]">
+			<p style={{ color: PRI, fontFeatureSettings: '"calt" 0' }} className="whitespace-nowrap">
+				Market Price
+			</p>
+			<div className="flex flex-col gap-[10px]">
+				{rows.map(([label, value, color]) => (
+					<div key={label} className="flex items-center gap-[20px]">
+						<p className="w-[87px]" style={{ color, fontFeatureSettings: '"calt" 0' }}>{label}</p>
+						<p className="w-[144px] text-right" style={{ color, fontFeatureSettings: '"calt" 0' }}>{value}</p>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}

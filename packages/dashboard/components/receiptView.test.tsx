@@ -1902,3 +1902,41 @@ describe('Receipt Unattributed row', () => {
 		expect(html).toContain('>Positive Slippage<');
 	});
 });
+
+describe('MarketPriceTable (Figma 647-3599)', () => {
+	it('renders all three block rows with At Block emphasized', async () => {
+		const { MarketPriceTable } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MarketPriceTable
+				before="35.0269 ETH = 1 WBTC"
+				at="35.0232 ETH = 1 WBTC"
+				after="35.0173 ETH = 1 WBTC"
+			/>,
+		);
+
+		expect(html).toContain('>Before Block<');
+		expect(html).toContain('>At Block<');
+		expect(html).toContain('>After Block<');
+		expect(html).toContain('>Market Price<');
+
+		// At Block is the ruler — the only row in primary, its neighbours secondary.
+		const before = html.indexOf('>Before Block<');
+		const at = html.indexOf('>At Block<');
+		const after = html.indexOf('>After Block<');
+		expect(before).toBeLessThan(at);
+		expect(at).toBeLessThan(after);
+		expect(html.slice(before, at)).toContain('--color-secondary');
+		expect(html.slice(at, after)).toContain('--color-primary');
+	});
+
+	it('renders whatever the caller passes for an unreadable block', async () => {
+		// The dash is the caller's decision (formatMidCell in Task 8); this
+		// component must not substitute anything of its own for a falsy value.
+		const { MarketPriceTable } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MarketPriceTable before="–" at="35.0232 ETH = 1 WBTC" after="–" />,
+		);
+		expect(html).toContain('–');
+		expect(html).not.toContain('0.0000');
+	});
+});
