@@ -2022,32 +2022,33 @@ describe('Price Range section (Figma 647-3415)', () => {
 		expect(html).toContain('Price deviates 1.13bps between blocks.');
 	});
 
-	it('renders the manipulation badge in the At Block cell when flagged', async () => {
-		// Restored by Task 8 when the swap to MarketPriceTable silently dropped it;
-		// coverage previously lived only in tradesTable.test.tsx, which is exactly
-		// how it got lost in the first place. Pin it here too, and pin WHERE it
-		// renders (At Block, not Before/After) so a future reorder can't hide it.
+	it('renders the manipulation badge as a full-width sibling, not inside the At Block cell', async () => {
+		// The badge used to be appended into the At Block value cell — a fixed
+		// 144px column (Figma 647-3599) already full of the price string, so the
+		// warning had nowhere to go and was invisible in the browser (caught by
+		// the project owner, not by any diff). It now renders as its own line,
+		// a sibling of <MarketPriceTable> inside the shared flex-col wrapper.
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...tripleMidRow, manipulationFlag: true } as never} />,
 		);
+		expect(html).toContain('Possible manipulation');
+
+		// Must NOT be inside the At Block row's own <div> — that fixed-width
+		// cell is exactly where it went missing.
 		const at = html.indexOf('>At Block<');
 		expect(at).toBeGreaterThan(-1);
 		const atRowStart = html.lastIndexOf('<div', at);
 		const atRowEnd = html.indexOf('</div>', at) + '</div>'.length;
 		const atRowHtml = html.slice(atRowStart, atRowEnd);
-		expect(atRowHtml).toContain('Possible manipulation');
+		expect(atRowHtml).not.toContain('Possible manipulation');
 
-		// Not a stray match elsewhere — the neighbouring Before/After rows stay clean.
-		const before = html.indexOf('>Before Block<');
-		const beforeRowStart = html.lastIndexOf('<div', before);
-		const beforeRowEnd = html.indexOf('</div>', before) + '</div>'.length;
-		expect(html.slice(beforeRowStart, beforeRowEnd)).not.toContain('Possible manipulation');
-
-		const after = html.indexOf('>After Block<');
-		const afterRowStart = html.lastIndexOf('<div', after);
-		const afterRowEnd = html.indexOf('</div>', after) + '</div>'.length;
-		expect(html.slice(afterRowStart, afterRowEnd)).not.toContain('Possible manipulation');
+		// It renders after the table and before the methodology footnote —
+		// still visually attached to the Market Price row, just outside the cell.
+		const badge = html.indexOf('Possible manipulation');
+		const methodology = html.indexOf('Verified: market price corroborated across sources.');
+		expect(badge).toBeGreaterThan(atRowEnd);
+		expect(badge).toBeLessThan(methodology);
 	});
 
 	it('renders no manipulation badge when the flag is unset', async () => {

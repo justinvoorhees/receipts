@@ -242,20 +242,7 @@ export function Receipt({
 					{hasMarketPrice ? (
 						<MarketPriceTable
 							before={formatMidCell(row.marketMidBefore, base, quote)}
-							at={
-								<>
-									{formatMidCell(row.marketMid, base, quote)}
-									{row.manipulationFlag ? (
-										<span
-											className="ml-2"
-											style={{ color: 'var(--color-yellow)' }}
-											title="Median pool mid deviates from the reference oracle by more than 0.5% at N-1"
-										>
-											⚠ Possible manipulation
-										</span>
-									) : null}
-								</>
-							}
+							at={formatMidCell(row.marketMid, base, quote)}
 							after={formatMidCell(row.marketMidAfter, base, quote)}
 						/>
 					) : (
@@ -263,6 +250,19 @@ export function Receipt({
 							N/A
 						</DetailRow>
 					)}
+					{/* The badge is a sibling of the table, not part of the At Block cell:
+					    that cell is a fixed 144px column already full of the price string
+					    (Figma 647-3599), so the warning has nowhere to go inside it and
+					    either wraps unreadably or overflows out of view. This wrapper
+					    spans the full receipt column, so the badge gets its own line while
+					    staying visually attached to the Market Price row. */}
+					{hasMarketPrice && row.manipulationFlag ? (
+						<p style={{ color: 'var(--color-yellow)' }}>
+							<span title="Median pool mid deviates from the reference oracle by more than 0.5% at N-1">
+								⚠ Possible manipulation
+							</span>
+						</p>
+					) : null}
 					{/* Renders on every tier — the unpriced tier's descriptor is the
 					    "Unavailable: …" string, which the frames show under `N/A`. Each
 					    of the three methodology phrases (if present) links to
