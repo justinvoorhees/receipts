@@ -137,8 +137,21 @@ export function decodeTransferLogs(logs: readonly LogLike[]): RawTransfer[] {
 	return out;
 }
 
-/** Exact per-address native-ETH deltas from a callTracer tree: each call's `value`
- *  is a native transfer from→to. Used to value the ETH leg of a USDC↔ETH trade. */
+/** Frame types that execute in the CALLER's balance context and therefore move
+ *  no ETH, even though geth's callTracer stamps them with the inherited
+ *  `msg.value`. Counting their `value` debits the account being paid and credits
+ *  the implementation it re-enters — which silently reroutes the credit off an
+ *  EIP-7702 delegated EOA or a value-forwarding proxy.
+ *
+ *  Deliberately a DENY-list, not an allow-list: an unrecognized or absent `type`
+ *  keeps the pre-existing "count it" behavior rather than silently dropping a
+ *  real transfer. CREATE/CREATE2 endowments and SELFDESTRUCT refunds are real
+ *  and must keep counting. */
+const NON_VALUE_MOVING_FRAMES = new Set(['DELEGATECALL', 'STATICCALL', 'CALLCODE']);
+
+/** Exact per-address native-ETH deltas from a callTracer tree: each value-moving
+ *  call's `value` is a native transfer from→to. Used to value the ETH leg of a
+ *  USDC↔ETH trade. */
 export function collectNativeEthDeltas(trace: TraceNode): Map<string, bigint> {
 	const d = new Map<string, bigint>();
 	const add = (a: string | undefined, v: bigint) => {
@@ -147,7 +160,8 @@ export function collectNativeEthDeltas(trace: TraceNode): Map<string, bigint> {
 		d.set(k, (d.get(k) ?? 0n) + v);
 	};
 	const visit = (n: TraceNode) => {
-		if (n.value && n.value !== '0x' && n.value !== '0x0') {
+		const movesValue = !NON_VALUE_MOVING_FRAMES.has((n.type ?? '').toUpperCase());
+		if (movesValue && n.value && n.value !== '0x' && n.value !== '0x0') {
 			const v = BigInt(n.value);
 			if (v > 0n) { add(n.from, -v); add(n.to, v); }
 		}

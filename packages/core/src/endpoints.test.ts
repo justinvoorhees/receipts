@@ -214,3 +214,60 @@ describe('detectBeneficiaryByNetFlow', () => {
 		expect(d).toBeNull();
 	});
 });
+
+// ─── Frame types that do not move ETH ───
+//
+// geth's callTracer repeats the inherited `msg.value` on DELEGATECALL /
+// CALLCODE frames, but those execute in the CALLER's balance context — no ETH
+// moves. Counting them debits the receiving account and credits the
+// implementation, which silently reroutes the credit. An EIP-7702 delegated EOA
+// hits this on every native-ETH payout (real case: Relay tx 0x92541bad…).
+describe('collectNativeEthDeltas frame types', () => {
+	const EOA_7702 = '0x000000000000000000000000000000000000d00d';
+	const IMPL = '0x00000000000000000000000000000000000de1e6';
+	const PAYER = '0x0000000000000000000000000000000000c0c0c0';
+	const WEI = 1554680041161137n;
+
+	/** Payer sends TOKEN_A in; EOA is paid native ETH, then re-enters `impl`
+	 *  via `innerType`, which the tracer stamps with the same inherited value. */
+	const traceWith = (innerType: string) => ({
+		type: 'CALL',
+		from: EOA_7702,
+		to: PAYER,
+		value: '0x0',
+		logs: [{ address: TOKEN_A, topics: [TRANSFER, pad(EOA_7702), pad(PAYER)], data: hex(1000n) }],
+		calls: [
+			{
+				type: 'CALL',
+				from: PAYER,
+				to: EOA_7702,
+				value: '0x' + WEI.toString(16),
+				calls: [{ type: innerType, from: EOA_7702, to: IMPL, value: '0x' + WEI.toString(16), calls: [] }],
+			},
+		],
+	});
+
+	it.each(['DELEGATECALL', 'CALLCODE'])(
+		'%s does not move the native credit off the receiving account',
+		(innerType) => {
+			const per = perAddressTokenDeltas(traceWith(innerType) as never);
+			expect(per.get(EOA_7702)?.get('native')).toBe(WEI);
+			expect(per.get(IMPL)?.get('native') ?? 0n).toBe(0n);
+		},
+	);
+
+	it('still counts a real value-bearing CALL', () => {
+		const per = perAddressTokenDeltas(traceWith('CALL') as never);
+		expect(per.get(IMPL)?.get('native')).toBe(WEI);
+		// EOA nets to zero here (received then forwarded); zero nets are not stored.
+		expect(per.get(EOA_7702)?.get('native') ?? 0n).toBe(0n);
+	});
+
+	it('a 7702 EOA paid in native ETH resolves as a clean swap', () => {
+		const e = extractEndpoints({ trace: traceWith('DELEGATECALL') as never, trader: EOA_7702 });
+		expect(e?.inputToken).toBe(TOKEN_A);
+		expect(e?.outputToken).toBe('native');
+		expect(e?.inputAmountRaw).toBe(1000n);
+		expect(e?.outputAmountRaw).toBe(WEI);
+	});
+});
