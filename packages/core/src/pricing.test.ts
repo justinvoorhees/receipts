@@ -566,3 +566,75 @@ describe('impliedOracleRatio', () => {
     expect(impliedOracleRatio(2000, 0)).toBeNull();
   });
 });
+
+// ── getPairMidTriple: one pool, three adjacent blocks ───────────────────────
+describe('getPairMidTriple', () => {
+  const POOL = { address: '0xpool', kind: 'univ3' };
+  // token0 < token1 so `inverted` is false and the raw price passes through.
+  const TOKEN_IN = '0x1111111111111111111111111111111111111111';
+  const TOKEN_OUT = '0x2222222222222222222222222222222222222222';
+
+  function makeReaders(slot0ByBlock: Record<string, bigint | null>) {
+    const calls = { getDeepestPool: 0, readSlot0: [] as bigint[] };
+    return {
+      calls,
+      readers: {
+        getDeepestPool: async () => { calls.getDeepestPool++; return POOL; },
+        readDecimals: async () => 18,
+        readSlot0: async (_addr: string, blk: bigint) => {
+          calls.readSlot0.push(blk);
+          return slot0ByBlock[String(blk)] ?? null;
+        },
+        readLiquidity: async () => 10n ** 18n,
+        readV2Reserves: async () => null,
+      } as never,
+    };
+  }
+
+  // 2^96 = a price of exactly 1.0 at equal decimals.
+  const Q96 = 2n ** 96n;
+
+  it('resolves the pool ONCE and reads state at N-2, N-1 and N', async () => {
+    const { readers, calls } = makeReaders({ '98': Q96, '99': Q96, '100': Q96 });
+    const { getPairMidTriple } = await import('./pricing.js');
+    const triple = await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 99n);
+
+    // The invariant this whole feature rests on: one discovery, three reads.
+    // Re-discovering per block could rank a different pool at a different
+    // block, making the dispersion figure spatial rather than temporal.
+    expect(calls.getDeepestPool).toBe(1);
+    expect(calls.readSlot0).toEqual([98n, 99n, 100n]);
+    expect(triple?.poolAddress).toBe('0xpool');
+    expect(triple?.at).toBeCloseTo(1, 10);
+  });
+
+  it('returns null for an individual block that cannot be read, not for the whole triple', async () => {
+    const { readers } = makeReaders({ '98': null, '99': Q96, '100': Q96 });
+    const { getPairMidTriple } = await import('./pricing.js');
+    const triple = await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 99n);
+
+    expect(triple).not.toBeNull();
+    expect(triple?.before).toBeNull();
+    expect(triple?.at).toBeCloseTo(1, 10);
+    expect(triple?.after).toBeCloseTo(1, 10);
+  });
+
+  it('returns null when the pool cannot be resolved at all', async () => {
+    const { getPairMidTriple } = await import('./pricing.js');
+    const readers = {
+      getDeepestPool: async () => null,
+      readDecimals: async () => 18,
+      readSlot0: async () => null,
+      readLiquidity: async () => null,
+      readV2Reserves: async () => null,
+    } as never;
+    expect(await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 99n)).toBeNull();
+  });
+
+  it('never reads a negative block number', async () => {
+    const { readers, calls } = makeReaders({ '0': Q96, '1': Q96 });
+    const { getPairMidTriple } = await import('./pricing.js');
+    await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 0n);
+    expect(calls.readSlot0.every((b) => b >= 0n)).toBe(true);
+  });
+});

@@ -183,11 +183,19 @@ async function readMidFromPool(
 
   if (mechanismForKind(pool.kind as PoolKind) === 'v2-reserves') {
     const reserves = await readers.readV2Reserves(pool.address, blockNumber);
+    // Deliberate asymmetry vs the v3 branch below: this rejects only a literal
+    // zero reserve, with no depth floor beyond that. That's harmless only
+    // because ESTIMATED_MID_MIN_LIQUIDITY is currently 1n — if that floor is
+    // ever raised, revisit whether basic-AMM direct mids need an equivalent
+    // depth guard, since a near-empty v2 pool would otherwise pass through.
     if (reserves === null || reserves[0] === 0n || reserves[1] === 0n) return null;
     rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
   } else {
     const sqrtPriceX96 = await readers.readSlot0(pool.address, blockNumber);
     if (sqrtPriceX96 === null) return null;
+    // A boundary-pinned or otherwise thin pool returns null here rather than a
+    // garbage extreme mid — that's what lets priceReceipt fall through to the
+    // bridged `estimated` mid instead of quoting a bogus `full` one.
     if (sqrtPriceX96 <= MIN_SQRT_RATIO + 1n || sqrtPriceX96 >= MAX_SQRT_RATIO - 1n) return null;
     const liquidity = await readers.readLiquidity(pool.address, blockNumber);
     if (liquidity === null || liquidity < ESTIMATED_MID_MIN_LIQUIDITY) return null;
@@ -231,6 +239,60 @@ export async function defaultGetPairMid(
   const price = await readMidFromPool(readers, pool, dec0, dec1, inverted, blockNumber);
   if (price === null) return null;
   return { price, poolAddress: pool.address, poolKind: pool.kind };
+}
+
+export interface PairMidTriple {
+  /** N-2 — the receipt's "Before Block" row. */
+  before: number | null;
+  /** N-1 — the ruler. Equals what defaultGetPairMid returns. */
+  at: number | null;
+  /** N — the receipt's "After Block" row. Contains the trade's own impact. */
+  after: number | null;
+  poolAddress: string;
+  poolKind: string;
+}
+
+/**
+ * Sample ONE pool's mid at three adjacent blocks around the ruler.
+ *
+ * The pool is resolved once, at the ruler block, and reused for all three
+ * reads. Pool discovery is block-invariant (getPool is a deterministic CREATE2
+ * address), so this is both correct and cheap: +2 calls over the single-block
+ * path. Re-discovering per block would be ~2x wall AND could rank a different
+ * pool at a different block, silently turning the receipt's "deviation between
+ * blocks" into a comparison of two different pools.
+ *
+ * A failed read for one block yields `null` for that field only. The caller
+ * must render an absent mid as unavailable, never as zero.
+ */
+export async function getPairMidTriple(
+  readers: PoolMidReaders,
+  tokenIn: string,
+  tokenOut: string,
+  refBlock: bigint,
+): Promise<PairMidTriple | null> {
+  const inLc = tokenIn.toLowerCase();
+  const outLc = tokenOut.toLowerCase();
+  const inverted = inLc > outLc;
+  const token0 = inverted ? outLc : inLc;
+  const token1 = inverted ? inLc : outLc;
+
+  const pool = await readers.getDeepestPool(token0, token1, refBlock);
+  if (!pool) return null;
+
+  const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
+
+  // Clamp at genesis rather than underflowing to a negative block tag.
+  const beforeBlock = refBlock > 0n ? refBlock - 1n : refBlock;
+  const afterBlock = refBlock + 1n;
+
+  const [before, at, after] = await Promise.all([
+    readMidFromPool(readers, pool, dec0, dec1, inverted, beforeBlock),
+    readMidFromPool(readers, pool, dec0, dec1, inverted, refBlock),
+    readMidFromPool(readers, pool, dec0, dec1, inverted, afterBlock),
+  ]);
+
+  return { before, at, after, poolAddress: pool.address, poolKind: pool.kind };
 }
 
 /**
