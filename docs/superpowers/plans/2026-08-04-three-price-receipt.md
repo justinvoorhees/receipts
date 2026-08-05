@@ -812,36 +812,49 @@ Figma 647-3599: `gap-[20px]` between the label column and the value column, `gap
 
 - [ ] **Step 1: Write the failing test**
 
+⚠️ These render `MarketPriceTable` **directly**, not through `Receipt`. `Receipt`
+does not wire the component in until Task 8, so a `Receipt`-level assertion here
+could not pass at the end of this task. Receipt-level assertions belong to Task 8.
+
 ```typescript
-describe('Market Price intra-block table (Figma 647-3599)', () => {
+describe('MarketPriceTable (Figma 647-3599)', () => {
   it('renders all three block rows with At Block emphasized', async () => {
-    const { Receipt } = await import('./receiptView');
-    const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
+    const { MarketPriceTable } = await import('./receipt/receiptRows');
+    const html = renderToStaticMarkup(
+      <MarketPriceTable
+        before="35.0269 ETH = 1 WBTC"
+        at="35.0232 ETH = 1 WBTC"
+        after="35.0173 ETH = 1 WBTC"
+      />,
+    );
 
     expect(html).toContain('>Before Block<');
     expect(html).toContain('>At Block<');
     expect(html).toContain('>After Block<');
-    // At Block is the ruler and is the only one in primary.
-    const atBlock = html.indexOf('>At Block<');
-    const before = html.indexOf('>Before Block<');
-    expect(html.slice(before, atBlock)).toContain('--color-secondary');
-  });
+    expect(html).toContain('>Market Price<');
 
-  it('renders an unreadable block as a dash, never as zero', async () => {
-    const { Receipt } = await import('./receiptView');
-    const html = renderToStaticMarkup(
-      <Receipt row={{ ...tripleMidRow, marketMidBefore: null } as never} />,
-    );
+    // At Block is the ruler — the only row in primary, its neighbours secondary.
     const before = html.indexOf('>Before Block<');
     const at = html.indexOf('>At Block<');
-    expect(before).toBeGreaterThan(-1);
-    // The value cell for Before Block must not read 0.
-    expect(html.slice(before, at)).not.toContain('0.0000');
+    const after = html.indexOf('>After Block<');
+    expect(before).toBeLessThan(at);
+    expect(at).toBeLessThan(after);
+    expect(html.slice(before, at)).toContain('--color-secondary');
+    expect(html.slice(at, after)).toContain('--color-primary');
+  });
+
+  it('renders whatever the caller passes for an unreadable block', async () => {
+    // The dash is the caller's decision (formatMidCell in Task 8); this
+    // component must not substitute anything of its own for a falsy value.
+    const { MarketPriceTable } = await import('./receipt/receiptRows');
+    const html = renderToStaticMarkup(
+      <MarketPriceTable before="–" at="35.0232 ETH = 1 WBTC" after="–" />,
+    );
+    expect(html).toContain('–');
+    expect(html).not.toContain('0.0000');
   });
 });
 ```
-
-Define `tripleMidRow` next to the existing row fixtures in that file, as the existing `fullUsdcWethRow` plus `marketMidBefore: '35.0269'`, `marketMid: '35.0232'`, `marketMidAfter: '35.0173'`.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -912,7 +925,9 @@ npx vitest run packages/dashboard/components/receiptView.test.tsx
 npx tsc --build
 ```
 
-Expected: PASS, tsc exit 0. (Task 8 wires it in; if `Receipt` does not yet render it, do Task 8's Step 3 first and re-run.)
+Expected: PASS, tsc exit 0. The component is exported and tested but not yet
+rendered by `Receipt` — Task 8 wires it in. That is intentional: this task's
+deliverable is the component and its own tests, independently verifiable.
 
 - [ ] **Step 5: Commit**
 
@@ -934,6 +949,11 @@ git commit -m "feat(dashboard): add MarketPriceTable three-block row"
 - Produces: no new exports. Section order becomes: top block (… Execution Delta, Gas Cost) → divider → `<h2>Price Range</h2>` → Execution Price, Market Price + descriptor, Price Delta → divider → `<h2>Transaction Cost</h2>`.
 
 - [ ] **Step 1: Write the failing tests**
+
+Define `tripleMidRow` next to the existing row fixtures in `receiptView.test.tsx`,
+as the existing `fullUsdcWethRow` plus `marketMidBefore: '35.0269'`,
+`marketMid: '35.0232'`, `marketMidAfter: '35.0173'`. `unpricedRow` is the existing
+partial/unpriced fixture in that file.
 
 ```typescript
 describe('Price Range section (Figma 647-3415)', () => {
