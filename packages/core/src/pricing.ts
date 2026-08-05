@@ -89,7 +89,8 @@ export interface PricingResult {
   status: 'full' | 'estimated' | 'partial';
   /** Output-per-input mid at block N-1; null when partial. */
   marketMid: number | null;
-  /** Output-per-input mid at N-2 and N, from the SAME pool as marketMid. */
+  /** Output-per-input mid at N-2 and N, from the SAME composition as marketMid
+   *  (the fast path's benchmark, or the general path's Market Price apparatus). */
   marketMidBefore: number | null;
   marketMidAfter: number | null;
   notionalUsd: number | null;
@@ -117,12 +118,6 @@ export interface PricingDeps {
   benchmark: (args: { rpcUrl: string; blockNumber: bigint }) => Promise<BenchmarkResult>;
   /** Deepest-pool mid: output(tokenOut)-per-input(tokenIn) at `blockNumber`. */
   getPairMid: (tokenIn: string, tokenOut: string, blockNumber: bigint) => Promise<PairMidResult | null>;
-  /** Same pool as getPairMid, sampled at refBlock-1, refBlock, refBlock+1. */
-  getPairMidTriple: (
-    tokenIn: string,
-    tokenOut: string,
-    refBlock: bigint,
-  ) => Promise<PairMidTriple | null>;
   /** Best-effort bridged mid (output-per-input) for illiquid pairs, or null. */
   getEstimatedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<PairMidResult | null>;
   /** The single Market Price apparatus: one corroborated mid + tier. */
@@ -250,60 +245,6 @@ export async function defaultGetPairMid(
   return { price, poolAddress: pool.address, poolKind: pool.kind };
 }
 
-export interface PairMidTriple {
-  /** N-2 — the receipt's "Before Block" row. */
-  before: number | null;
-  /** N-1 — the ruler. Equals what defaultGetPairMid returns. */
-  at: number | null;
-  /** N — the receipt's "After Block" row. Contains the trade's own impact. */
-  after: number | null;
-  poolAddress: string;
-  poolKind: string;
-}
-
-/**
- * Sample ONE pool's mid at three adjacent blocks around the ruler.
- *
- * The pool is resolved once, at the ruler block, and reused for all three
- * reads. Pool discovery is block-invariant (getPool is a deterministic CREATE2
- * address), so this is both correct and cheap: +2 calls over the single-block
- * path. Re-discovering per block would be ~2x wall AND could rank a different
- * pool at a different block, silently turning the receipt's "deviation between
- * blocks" into a comparison of two different pools.
- *
- * A failed read for one block yields `null` for that field only. The caller
- * must render an absent mid as unavailable, never as zero.
- */
-export async function getPairMidTriple(
-  readers: PoolMidReaders,
-  tokenIn: string,
-  tokenOut: string,
-  refBlock: bigint,
-): Promise<PairMidTriple | null> {
-  const inLc = tokenIn.toLowerCase();
-  const outLc = tokenOut.toLowerCase();
-  const inverted = inLc > outLc;
-  const token0 = inverted ? outLc : inLc;
-  const token1 = inverted ? inLc : outLc;
-
-  const pool = await readers.getDeepestPool(token0, token1, refBlock);
-  if (!pool) return null;
-
-  const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
-
-  // Clamp at genesis rather than underflowing to a negative block tag.
-  const beforeBlock = refBlock > 0n ? refBlock - 1n : refBlock;
-  const afterBlock = refBlock + 1n;
-
-  const [before, at, after] = await Promise.all([
-    readMidFromPool(readers, pool, dec0, dec1, inverted, beforeBlock),
-    readMidFromPool(readers, pool, dec0, dec1, inverted, refBlock),
-    readMidFromPool(readers, pool, dec0, dec1, inverted, afterBlock),
-  ]);
-
-  return { before, at, after, poolAddress: pool.address, poolKind: pool.kind };
-}
-
 /**
  * Build the live RPC-backed default dependency set (mirrors
  * `createDefaultMidReader`). Constructing this is side-effect-free until the
@@ -340,8 +281,6 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
   return {
     benchmark: getBenchmarkMid,
     getPairMid: (tokenIn, tokenOut, blockNumber) => defaultGetPairMid(poolReaders, tokenIn, tokenOut, blockNumber),
-    getPairMidTriple: (tokenIn, tokenOut, refBlock) =>
-      getPairMidTriple(poolReaders, tokenIn, tokenOut, refBlock),
     getEstimatedMid: (inputToken, outputToken, blockNumber) =>
       getEstimatedMidAtBlock(
         {
@@ -538,7 +477,7 @@ export async function priceReceipt(
     // ── Branch 1: USDC/WETH fast-path — full oracle-validated benchmark ──
     if (isUsdcWethPair(inputToken, outputToken)) {
       // The fast path's marketMid comes from the benchmark's median-of-three
-      // WETH/USDC pools, NOT the single deepest pool `getPairMidTriple` reads —
+      // WETH/USDC pools, NOT a single deepest-pool direct read —
       // so the wings must come from the SAME benchmark apparatus, sampled at the
       // adjacent blocks, or the "deviation between blocks" figure would compare
       // two different price sources (single pool vs. median-of-three) instead of
@@ -601,14 +540,29 @@ export async function priceReceipt(
     }
 
     // ── Generic pair via the single Market Price apparatus ──
-    // Sampled from the same pool as the ruler (marketMid below comes from this
-    // SAME `getMarketPrice`/`getPairMid` apparatus, unlike the fast path).
-    // Never throws: a failure here must degrade the two extra rows, not the
-    // receipt.
-    const triple = await deps
-      .getPairMidTriple(inputToken, outputToken, refBlock)
-      .catch(() => null);
-    const mp = await deps.getMarketPrice(inputToken, outputToken, refBlock);
+    // Option D (2026-08-05 addendum, spec §11.2): the wings are the SAME
+    // composition function as the ruler (`getMarketPrice`), evaluated at the
+    // adjacent blocks — not a single-pool direct read. This is what guarantees
+    // the centre and wings share provenance: a bridged-mid pair's wings are
+    // bridged mids too, never a mismatched direct-pool read.
+    // `getMarketPriceForPair` passes its blockNumber straight to the
+    // estimators with NO internal offset (in deliberate contrast to
+    // `benchmark` above, which samples at blockNumber-1 internally) — so the
+    // wings sample at refBlock-1n / refBlock+1n directly, no `+2n`-style
+    // adjustment. The centre call is intentionally NOT caught here — a failed
+    // ruler must still degrade the WHOLE receipt to partial (see the "never
+    // throws: a throwing getMarketPrice" test); each wing degrades
+    // independently via its own `.catch`. Reuses the one middle call — three
+    // total calls, not four.
+    const [mp, marketMidBefore, marketMidAfter] = await Promise.all([
+      deps.getMarketPrice(inputToken, outputToken, refBlock),
+      deps.getMarketPrice(inputToken, outputToken, refBlock - 1n)
+        .then((r) => r.marketMid)
+        .catch(() => null),
+      deps.getMarketPrice(inputToken, outputToken, refBlock + 1n)
+        .then((r) => r.marketMid)
+        .catch(() => null),
+    ]);
     const anchored = anchorsToUsd(inputToken) || anchorsToUsd(outputToken);
     const methodology = methodologyFor(mp);
 
@@ -618,8 +572,8 @@ export async function priceReceipt(
       return {
         status,
         marketMid: mp.marketMid,
-        marketMidBefore: triple?.before ?? null,
-        marketMidAfter: triple?.after ?? null,
+        marketMidBefore,
+        marketMidAfter,
         notionalUsd,
         inputSymbol, outputSymbol, inputDecimals, outputDecimals,
         chainlinkPrice: null, poolDivergenceBps: null, manipulationFlag: false,

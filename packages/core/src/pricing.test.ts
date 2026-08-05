@@ -29,7 +29,6 @@ function makeDeps(over: Partial<PricingDeps> = {}): PricingDeps {
       throw new Error('benchmark not stubbed');
     },
     getPairMid: async () => null,
-    getPairMidTriple: async () => null,
     getEstimatedMid: async () => null,
     getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] }),
     getUsdValue: async () => null,
@@ -107,13 +106,13 @@ describe('priceReceipt', () => {
   });
 
   // Source-purity invariant: on the fast path, marketMid comes from the
-  // oracle-validated benchmark (median of BENCHMARK_POOLS), NOT the single
-  // deepest pool `getPairMidTriple` reads — so the before/after wings MUST come
-  // from that same benchmark apparatus, sampled at the adjacent blocks, or the
-  // "deviation between blocks" figure silently compares two different price
-  // sources. The two stubs below return clearly distinguishable values (1000 /
-  // 2000 / 3000 vs. 999999) so any crossed wiring fails loudly, not by a few bps.
-  it('fast path: before/after wings come from the benchmark, never from the single-pool triple', async () => {
+  // oracle-validated benchmark (median of BENCHMARK_POOLS) — so the
+  // before/after wings MUST come from that same benchmark apparatus, sampled
+  // at the adjacent blocks, or the "deviation between blocks" figure silently
+  // compares two different price sources. The three stubbed benchmark blocks
+  // return clearly distinguishable values (1000 / 2000 / 3000) so any crossed
+  // wiring fails loudly, not by a few bps.
+  it('fast path: before/after wings come from the benchmark, sampled at adjacent blocks', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: WETH, outputToken: USDC },
       makeDeps({
@@ -123,11 +122,6 @@ describe('priceReceipt', () => {
           if (blockNumber === baseArgs.blockNumber + 1n) return fakeBenchmark({ marketMid: 3000 }); // refBlock+2 -> N
           throw new Error(`unexpected benchmark blockNumber ${blockNumber}`);
         },
-        // Deliberately wrong/distinguishable: if the fast path ever reads from
-        // this instead of the benchmark, the wings below would be 999999.
-        getPairMidTriple: async () => ({
-          before: 999999, at: 999999, after: 999999, poolAddress: '0xdeadpool', poolKind: 'univ3',
-        }),
         getUsdValue: async () => 1000,
       }),
     );
@@ -200,26 +194,80 @@ describe('priceReceipt', () => {
     expect(r.tier).toBe('full'); // the apparatus's own tier is passed through verbatim
   });
 
-  // the three-price receipt: adjacent-block mids ride alongside marketMid
-  it('returns the adjacent-block mids alongside marketMid', async () => {
+  // Option D (2026-08-05 addendum, design spec §11.2): the general path's
+  // wings must be produced by the SAME composition function as the centre
+  // (getMarketPrice), not a direct-pool reader — that's what guarantees the
+  // centre and wings share provenance (a bridged mid's wings are bridged mids
+  // too). Each block returns a clearly distinguishable value (100/200/300) so
+  // any crossed wiring (e.g. a stray single-pool reader) fails loudly, not by
+  // a few bps.
+  it('general path: wings come from the same getMarketPrice composition as the centre', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
       makeDeps({
-        getMarketPrice: async () => ({ tier: 'full', marketMid: 2.1, corroboratedBy: ['direct', 'bridged'], flags: [] }),
-        getPairMidTriple: async () => ({
-          before: 2.0, at: 2.1, after: 2.2, poolAddress: '0xpool', poolKind: 'univ3',
-        }),
+        getMarketPrice: async (_i, _o, blockNumber) => {
+          const refBlock = baseArgs.blockNumber - 1n; // 99n
+          if (blockNumber === refBlock - 1n) return { tier: 'full', marketMid: 100, corroboratedBy: ['direct'], flags: [] }; // N-2
+          if (blockNumber === refBlock) return { tier: 'full', marketMid: 200, corroboratedBy: ['direct'], flags: [] }; // N-1, the ruler
+          if (blockNumber === refBlock + 1n) return { tier: 'full', marketMid: 300, corroboratedBy: ['direct'], flags: [] }; // N
+          throw new Error(`unexpected getMarketPrice blockNumber ${blockNumber}`);
+        },
       }),
     );
-    expect(r.marketMid).toBeCloseTo(2.1, 10);
-    expect(r.marketMidBefore).toBeCloseTo(2.0, 10);
-    expect(r.marketMidAfter).toBeCloseTo(2.2, 10);
+    expect(r.marketMid).toBeCloseTo(200, 10);
+    expect(r.marketMidBefore).toBeCloseTo(100, 10);
+    expect(r.marketMidAfter).toBeCloseTo(300, 10);
+  });
+
+  // Block arithmetic: `getMarketPriceForPair` passes its blockNumber straight
+  // to the estimators with NO internal offset (unlike `benchmark`, which
+  // samples at blockNumber-1 internally) — so the general path must call
+  // getMarketPrice at exactly refBlock-1n / refBlock / refBlock+1n, reusing
+  // the centre call rather than issuing a fourth. An off-by-one here shifts
+  // every rendered row by one block and would look entirely plausible.
+  it('general path: calls getMarketPrice at exactly refBlock-1n, refBlock, refBlock+1n (3 calls, not 4)', async () => {
+    const seenBlocks: bigint[] = [];
+    await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({
+        getMarketPrice: async (_i, _o, blockNumber) => {
+          seenBlocks.push(blockNumber);
+          return { tier: 'full', marketMid: 1, corroboratedBy: ['direct'], flags: [] };
+        },
+      }),
+    );
+    const refBlock = baseArgs.blockNumber - 1n; // 99n
+    expect(seenBlocks).toHaveLength(3);
+    const sorted = [...seenBlocks].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    expect(sorted).toEqual([refBlock - 1n, refBlock, refBlock + 1n]);
+  });
+
+  // Prior-reviewer follow-up: a null centre must null BOTH wings, even when
+  // the wing blocks would themselves resolve to a real mid — partial() hard-
+  // codes marketMidBefore/After to null on every partial-tier return, and
+  // that must hold regardless of what the wing calls returned.
+  it('nulls both wings when the centre has no mid, even if the wing blocks would resolve', async () => {
+    const refBlock = baseArgs.blockNumber - 1n; // 99n
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({
+        getMarketPrice: async (_i, _o, blockNumber) => {
+          if (blockNumber === refBlock) return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'] };
+          // Wings WOULD resolve if the centre didn't gate them.
+          return { tier: 'full', marketMid: 42, corroboratedBy: ['direct'], flags: [] };
+        },
+      }),
+    );
+    expect(r.status).toBe('partial');
+    expect(r.marketMid).toBeNull();
+    expect(r.marketMidBefore).toBeNull();
+    expect(r.marketMidAfter).toBeNull();
   });
 
   it('leaves the adjacent mids null on the partial path', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B, inputAmountRaw: 0n, outputAmountRaw: 0n },
-      makeDeps(), // getMarketPrice -> none, getPairMidTriple -> null
+      makeDeps(), // getMarketPrice -> none
     );
     expect(r.status).toBe('partial');
     expect(r.marketMid).toBeNull();
@@ -622,77 +670,5 @@ describe('impliedOracleRatio', () => {
     expect(impliedOracleRatio(null, 50000)).toBeNull();
     expect(impliedOracleRatio(2000, null)).toBeNull();
     expect(impliedOracleRatio(2000, 0)).toBeNull();
-  });
-});
-
-// ── getPairMidTriple: one pool, three adjacent blocks ───────────────────────
-describe('getPairMidTriple', () => {
-  const POOL = { address: '0xpool', kind: 'univ3' };
-  // token0 < token1 so `inverted` is false and the raw price passes through.
-  const TOKEN_IN = '0x1111111111111111111111111111111111111111';
-  const TOKEN_OUT = '0x2222222222222222222222222222222222222222';
-
-  function makeReaders(slot0ByBlock: Record<string, bigint | null>) {
-    const calls = { getDeepestPool: 0, readSlot0: [] as bigint[] };
-    return {
-      calls,
-      readers: {
-        getDeepestPool: async () => { calls.getDeepestPool++; return POOL; },
-        readDecimals: async () => 18,
-        readSlot0: async (_addr: string, blk: bigint) => {
-          calls.readSlot0.push(blk);
-          return slot0ByBlock[String(blk)] ?? null;
-        },
-        readLiquidity: async () => 10n ** 18n,
-        readV2Reserves: async () => null,
-      } as never,
-    };
-  }
-
-  // 2^96 = a price of exactly 1.0 at equal decimals.
-  const Q96 = 2n ** 96n;
-
-  it('resolves the pool ONCE and reads state at N-2, N-1 and N', async () => {
-    const { readers, calls } = makeReaders({ '98': Q96, '99': Q96, '100': Q96 });
-    const { getPairMidTriple } = await import('./pricing.js');
-    const triple = await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 99n);
-
-    // The invariant this whole feature rests on: one discovery, three reads.
-    // Re-discovering per block could rank a different pool at a different
-    // block, making the dispersion figure spatial rather than temporal.
-    expect(calls.getDeepestPool).toBe(1);
-    expect(calls.readSlot0).toEqual([98n, 99n, 100n]);
-    expect(triple?.poolAddress).toBe('0xpool');
-    expect(triple?.at).toBeCloseTo(1, 10);
-  });
-
-  it('returns null for an individual block that cannot be read, not for the whole triple', async () => {
-    const { readers } = makeReaders({ '98': null, '99': Q96, '100': Q96 });
-    const { getPairMidTriple } = await import('./pricing.js');
-    const triple = await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 99n);
-
-    expect(triple).not.toBeNull();
-    expect(triple?.before).toBeNull();
-    expect(triple?.at).toBeCloseTo(1, 10);
-    expect(triple?.after).toBeCloseTo(1, 10);
-  });
-
-  it('returns null when the pool cannot be resolved at all', async () => {
-    const { getPairMidTriple } = await import('./pricing.js');
-    const readers = {
-      getDeepestPool: async () => null,
-      readDecimals: async () => 18,
-      readSlot0: async () => null,
-      readLiquidity: async () => null,
-      readV2Reserves: async () => null,
-    } as never;
-    expect(await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 99n)).toBeNull();
-  });
-
-  it('never reads a negative block number', async () => {
-    const { readers, calls } = makeReaders({ '0': Q96, '1': Q96 });
-    const { getPairMidTriple } = await import('./pricing.js');
-    await getPairMidTriple(readers, TOKEN_IN, TOKEN_OUT, 0n);
-    expect(calls.readSlot0.every((b) => b >= 0n)).toBe(true);
   });
 });
