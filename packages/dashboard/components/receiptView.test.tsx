@@ -960,15 +960,22 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		expect(html).not.toContain('Size');  // Size replaced by Execution Delta when anchored
 	});
 
-	it('reconciles: Execution Delta magnitude = per-base delta × base amount', async () => {
+	it('agrees on direction: Price Delta (token) and Execution Delta (USD) both say "below"', async () => {
+		// NOTE: prior to Task 8, this test was named 'reconciles: Execution Delta
+		// magnitude = per-base delta × base amount' and asserted a numeric tie
+		// between the two rows' magnitudes — valid when both were USD-denominated.
+		// Since Task 8 moved Price Delta into the notional-free Price Range section,
+		// it renders in the quote token (ETH) while Execution Delta stays in USD
+		// (top block); the two no longer share a unit, so no magnitude reconciles
+		// across them. What still holds, and is what this test checks now, is that
+		// both rows agree on DIRECTION — same sign, same underlying gain, just two
+		// different denominations of it.
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
-		// Price Delta lives in the notional-free Price Range section (Task 8), so it
-		// states the gap in the quote token (ETH) — 0.0892 ETH below the mid, per WBTC.
+		// Price Delta: per-unit gap in the quote token (ETH), per 1 WBTC.
 		expect(html).toContain('WBTC bought at 0.0892 ETH below Market Price');
 		expect(html).toContain('per 1 WBTC');
-		// Execution Delta states the SAME direction on the whole-trade magnitude, in USD —
-		// it lives in the top block, which keeps its USD.
+		// Execution Delta: whole-trade gap in USD — same direction, top block.
 		expect(html).toContain('WBTC bought at $4.57 below Market Price');
 		expect(html).toContain('Per 1 ETH');
 	});
@@ -980,6 +987,10 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		// or Market Price, and Price Delta states its gap in the quote token.
 		const priceRange = html.indexOf('>Price Range<');
 		const txCost = html.indexOf('>Transaction Cost<');
+		// Guard against a vacuous pass: if either heading vanished, indexOf
+		// returns -1 and slice(-1, -1) would yield '', matching not.toMatch trivially.
+		expect(priceRange).toBeGreaterThan(-1);
+		expect(txCost).toBeGreaterThan(-1);
 		const section = html.slice(priceRange, txCost);
 		expect(section).not.toMatch(/\$[0-9]/);
 		expect(html).toContain('34.934 ETH = 1 WBTC'); // token-denominated main lines preserved
@@ -2011,6 +2022,40 @@ describe('Price Range section (Figma 647-3415)', () => {
 		expect(html).toContain('Price deviates 1.13bps between blocks.');
 	});
 
+	it('renders the manipulation badge in the At Block cell when flagged', async () => {
+		// Restored by Task 8 when the swap to MarketPriceTable silently dropped it;
+		// coverage previously lived only in tradesTable.test.tsx, which is exactly
+		// how it got lost in the first place. Pin it here too, and pin WHERE it
+		// renders (At Block, not Before/After) so a future reorder can't hide it.
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...tripleMidRow, manipulationFlag: true } as never} />,
+		);
+		const at = html.indexOf('>At Block<');
+		expect(at).toBeGreaterThan(-1);
+		const atRowStart = html.lastIndexOf('<div', at);
+		const atRowEnd = html.indexOf('</div>', at) + '</div>'.length;
+		const atRowHtml = html.slice(atRowStart, atRowEnd);
+		expect(atRowHtml).toContain('Possible manipulation');
+
+		// Not a stray match elsewhere — the neighbouring Before/After rows stay clean.
+		const before = html.indexOf('>Before Block<');
+		const beforeRowStart = html.lastIndexOf('<div', before);
+		const beforeRowEnd = html.indexOf('</div>', before) + '</div>'.length;
+		expect(html.slice(beforeRowStart, beforeRowEnd)).not.toContain('Possible manipulation');
+
+		const after = html.indexOf('>After Block<');
+		const afterRowStart = html.lastIndexOf('<div', after);
+		const afterRowEnd = html.indexOf('</div>', after) + '</div>'.length;
+		expect(html.slice(afterRowStart, afterRowEnd)).not.toContain('Possible manipulation');
+	});
+
+	it('renders no manipulation badge when the flag is unset', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
+		expect(html).not.toContain('Possible manipulation');
+	});
+
 	it('omits the dispersion clause when a block is missing', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
@@ -2024,6 +2069,10 @@ describe('Price Range section (Figma 647-3415)', () => {
 		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
 		const priceRange = html.indexOf('>Price Range<');
 		const txCost = html.indexOf('>Transaction Cost<');
+		// Guard against a vacuous pass: if either heading vanished, indexOf
+		// returns -1 and slice(-1, -1) would yield '', matching not.toMatch trivially.
+		expect(priceRange).toBeGreaterThan(-1);
+		expect(txCost).toBeGreaterThan(-1);
 		const section = html.slice(priceRange, txCost);
 		// Price Range is deliberately notional-free across all tiers. The top
 		// block keeps its USD; this section must not.
