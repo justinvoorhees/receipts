@@ -51,6 +51,12 @@ export const receipts = pgTable(
 		notionalUsd: numeric('notional_usd'),
 		realizedPrice: numeric('realized_price'),
 		marketMid: numeric('market_mid'),
+		// Mid at the two blocks adjacent to the ruler, for the receipt's intra-block
+		// table. Same display orientation as marketMid (toDisplayPrice), same
+		// midReliable gate — a partially-populated triple is not a valid state.
+		// before = N-2, marketMid = N-1 (the ruler, "At Block"), after = N.
+		marketMidBefore: numeric('market_mid_before'),
+		marketMidAfter: numeric('market_mid_after'),
 		allInCostBps: numeric('all_in_cost_bps'),
 		pricingStatus: text('pricing_status').notNull(), // 'full' | 'partial'
 		// single Market Price apparatus (Phase 2): tier = full|estimated|none,
