@@ -15,6 +15,7 @@ import {
 	legPairContext,
 	getStepContext,
 } from './receiptDisplay';
+import { MARKET_PRICE_BLOCK_LABELS } from './priceDispersion';
 
 /**
  * The dark hover bubble every tooltip on the receipt shares. `align` picks the edge
@@ -475,10 +476,11 @@ export function MarketPriceTable({
 }) {
 	const SEC = 'var(--color-secondary)';
 	const PRI = 'var(--color-primary)';
+	const [beforeLabel, atLabel, afterLabel] = MARKET_PRICE_BLOCK_LABELS;
 	const rows: [string, React.ReactNode, string][] = [
-		['Before Block', before, SEC],
-		['At Block', at, PRI],
-		['After Block', after, SEC],
+		[beforeLabel, before, SEC],
+		[atLabel, at, PRI],
+		[afterLabel, after, SEC],
 	];
 	return (
 		<div className="flex items-start justify-between text-[12px] leading-[12px]">
