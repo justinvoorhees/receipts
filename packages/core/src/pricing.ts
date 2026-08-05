@@ -535,22 +535,42 @@ export async function priceReceipt(
       safeDecimals(deps.readDecimals, outputToken),
     ]);
 
-    // Sampled from the same pool as the ruler. Never throws: a failure here must
-    // degrade the two extra rows, not the receipt.
-    const triple = await deps
-      .getPairMidTriple(inputToken, outputToken, refBlock)
-      .catch(() => null);
-
     // ── Branch 1: USDC/WETH fast-path — full oracle-validated benchmark ──
     if (isUsdcWethPair(inputToken, outputToken)) {
-      const bench = await deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber });
-      // bench.marketMid is USDC-per-WETH. We want output-per-input.
+      // The fast path's marketMid comes from the benchmark's median-of-three
+      // WETH/USDC pools, NOT the single deepest pool `getPairMidTriple` reads —
+      // so the wings must come from the SAME benchmark apparatus, sampled at the
+      // adjacent blocks, or the "deviation between blocks" figure would compare
+      // two different price sources (single pool vs. median-of-three) instead of
+      // the same source across time. `getBenchmarkMid` samples at
+      // `blockNumber - 1` internally, and `refBlock` is already `blockNumber - 1`
+      // (N-1), so: refBlock → N-2, refBlock+1 (== blockNumber) → N-1 (the ruler,
+      // reused below as `bench`), refBlock+2 → N. Each wing degrades to null
+      // independently on failure; the center call is intentionally NOT caught
+      // here — a failed ruler must still degrade the WHOLE receipt to partial
+      // (see the "never throws: a throwing benchmark" test), unchanged from
+      // before this fix.
+      const [bench, rawBeforeWethUsd, rawAfterWethUsd] = await Promise.all([
+        deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber }),
+        deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber: refBlock })
+          .then((b) => b.marketMid)
+          .catch(() => null),
+        deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber: refBlock + 2n })
+          .then((b) => b.marketMid)
+          .catch(() => null),
+      ]);
+      // bench.marketMid is USDC-per-WETH. We want output-per-input — same
+      // orientation must apply to the wings or they render upside down.
       const wethUsd = bench.marketMid;
-      const marketMid = isWeth(inputToken)
-        ? wethUsd // WETH in, USDC out
-        : wethUsd > 0
-          ? 1 / wethUsd // USDC in, WETH out
-          : null;
+      const orient = (usdcPerWeth: number | null): number | null => {
+        if (usdcPerWeth == null) return null;
+        return isWeth(inputToken)
+          ? usdcPerWeth // WETH in, USDC out
+          : usdcPerWeth > 0
+            ? 1 / usdcPerWeth // USDC in, WETH out
+            : null;
+      };
+      const marketMid = orient(wethUsd);
       const notionalUsd = await bestEffortNotional(deps, args, refBlock, wethUsd);
       const oracleDisagreed = bench.flags.includes('ORACLE_DISAGREE');
       const fastPathTier = oracleDisagreed ? 'estimated' : 'full';
@@ -560,8 +580,8 @@ export async function priceReceipt(
       return {
         status: fastPathTier,
         marketMid,
-        marketMidBefore: triple?.before ?? null,
-        marketMidAfter: triple?.after ?? null,
+        marketMidBefore: orient(rawBeforeWethUsd),
+        marketMidAfter: orient(rawAfterWethUsd),
         notionalUsd,
         inputSymbol,
         outputSymbol,
@@ -581,6 +601,13 @@ export async function priceReceipt(
     }
 
     // ── Generic pair via the single Market Price apparatus ──
+    // Sampled from the same pool as the ruler (marketMid below comes from this
+    // SAME `getMarketPrice`/`getPairMid` apparatus, unlike the fast path).
+    // Never throws: a failure here must degrade the two extra rows, not the
+    // receipt.
+    const triple = await deps
+      .getPairMidTriple(inputToken, outputToken, refBlock)
+      .catch(() => null);
     const mp = await deps.getMarketPrice(inputToken, outputToken, refBlock);
     const anchored = anchorsToUsd(inputToken) || anchorsToUsd(outputToken);
     const methodology = methodologyFor(mp);

@@ -106,6 +106,36 @@ describe('priceReceipt', () => {
     expect(r.methodology).toBe('Verified: The median of three WETH/USDC pool prices agrees with the oracle reference.');
   });
 
+  // Source-purity invariant: on the fast path, marketMid comes from the
+  // oracle-validated benchmark (median of BENCHMARK_POOLS), NOT the single
+  // deepest pool `getPairMidTriple` reads — so the before/after wings MUST come
+  // from that same benchmark apparatus, sampled at the adjacent blocks, or the
+  // "deviation between blocks" figure silently compares two different price
+  // sources. The two stubs below return clearly distinguishable values (1000 /
+  // 2000 / 3000 vs. 999999) so any crossed wiring fails loudly, not by a few bps.
+  it('fast path: before/after wings come from the benchmark, never from the single-pool triple', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: WETH, outputToken: USDC },
+      makeDeps({
+        benchmark: async ({ blockNumber }) => {
+          if (blockNumber === baseArgs.blockNumber - 1n) return fakeBenchmark({ marketMid: 1000 }); // refBlock -> N-2
+          if (blockNumber === baseArgs.blockNumber) return fakeBenchmark({ marketMid: 2000 }); // ruler, N-1
+          if (blockNumber === baseArgs.blockNumber + 1n) return fakeBenchmark({ marketMid: 3000 }); // refBlock+2 -> N
+          throw new Error(`unexpected benchmark blockNumber ${blockNumber}`);
+        },
+        // Deliberately wrong/distinguishable: if the fast path ever reads from
+        // this instead of the benchmark, the wings below would be 999999.
+        getPairMidTriple: async () => ({
+          before: 999999, at: 999999, after: 999999, poolAddress: '0xdeadpool', poolKind: 'univ3',
+        }),
+        getUsdValue: async () => 1000,
+      }),
+    );
+    expect(r.marketMid).toBeCloseTo(2000, 6);
+    expect(r.marketMidBefore).toBeCloseTo(1000, 6);
+    expect(r.marketMidAfter).toBeCloseTo(3000, 6);
+  });
+
   it('USDC/WETH fast-path downgrades to estimated when the oracle disagrees', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: WETH, outputToken: USDC },
