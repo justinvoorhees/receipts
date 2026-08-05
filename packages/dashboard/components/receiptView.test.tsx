@@ -1920,13 +1920,33 @@ describe('MarketPriceTable (Figma 647-3599)', () => {
 		expect(html).toContain('>Market Price<');
 
 		// At Block is the ruler — the only row in primary, its neighbours secondary.
+		// Extract each row's markup to verify its specific color.
 		const before = html.indexOf('>Before Block<');
 		const at = html.indexOf('>At Block<');
 		const after = html.indexOf('>After Block<');
 		expect(before).toBeLessThan(at);
 		expect(at).toBeLessThan(after);
-		expect(html.slice(before, at)).toContain('--color-secondary');
-		expect(html.slice(at, after)).toContain('--color-primary');
+
+		// Extract "Before Block" row: find the div that wraps it
+		const beforeRowStart = html.lastIndexOf('<div', before);
+		const beforeRowEnd = html.indexOf('</div>', before) + '</div>'.length;
+		const beforeRowHtml = html.slice(beforeRowStart, beforeRowEnd);
+		expect(beforeRowHtml).toContain('--color-secondary');
+		expect(beforeRowHtml).not.toContain('--color-primary');
+
+		// Extract "At Block" row: find the div that wraps it
+		const atRowStart = html.lastIndexOf('<div', at);
+		const atRowEnd = html.indexOf('</div>', at) + '</div>'.length;
+		const atRowHtml = html.slice(atRowStart, atRowEnd);
+		expect(atRowHtml).toContain('--color-primary');
+		expect(atRowHtml).not.toContain('--color-secondary');
+
+		// Extract "After Block" row: find the div that wraps it
+		const afterRowStart = html.lastIndexOf('<div', after);
+		const afterRowEnd = html.indexOf('</div>', after) + '</div>'.length;
+		const afterRowHtml = html.slice(afterRowStart, afterRowEnd);
+		expect(afterRowHtml).toContain('--color-secondary');
+		expect(afterRowHtml).not.toContain('--color-primary');
 	});
 
 	it('renders whatever the caller passes for an unreadable block', async () => {
