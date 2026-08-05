@@ -33,8 +33,15 @@ export function computeAggFee(args: {
 	structuralFloor: number;
 	realizedPrice: number;
 	notionalUsdc: number;
+	/** The transaction submitter, when it is NOT the trader — an ERC-4337 bundler
+	 *  or a relayer. The EntryPoint reimburses it in native ETH for gas, which the
+	 *  retained-balance branch below would otherwise book as a third-party fee,
+	 *  charging the trader for gas twice (it is already counted in gasCostUsd).
+	 *  Omitted → no exclusion, i.e. pre-existing behavior. */
+	gasPayer?: string;
 }): { aggFeeBps: number; feeSinks: FeeSink[]; vaultMapFeeUsdc: number; flags: string[] } {
 	const { transfers, addrDeltas, isInfra, knownVaults, dustUsdc, structuralFloor, realizedPrice, notionalUsdc } = args;
+	const gasPayer = args.gasPayer?.toLowerCase();
 	const flags: string[] = [];
 
 	// Build per-address third-token position: tracks whether an address moved
@@ -56,6 +63,7 @@ export function computeAggFee(args: {
 
 	for (const [addr, delta] of addrDeltas) {
 		if (isInfra(addr)) continue;
+		if (gasPayer && addr.toLowerCase() === gasPayer) continue;
 		if (addr === USDC || addr === WETH) continue;
 
 		// Net retained value — combine USDC + WETH@realized + nativeETH@realized

@@ -74,6 +74,10 @@ export interface DecomposeTradeInput {
 	trace: TraceNode;
 	txHash: `0x${string}`;
 	trader: string;                // lowercase
+	/** Transaction submitter when it is NOT the trader (ERC-4337 bundler,
+	 *  relayer). Excluded from fee sinks — its native credit is a gas
+	 *  reimbursement, already counted in gasCostUsd. Omit → today's behavior. */
+	gasPayer?: string;
 	allInCostBps: number;
 	notionalUsdc: number;          // |USDC amount| in human units
 	realizedPrice: number;         // USDC per WETH
@@ -226,6 +230,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 	);
 	const aggFee = computeAggFee({
 		transfers, addrDeltas, isInfra, knownVaults,
+		...(input.gasPayer ? { gasPayer: input.gasPayer } : {}),
 		dustUsdc, structuralFloor,
 		realizedPrice: input.realizedPrice,
 		notionalUsdc: input.notionalUsdc,

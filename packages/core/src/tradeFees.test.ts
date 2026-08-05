@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dropLpSideSinks, type FeeSink } from './tradeFees.js';
+import { computeAggFee, dropLpSideSinks, type FeeSink } from './tradeFees.js';
 
 const sink = (address: string, totalUsdc: number): FeeSink => ({
 	address,
@@ -68,5 +68,48 @@ describe('dropLpSideSinks', () => {
 	it('yields 0 rather than NaN/Infinity on a zero notional', () => {
 		const r = dropLpSideSinks([sink(RFQ_MAKER, 6.99)], new Set(), 0);
 		expect(r.aggFeeBps).toBe(0);
+	});
+});
+
+// ─── computeAggFee: the gas payer is not a fee sink ───
+//
+// In an ERC-4337 transaction the EntryPoint reimburses the BUNDLER in native
+// ETH. The retained-balance branch saw a small native credit and booked it as a
+// third-party fee, so the bundler's gas reimbursement was charged to the trader
+// twice — once here and once in gasCostUsd. Numbers below are the real ones from
+// Relay tx 0x30e83971… (10 EURC -> 11.528847 USDC).
+describe('computeAggFee — gas payer exclusion', () => {
+	const BUNDLER = '0x43370351c9a297bf8377ca1e46576401a9ac4bba';
+	const RELAY_FEE_SINK = '0xf70da97812cb96acdf810712aa562db8dfa3dbef';
+	const base = {
+		transfers: [],
+		isInfra: () => false,
+		knownVaults: new Set<string>(),
+		dustUsdc: 0.0001,
+		structuralFloor: 0.001,
+		realizedPrice: 1896,
+		notionalUsdc: 11.528847,
+	};
+	const deltas = () =>
+		new Map([
+			[BUNDLER, { usdc: 0, weth: 0, nativeEth: 0.0000042755784 }], // gas reimbursement
+			[RELAY_FEE_SINK, { usdc: 0.017275, weth: 0, nativeEth: 0 }], // real ~15bps fee
+		]);
+
+	it('books both sinks when no gas payer is given (unchanged behavior)', () => {
+		const r = computeAggFee({ ...base, addrDeltas: deltas() });
+		expect(r.feeSinks.map((s) => s.address).sort()).toEqual([BUNDLER, RELAY_FEE_SINK].sort());
+		expect(r.aggFeeBps).toBeCloseTo(22.01, 1);
+	});
+
+	it('excludes the gas payer, leaving only the real fee sink', () => {
+		const r = computeAggFee({ ...base, addrDeltas: deltas(), gasPayer: BUNDLER });
+		expect(r.feeSinks.map((s) => s.address)).toEqual([RELAY_FEE_SINK]);
+		expect(r.aggFeeBps).toBeCloseTo(14.98, 1);
+	});
+
+	it('excludes whichever address is named as the gas payer', () => {
+		const r = computeAggFee({ ...base, addrDeltas: deltas(), gasPayer: RELAY_FEE_SINK });
+		expect(r.feeSinks.map((s) => s.address)).toEqual([BUNDLER]);
 	});
 });
