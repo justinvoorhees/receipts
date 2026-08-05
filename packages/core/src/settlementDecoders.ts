@@ -29,6 +29,65 @@ export function decodeUniswapXBeneficiary(
 	return topicToAddress(fills[0]!.topics[3]!);
 }
 
+/** ERC-4337 EntryPoint: `UserOperationEvent(bytes32 indexed userOpHash,
+ *  address indexed sender, address indexed paymaster, uint256 nonce, bool
+ *  success, uint256 actualGasCost, uint256 actualGasUsed)`. `sender` is the
+ *  smart account whose operation this is — the trade's beneficiary. The first
+ *  three args are indexed, so `sender` is topics[2] with no data decode.
+ *  Identical ABI across EntryPoint v0.6/v0.7, so one topic0 covers both. */
+export const USEROP_TOPIC0 = '0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f';
+
+/**
+ * Lowercased UserOperation sender iff exactly one UserOperationEvent was emitted
+ * by a known EntryPoint; else null.
+ *
+ * Keyed off the LOG EMITTER being an allowlisted EntryPoint, not tx.to, so a
+ * bundler-owned wrapper contract that calls `handleOps` internally still
+ * matches — and so an arbitrary contract cannot mint a beneficiary by replaying
+ * the topic (same discipline as the reactor allowlist).
+ *
+ * A bundle carrying more than one UserOperation is deliberately out of scope:
+ * the receipt describes ONE trade, and picking among several senders would be a
+ * guess. Fail closed and let the caller fall through.
+ */
+export function decodeErc4337Beneficiary(
+	logs: readonly LogLite[],
+	entryPoints: ReadonlySet<string>,
+): string | null {
+	const ops = logs.filter(
+		(l) => l.topics[0] === USEROP_TOPIC0 && l.topics.length >= 3 && entryPoints.has(l.address.toLowerCase()),
+	);
+	if (ops.length !== 1) return null; // 0 = not a UserOp tx; >1 = bundle (out of scope)
+	return topicToAddress(ops[0]!.topics[2]!);
+}
+
+export interface EntryPointsConfig {
+	_comment: string;
+	chainId: number;
+	entryPoints: string[];
+}
+
+export function parseEntryPoints(json: string): Set<string> {
+	const parsed = JSON.parse(json) as Partial<EntryPointsConfig>;
+	const out = new Set<string>();
+	for (const a of parsed.entryPoints ?? []) out.add(a.toLowerCase());
+	return out;
+}
+
+/** Load the EntryPoint allowlist; degrade to an empty set on any error (never
+ *  throw) — matches loadReactors, so a missing config disables re-anchoring
+ *  rather than failing the whole receipt. */
+export async function loadEntryPoints(path: string): Promise<Set<string>> {
+	try {
+		return parseEntryPoints(await readFile(path, 'utf8'));
+	} catch (err) {
+		console.warn(
+			`[settlementDecoders] could not load ${path} — ERC-4337 trades will not re-anchor: ${err instanceof Error ? err.message : String(err)}`,
+		);
+		return new Set();
+	}
+}
+
 export interface ReactorsConfig {
 	_comment: string;
 	generatedAt: string;

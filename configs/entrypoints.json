@@ -1,0 +1,10 @@
+{
+	"_comment": "HUMAN-CURATED ERC-4337 EntryPoint allowlist for Base (chain 8453). An entry here lets a transaction's UserOperationEvent re-anchor the receipt on the smart account named by `sender`, so a wrong address would let any contract mint a beneficiary by replaying topic0 (0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f) — the same rule applied to reactors.json and the aggregator router allowlists. Every address below was verified on Base directly: bytecode present AND actively emitting that topic0 (v0.6 / v0.7 / v0.8 observed at 5516 / 6733 / 348 events across a ~900-block window at head 49585778). The UserOperationEvent ABI is identical across v0.6 and v0.7, so one topic0 covers all entries. Do not append an address without repeating that on-chain verification.",
+	"verifiedAt": "2026-08-05T00:00:00.000Z",
+	"chainId": 8453,
+	"entryPoints": [
+		"0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
+		"0x0000000071727de22e5e9d8baf0edac6f37da032",
+		"0x4337084d9e255ff0702461cf8895ce9e3b5ff108"
+	]
+}

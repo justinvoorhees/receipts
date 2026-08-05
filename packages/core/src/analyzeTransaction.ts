@@ -33,11 +33,12 @@ import { resolveAggregator } from './resolveAggregator.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveTrader, anchorFlags, type Anchor } from './resolveTrader.js';
-import { loadReactors } from './settlementDecoders.js';
+import { loadReactors, loadEntryPoints } from './settlementDecoders.js';
 import { extractFrameChains } from './legFrameChains.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REACTORS = await loadReactors(path.resolve(__dirname, '../../../configs/reactors.json'));
+const ENTRY_POINTS = await loadEntryPoints(path.resolve(__dirname, '../../../configs/entrypoints.json'));
 
 import { WETH, NATIVE, baseIsOutputLeg } from './receiptPure.js';
 
@@ -267,6 +268,7 @@ export async function analyzeTransaction(
 			txFrom: tx.from,
 			logs: receiptLogs,
 			reactors: REACTORS,
+			entryPoints: ENTRY_POINTS,
 			isEoa,
 		});
 		if (!resolved) return null;
