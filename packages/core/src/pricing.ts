@@ -163,6 +163,42 @@ export interface PoolMidReaders {
 }
 
 /**
+ * Read one pool's mid at one block. Split out of defaultGetPairMid so the
+ * three-block sampler can reuse an ALREADY-RESOLVED pool rather than
+ * re-discovering per block — re-discovery could rank a different pool at a
+ * different block, which would make the receipt's "deviation between blocks"
+ * measure space instead of time.
+ *
+ * `inverted` is the caller's tokenIn > tokenOut ordering, not a pool property.
+ */
+async function readMidFromPool(
+  readers: PoolMidReaders,
+  pool: { address: string; kind: string },
+  dec0: number,
+  dec1: number,
+  inverted: boolean,
+  blockNumber: bigint,
+): Promise<number | null> {
+  let rawPrice: number; // token1 per token0
+
+  if (mechanismForKind(pool.kind as PoolKind) === 'v2-reserves') {
+    const reserves = await readers.readV2Reserves(pool.address, blockNumber);
+    if (reserves === null || reserves[0] === 0n || reserves[1] === 0n) return null;
+    rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
+  } else {
+    const sqrtPriceX96 = await readers.readSlot0(pool.address, blockNumber);
+    if (sqrtPriceX96 === null) return null;
+    if (sqrtPriceX96 <= MIN_SQRT_RATIO + 1n || sqrtPriceX96 >= MAX_SQRT_RATIO - 1n) return null;
+    const liquidity = await readers.readLiquidity(pool.address, blockNumber);
+    if (liquidity === null || liquidity < ESTIMATED_MID_MIN_LIQUIDITY) return null;
+    rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1);
+  }
+
+  const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
+  return price > 0 ? price : null;
+}
+
+/**
  * Compute an arbitrary-pair mid from the deepest on-chain pool.
  *
  * `getDeepestPoolForPair` can return either a V3-style pool (mid via `slot0`)
@@ -192,32 +228,8 @@ export async function defaultGetPairMid(
   if (!pool) return null;
 
   const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
-  let rawPrice: number; // token1 per token0
-
-  if (mechanismForKind(pool.kind as PoolKind) === 'v2-reserves') {
-    const reserves = await readers.readV2Reserves(pool.address, blockNumber);
-    // Deliberate asymmetry vs the V3 branch below: this only rejects a literal
-    // zero reserve, no depth floor beyond that. Harmless today because
-    // ESTIMATED_MID_MIN_LIQUIDITY is 1n — revisit if that floor is ever raised,
-    // to decide whether basic-AMM direct mids need an equivalent depth guard.
-    if (reserves === null || reserves[0] === 0n || reserves[1] === 0n) return null;
-    rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
-  } else {
-    const sqrtPriceX96 = await readers.readSlot0(pool.address, blockNumber);
-    if (sqrtPriceX96 === null) return null;
-
-    // Reject an empty / one-sided pool: its slot0 price is a garbage extreme, not
-    // a usable mid. Two signals — a price pinned at a tick boundary, or liquidity
-    // below the floor. Returning null here lets priceReceipt fall through to the
-    // bridged `estimated` mid instead of quoting a bogus `full` mid.
-    if (sqrtPriceX96 <= MIN_SQRT_RATIO + 1n || sqrtPriceX96 >= MAX_SQRT_RATIO - 1n) return null;
-    const liquidity = await readers.readLiquidity(pool.address, blockNumber);
-    if (liquidity === null || liquidity < ESTIMATED_MID_MIN_LIQUIDITY) return null;
-    rawPrice = sqrtPriceX96ToPrice(sqrtPriceX96, dec0, dec1);
-  }
-
-  const price = inverted ? (rawPrice > 0 ? 1 / rawPrice : 0) : rawPrice;
-  if (!(price > 0)) return null;
+  const price = await readMidFromPool(readers, pool, dec0, dec1, inverted, blockNumber);
+  if (price === null) return null;
   return { price, poolAddress: pool.address, poolKind: pool.kind };
 }
 
