@@ -131,6 +131,40 @@ one. Omit rather than narrow.
 
 ## 4. The dispersion figure
 
+> **⚠️ SUPERSEDED (2026-08-05).** The population-σ formula and the
+> `Price deviates Xbps between blocks.` caption described below were replaced on
+> `fix/price-range-max-step-dispersion`. Do not re-derive the σ formula from this
+> section — it is historical record only.
+>
+> **New formula and caption:** a signed **max single-step** figure — whichever of
+> the two adjacent block-to-block steps (`Before Block → At Block` or
+> `At Block → After Block`), both normalized against the **At Block** mid, has the
+> larger magnitude — rendered as e.g.
+> `Price moved +3.96bps from At Block to After Block.`
+>
+> **Why:** the σ formula diluted a real single-block move into a smaller, unsigned,
+> unlabeled figure. Concretely, receipt 543 had a real 3.96bps move (At Block →
+> After Block) that the σ formula reported as 1.87bps — direction lost, magnitude
+> shrunk, and no indication of which block pair moved.
+>
+> **Sign convention (intentional exception, not an inconsistency):** the new caption
+> signs both directions — `+3.96bps` / `-1.68bps`. This does **not** match this
+> codebase's `formatDialogBps` helper (`receiptDisplay.tsx:91-97`), which strips the
+> sign from negative values entirely (renders bare `1.00bps`, not `-1.00bps` — see
+> the comment at `receiptDisplay.tsx:242-244` and the test at
+> `tradesTable.test.tsx:469`). That stripped-sign convention is correct for
+> `formatDialogBps`'s callers, where sign is carried by color/label elsewhere. It is
+> deliberately **not** reused here: direction is the entire point of a
+> step-between-two-blocks figure, and an unsigned caption would reintroduce the "no
+> direction" defect this change exists to fix. Do not "fix" the Price Range caption
+> to strip its sign to match `formatDialogBps`, and do not cite the implementation
+> plan's now-corrected claim (it originally asserted the two conventions matched) as
+> precedent for either convention.
+>
+> See `docs/superpowers/plans/2026-08-05-price-range-max-step-dispersion.md` for the
+> full implementation plan. The rest of this section is left as-is below — it is
+> historical record of the original design and its reasoning, not current behavior.
+
 The descriptor sentence gains a final clause:
 
 > Verified: The direct-pool price and oracle reference agree. **Price deviates
