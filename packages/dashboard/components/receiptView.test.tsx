@@ -1976,6 +1976,27 @@ describe('MarketPriceTable (Figma 647-3599)', () => {
 		expect(html).toContain('–');
 		expect(html).not.toContain('0.0000');
 	});
+
+	it('never wraps a value, however long the pair makes it', async () => {
+		// Figma 647-3599 sized the value column to its own example string —
+		// "35.0269 ETH = 1 WBTC" is exactly 20 chars ≈ 144px — so a hard
+		// w-[144px] wraps every longer real value onto a second line. Observed
+		// in the browser on receipt 397, whose cbBTC/USDC value needs ~180px.
+		// jsdom does no layout, so this asserts the mechanism rather than the
+		// pixels: nowrap present, and the width a floor rather than a cap.
+		const { MarketPriceTable } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MarketPriceTable
+				before="63598.6719 USDC = 1 cbBTC"
+				at="63552.5227 USDC = 1 cbBTC"
+				after="63595.2759 USDC = 1 cbBTC"
+			/>,
+		);
+		expect(html).toContain('whitespace-nowrap');
+		expect(html).toContain('min-w-[144px]');
+		// A fixed width on the value cell is the defect itself.
+		expect(html).not.toContain('"w-[144px]');
+	});
 });
 
 describe('Price Range section (Figma 647-3415)', () => {

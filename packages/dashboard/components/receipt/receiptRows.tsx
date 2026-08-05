@@ -488,8 +488,13 @@ export function MarketPriceTable({
 			<div className="flex flex-col gap-[10px]">
 				{rows.map(([label, value, color]) => (
 					<div key={label} className="flex items-center gap-[20px]">
-						<p className="w-[87px]" style={{ color, fontFeatureSettings: '"calt" 0' }}>{label}</p>
-						<p className="w-[144px] text-right" style={{ color, fontFeatureSettings: '"calt" 0' }}>{value}</p>
+						<p className="w-[87px] whitespace-nowrap" style={{ color, fontFeatureSettings: '"calt" 0' }}>{label}</p>
+						{/* min-w, NOT a fixed w: Figma 647-3599 sizes this column to its own
+						    example string ("35.0269 ETH = 1 WBTC" is exactly 20 chars ≈ 144px),
+						    so a hard width wraps every longer real value — cbBTC/USDC needs
+						    ~180px. The 144px stays as the floor so the three rows keep the
+						    designed column edge; nowrap is what actually guarantees one line. */}
+						<p className="min-w-[144px] whitespace-nowrap text-right" style={{ color, fontFeatureSettings: '"calt" 0' }}>{value}</p>
 					</div>
 				))}
 			</div>
