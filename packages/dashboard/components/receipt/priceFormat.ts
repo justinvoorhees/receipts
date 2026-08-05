@@ -66,23 +66,6 @@ function priceDeltaSentence(
 }
 
 /**
- * Anchored Price Delta: the per-base USD gap vs Market Price. USD, not
- * token-denominated — used only when receiptDollars anchored the pair. Direction is
- * derived from the SAME execResultUsd that drives the Execution Delta row, so the two can
- * never disagree (bought below / sold above are the favorable halves = a gain).
- */
-export function formatPriceDeltaUsd(
-	deltaUsdPerBase: number,
-	base: string,
-	baseIsOutput: boolean,
-	execResultUsd: number,
-): PriceDeltaRow {
-	if (!(deltaUsdPerBase > 0) || execResultUsd === 0) return { text: 'None', sub: null };
-	const direction = deltaDirection(execResultUsd > 0, baseIsOutput);
-	return priceDeltaSentence(base, baseIsOutput, formatSubvalueUsd(deltaUsdPerBase), direction);
-}
-
-/**
  * The Execution Delta row: the same sentence Price Delta uses, but stating the gap
  * on THIS trade rather than per 1 base — so the subvalue qualifies it with the
  * amount actually paid in ("Per 1 ETH") instead of "per 1 {base}".

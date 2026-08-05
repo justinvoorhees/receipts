@@ -112,8 +112,6 @@ export function Receipt({
 	const dispersion = hasMarketPrice
 		? dispersionClause(row.marketMidBefore, row.marketMid, row.marketMidAfter)
 		: '';
-	const costBps = row.allInCostBps != null ? Number(row.allInCostBps) : null;
-	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	const feeLines = getAggregatorFeeLines(row);
 	const hasAggFee = feeLines.length > 0;
 	const execution = getExecutionBreakdown(row);
@@ -125,6 +123,20 @@ export function Receipt({
 	// {notionalIn, notionalOut, execResultUsd} + the base (volatile) leg's amount.
 	const dollars = receiptDollars(row);
 	const anchored = dollars != null;
+	// One source for all three renderings of the execution delta on this screen.
+	// Anchored rows derive bps from the same reconciledResult that produces
+	// execResultUsd (via receiptDollars); unanchored rows have no dollars object
+	// and keep the stored column. execResultUsd is positive-for-good (opposite
+	// polarity from allInCostBps's positive-for-cost), so it is negated here to
+	// land on the same convention as the stored column before formatDialogBps
+	// negates it again below for display.
+	const costBps =
+		dollars != null && dollars.notionalIn > 0
+			? -(dollars.execResultUsd / dollars.notionalIn) * 10_000
+			: row.allInCostBps != null
+				? Number(row.allInCostBps)
+				: null;
+	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
 	// Execution Delta states the gap on THIS trade; Price Delta states it per 1 base.
 	// Same sentence, same direction source — they can never disagree.
 	const executionDelta =

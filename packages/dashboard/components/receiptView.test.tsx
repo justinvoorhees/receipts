@@ -105,27 +105,6 @@ describe('formatPriceDeltaToken', () => {
 	});
 });
 
-describe('formatPriceDeltaUsd', () => {
-	it('leads with the base symbol and splits "per 1 base" into the subvalue', async () => {
-		const { formatPriceDeltaUsd } = await import('./receipt/priceFormat');
-		// Bought the base with a gain → the fill landed BELOW the mid.
-		expect(formatPriceDeltaUsd(159.76, 'WBTC', true, 4.57)).toEqual({
-			text: 'WBTC bought at $159.76 below Market Price',
-			sub: 'per 1 WBTC',
-		});
-		// Sold the base with a gain → the fill landed ABOVE the mid.
-		expect(formatPriceDeltaUsd(5, 'WETH', false, 5)).toEqual({
-			text: 'WETH sold at $5.00 above Market Price',
-			sub: 'per 1 WETH',
-		});
-	});
-
-	it('renders a zero result as None with no subvalue', async () => {
-		const { formatPriceDeltaUsd } = await import('./receipt/priceFormat');
-		expect(formatPriceDeltaUsd(0, 'WBTC', true, 0)).toEqual({ text: 'None', sub: null });
-	});
-});
-
 describe('fallbackMethodology', () => {
 	// Every persisted receipt predates the tier/methodology columns being populated
 	// (all 39 rows carry NULL), so the descriptor must derive from pricingStatus.
@@ -995,6 +974,23 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		expect(section).not.toMatch(/\$[0-9]/);
 		expect(html).toContain('34.934 ETH = 1 WBTC'); // token-denominated main lines preserved
 		expect(html).toContain('35.0232 ETH = 1 WBTC');
+	});
+
+	it('sources Total Execution Delta bps from receiptDollars, not the stored all_in_cost_bps column', async () => {
+		// Structural test, not a regression test: no divergence between the stored
+		// column and the derived figure has ever been observed (they agree here to
+		// the penny — see the ethWbtc fixture comment: -25.53bps either way). This
+		// proves the RENDER PATH no longer reads the column, by feeding it a value
+		// (999.99) nowhere near the ~25.53bps that receiptDollars derives from
+		// marketMid/realizedPrice/notionalUsd — too far off to coincidentally match.
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{ ...ethWbtc, pricingStatus: 'full', allInCostBps: '999.99' } as never} />,
+		);
+		expect(html).not.toContain('999.99');
+		// The value actually derived from receiptDollars {execResultUsd, notionalIn}
+		// via the same reconciledResult that produces the +$4.57 Execution Delta.
+		expect(html).toContain('+25.53bps');
 	});
 });
 
