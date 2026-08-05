@@ -30,6 +30,8 @@ import { labelAddress } from './tagging.js';
 
 export type DetectedVia = 'resolver' | 'address' | 'unknown';
 
+import type { TraceNode } from './tradeEndpoints.js';
+
 export interface AggregatorResolution {
 	/** Display name: '0x', 'KyberSwap', or the raw address when unknown. */
 	label: string;
@@ -90,4 +92,84 @@ export function resolveAggregator(
 
 	// Tier 3: no guess.
 	return { label: to, slug: lower, detectedVia: 'unknown', hints: findAggregatorHints(logs) };
+}
+
+/**
+ * Every CALL target in a callTracer tree, shallowest-first and deduped.
+ *
+ * Only true CALL frames are collected: a DELEGATECALL/STATICCALL target is an
+ * implementation or a read, never a router the trade was routed *through*.
+ * Breadth-first ordering is load-bearing — the OUTERMOST registered router is
+ * the aggregator the user actually transacted with, and any router it calls in
+ * turn is a downstream liquidity source, not the counterparty. (Relay's approval
+ * proxy calling Fabric's router must resolve to Relay, not Fabric.)
+ */
+export function callTargetsByDepth(trace: TraceNode): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	let level: TraceNode[] = [trace];
+	while (level.length) {
+		const next: TraceNode[] = [];
+		for (const n of level) {
+			const type = (n.type ?? 'CALL').toUpperCase();
+			if (type === 'CALL' && n.to) {
+				const a = n.to.toLowerCase();
+				if (!seen.has(a)) { seen.add(a); out.push(a); }
+			}
+			for (const c of n.calls ?? []) next.push(c);
+		}
+		level = next;
+	}
+	return out;
+}
+
+/**
+ * resolveAggregator, but tolerant of a transaction whose entry point is not a
+ * router.
+ *
+ * `tx.to` is the router for an ordinary swap, but NOT when the trader's own
+ * account is the entry point (an EIP-7702 delegated EOA self-calling `execute`)
+ * or when a bundler submits through an ERC-4337 EntryPoint. In those cases the
+ * plain resolution labels the user's wallet or the EntryPoint as the aggregator.
+ *
+ * ADDITIVE: when `to` resolves to a known aggregator this returns exactly what
+ * resolveAggregator returns and never inspects the trace, so no working receipt
+ * changes. Only registered routers/settlers can win — an unrecognized address is
+ * never promoted.
+ *
+ * FAIL-CLOSED: the trace is walked ONLY when `to` is provably not a router, i.e.
+ * it appears in `notRouters`. An unrecognized CONTRACT entry point is left
+ * `unknown` on purpose — it may itself be an uncurated aggregator routing
+ * through Fabric/0x, and naming it after its downstream liquidity source would
+ * misattribute the trade. That case is what the AGGREGATOR_UNKNOWN_HINT triage
+ * flag is for; resolving it is a human curation decision, not an inference.
+ * (Receipts 250 / 487 / 488 are exactly this shape.)
+ */
+export function resolveAggregatorDeep(args: {
+	to: string | null;
+	logs: readonly { address: string; topics: readonly string[] }[];
+	trace: TraceNode;
+	/** Addresses that are provably NOT the aggregator, so the resolver may look
+	 *  past them: the trader's own account and the known ERC-4337 EntryPoints. */
+	notRouters?: ReadonlySet<string>;
+}): AggregatorResolution & { matchedAddress: string | null } {
+	const { to, logs, trace, notRouters } = args;
+	const shallow = resolveAggregator(to, logs);
+	if (shallow.detectedVia !== 'unknown') {
+		return { ...shallow, matchedAddress: to ? to.toLowerCase() : null };
+	}
+
+	const skip = new Set([...(notRouters ?? [])].map((a) => a.toLowerCase()));
+	// Only look past an entry point we can PROVE is not a router.
+	if (!to || !skip.has(to.toLowerCase())) return { ...shallow, matchedAddress: null };
+	skip.add(to.toLowerCase());
+
+	for (const candidate of callTargetsByDepth(trace)) {
+		if (skip.has(candidate)) continue;
+		const r = resolveAggregator(candidate, logs);
+		if (r.detectedVia !== 'unknown') return { ...r, matchedAddress: candidate };
+	}
+	// Nothing resolved: keep the original label/hints, and report no router
+	// address rather than asserting the wallet or EntryPoint was one.
+	return { ...shallow, matchedAddress: null };
 }

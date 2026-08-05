@@ -29,7 +29,7 @@ import { createDefaultMidReader } from './routeReaders.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
 import { AGGREGATOR_SIGNATURES, matchSettlementEvent } from './aggregatorSignatures.js';
-import { resolveAggregator } from './resolveAggregator.js';
+import { resolveAggregatorDeep } from './resolveAggregator.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { resolveTrader, anchorFlags, type Anchor } from './resolveTrader.js';
@@ -327,7 +327,17 @@ export async function analyzeTransaction(
 
 		// Aggregator identity: Deployer registry → curated routers → unknown.
 		// Never inferred from event topics; see resolveAggregator.ts.
-		const resolution = resolveAggregator(tx.to ?? null, receiptLogs);
+		//
+		// `tx.to` is the router for an ordinary swap, but NOT when the entry point
+		// is the trader's own 7702-delegated account self-calling `execute`, or an
+		// ERC-4337 EntryPoint. resolveAggregatorDeep keeps the tx.to answer whenever
+		// it resolves and only then looks down the call tree, so this is additive.
+		const resolution = resolveAggregatorDeep({
+			to: tx.to ?? null,
+			logs: receiptLogs,
+			trace,
+			notRouters: new Set([trader, ...ENTRY_POINTS]),
+		});
 		const aggregator = resolution.label;
 		const aggSlug = resolution.slug;
 
@@ -350,6 +360,9 @@ export async function analyzeTransaction(
 				trace,
 				txHash,
 				trader,
+				// Submitter ≠ trader ⇒ a bundler/relayer; its native credit is a gas
+				// reimbursement, not a fee (already counted in gasCostUsd).
+				...(tx.from.toLowerCase() === trader ? {} : { gasPayer: tx.from.toLowerCase() }),
 				allInCostBps: allInCostBps ?? 0,
 				notionalUsdc: notionalUsd ?? 0,
 				realizedPrice: decompRealizedPrice,
@@ -440,7 +453,9 @@ export async function analyzeTransaction(
 			chainId,
 			blockNumber: Number(blockNumber),
 			aggregator,
-			routerAddress: tx.to ? tx.to.toLowerCase() : null,
+			// The router that actually matched; falls back to tx.to when nothing
+			// resolved, so an unresolved row keeps the raw entry point it has today.
+			routerAddress: resolution.matchedAddress ?? (tx.to ? tx.to.toLowerCase() : null),
 			trader,
 			fillerAddress: deriveFillerAddress(resolved.anchor, tx.from),
 			direction: `${pricing.inputSymbol}->${pricing.outputSymbol}`,

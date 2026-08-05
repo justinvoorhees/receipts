@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAggregator } from './resolveAggregator.js';
+import { resolveAggregator, resolveAggregatorDeep, callTargetsByDepth } from './resolveAggregator.js';
 import { AGGREGATOR_SIGNATURES } from './aggregatorSignatures.js';
 import { loadRouterRegistry } from './routerRegistry.js';
 import { loadSettlerRegistry } from './settlerRegistry.js';
@@ -113,5 +113,133 @@ describe('resolveAggregator — tier-2 regression guard', () => {
 		for (const slug of slugs) {
 			expect(AGGREGATOR_SIGNATURES[slug], `settlers.json aggregator "${slug}" has no signature entry`).toBeDefined();
 		}
+	});
+});
+
+// ─── Deep resolution: tx.to is not always the router ───
+//
+// When the transaction's entry point is the trader's OWN account (an EIP-7702
+// delegated EOA self-calling `execute`) or an ERC-4337 EntryPoint, `tx.to` is
+// not a router at all, and resolveAggregator labels the wallet/EntryPoint as the
+// aggregator. Real cases: receipt id 543 (tx.to == trader, 7702 self-call, the
+// real router is Fabric one frame down) and Relay tx 0x30e83971… (tx.to is
+// EntryPoint v0.7, Relay's approval proxy sits at depth 5).
+const FABRIC_ROUTER = '0x7c137a37742437d2212b7bd873ed135b5c4c61da';
+const RELAY_PROXY = '0xccc88a9d1b4ed6b0eaba998850414b24f1c315be';
+const TRADER_7702 = '0x21145601706b95ccfeabd83953ca5eab68d6403f';
+const ENTRYPOINT_V07 = '0x0000000071727de22e5e9d8baf0edac6f37da032';
+
+const call = (to: string, calls: unknown[] = [], type = 'CALL') => ({ type, to, calls });
+
+describe('callTargetsByDepth', () => {
+	it('returns CALL targets shallowest-first, deduped', () => {
+		const trace = call('0xaa', [call('0xbb', [call('0xdd')]), call('0xcc'), call('0xbb')]);
+		expect(callTargetsByDepth(trace as never)).toEqual(['0xaa', '0xbb', '0xcc', '0xdd']);
+	});
+
+	it('skips DELEGATECALL/STATICCALL targets — an implementation is not a router', () => {
+		const trace = call('0xaa', [
+			call('0xbb', [], 'DELEGATECALL'),
+			call('0xcc', [], 'STATICCALL'),
+			call('0xdd'),
+		]);
+		expect(callTargetsByDepth(trace as never)).toEqual(['0xaa', '0xdd']);
+	});
+});
+
+describe('resolveAggregatorDeep', () => {
+	it('keeps the tx.to resolution and ignores deeper routers (additive guarantee)', () => {
+		// Relay proxy is tx.to; Fabric's router is one frame down. Relay must win.
+		const trace = call(RELAY_PROXY, [call(FABRIC_ROUTER)]);
+		const r = resolveAggregatorDeep({ to: RELAY_PROXY, logs: [], trace: trace as never });
+		expect(r.label).toBe('Relay');
+		expect(r.detectedVia).toBe('address');
+	});
+
+	it('falls through a 7702 self-call to the router one frame down (id 543)', () => {
+		const trace = call(TRADER_7702, [call('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'), call(FABRIC_ROUTER)]);
+		const r = resolveAggregatorDeep({
+			to: TRADER_7702, logs: [], trace: trace as never, notRouters: new Set([TRADER_7702]),
+		});
+		expect(r.label).toBe('Fabric');
+		expect(r.detectedVia).toBe('address');
+	});
+
+	it('falls through an ERC-4337 EntryPoint to the shallowest registered router', () => {
+		// Relay proxy (depth 2) sits above Fabric's router (depth 3) — Relay wins,
+		// matching how the same trade resolves when submitted directly.
+		const trace = call(ENTRYPOINT_V07, [call('0xdeadbeef', [call(RELAY_PROXY, [call(FABRIC_ROUTER)])])]);
+		const r = resolveAggregatorDeep({
+			to: ENTRYPOINT_V07, logs: [], trace: trace as never, notRouters: new Set([ENTRYPOINT_V07]),
+		});
+		expect(r.label).toBe('Relay');
+	});
+
+	it('skips excluded addresses', () => {
+		const trace = call(TRADER_7702, [call(FABRIC_ROUTER)]);
+		const r = resolveAggregatorDeep({
+			to: TRADER_7702, logs: [], trace: trace as never,
+			notRouters: new Set([TRADER_7702, FABRIC_ROUTER]),
+		});
+		expect(r.detectedVia).toBe('unknown');
+	});
+
+	it('preserves the original unknown resolution when nothing in the trace resolves', () => {
+		const trace = call(UNKNOWN, [call('0x833589fcd6edb6e08f4c7c32d4f71b54bda02913')]);
+		const r = resolveAggregatorDeep({ to: UNKNOWN, logs: [], trace: trace as never });
+		expect(r.detectedVia).toBe('unknown');
+		expect(r.label).toBe(UNKNOWN);
+	});
+});
+
+describe('resolveAggregatorDeep — matchedAddress', () => {
+	it('reports tx.to when tx.to resolved', () => {
+		const trace = call(RELAY_PROXY, []);
+		expect(resolveAggregatorDeep({ to: RELAY_PROXY, logs: [], trace: trace as never }).matchedAddress)
+			.toBe(RELAY_PROXY);
+	});
+
+	it('reports the deeper router that actually matched', () => {
+		const trace = call(TRADER_7702, [call(FABRIC_ROUTER)]);
+		const r = resolveAggregatorDeep({
+			to: TRADER_7702, logs: [], trace: trace as never, notRouters: new Set([TRADER_7702]),
+		});
+		expect(r.matchedAddress).toBe(FABRIC_ROUTER);
+	});
+
+	it('reports null when nothing resolved — never asserts the wallet was a router', () => {
+		const trace = call(UNKNOWN, []);
+		expect(resolveAggregatorDeep({ to: UNKNOWN, logs: [], trace: trace as never }).matchedAddress)
+			.toBeNull();
+	});
+});
+
+describe('resolveAggregatorDeep — never guesses past an unrecognized router', () => {
+	// An unrecognized CONTRACT entry point may well be an uncurated aggregator
+	// routing through Fabric/0x. Naming it by its downstream liquidity source
+	// would misattribute the trade, which is precisely what the
+	// AGGREGATOR_UNKNOWN_HINT triage flag exists to prevent. Only an entry point
+	// that is PROVABLY not a router — the trader's own account, or an ERC-4337
+	// EntryPoint — may be looked past. Real cases: receipts 250 / 487 / 488.
+	const UNCURATED_ROUTER = '0x5f693aa785c5c8301f21ec9d204cde209514d431';
+
+	it('stays unknown when the entry point is merely unrecognized', () => {
+		const trace = call(UNCURATED_ROUTER, [call(FABRIC_ROUTER)]);
+		const r = resolveAggregatorDeep({
+			to: UNCURATED_ROUTER, logs: [], trace: trace as never,
+			notRouters: new Set([TRADER_7702]), // entry point is NOT in the set
+		});
+		expect(r.detectedVia).toBe('unknown');
+		expect(r.label).toBe(UNCURATED_ROUTER);
+		expect(r.matchedAddress).toBeNull();
+	});
+
+	it('looks past the entry point only when it is provably not a router', () => {
+		const trace = call(TRADER_7702, [call(FABRIC_ROUTER)]);
+		const r = resolveAggregatorDeep({
+			to: TRADER_7702, logs: [], trace: trace as never,
+			notRouters: new Set([TRADER_7702]),
+		});
+		expect(r.label).toBe('Fabric');
 	});
 });
