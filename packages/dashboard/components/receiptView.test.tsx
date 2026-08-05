@@ -965,7 +965,7 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		// Price Range is notional-free (Task 8): no USD subvalue on Execution Price
 		// or Market Price, and Price Delta states its gap in the quote token.
 		const priceRange = html.indexOf('>Price Range<');
-		const txCost = html.indexOf('>Transaction Cost<');
+		const txCost = html.indexOf('>Transaction Costs<');
 		// Guard against a vacuous pass: if either heading vanished, indexOf
 		// returns -1 and slice(-1, -1) would yield '', matching not.toMatch trivially.
 		expect(priceRange).toBeGreaterThan(-1);
@@ -1008,12 +1008,12 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 	it('sizes detail-row subvalues at 12px, matching the rest of the list', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={ethWbtc as never} />);
-		// The 10px subvalue/sublabel treatment is gone from the detail table: every
-		// subvalue is 12px, and the ONLY 10px text left is the Market Price
-		// methodology footnote (10/16, Figma 546-694).
+		// The 10px subvalue/sublabel treatment is gone from the detail table, and the
+		// Market Price methodology footnote (Figma 546-694) was brought up from 10px
+		// to 12px too, so no 10px text remains anywhere in the receipt.
 		expect(html).toContain('class="text-[12px] leading-[12px] text-right"');
-		expect(html).toContain('class="text-[10px] leading-[16px] text-[var(--color-secondary)]"');
-		expect(html.match(/text-\[10px\]/g)).toHaveLength(1);
+		expect(html).toContain('class="text-[12px] leading-[12px] text-[var(--color-secondary)]"');
+		expect(html.match(/text-\[10px\]/g)).toBeNull();
 	});
 
 	it('renders the Execution Delta sentence uncolored on a gain, with the Per subvalue in secondary gray', async () => {
@@ -1446,10 +1446,10 @@ describe('receipt dividers', () => {
 		expect(html).not.toContain('repeating-linear-gradient');
 	});
 
-	it('renders a primary rule immediately above the Transaction Cost heading', async () => {
+	it('renders a primary rule immediately above the Transaction Costs heading', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
-		const heading = html.indexOf('>Transaction Cost<');
+		const heading = html.indexOf('>Transaction Costs<');
 		const rule = html.lastIndexOf('h-px w-full shrink-0 bg-[var(--color-primary)]', heading);
 		expect(heading).toBeGreaterThan(-1);
 		expect(rule).toBeGreaterThan(-1);
@@ -2015,12 +2015,12 @@ describe('Price Range section (Figma 647-3415)', () => {
 		allInCostBps: null,
 	};
 
-	it('renders a Price Range heading between Gas Cost and Transaction Cost', async () => {
+	it('renders a Price Range heading between Gas Cost and Transaction Costs', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
 		const gas = html.indexOf('>Gas Cost<');
 		const priceRange = html.indexOf('>Price Range<');
-		const txCost = html.indexOf('>Transaction Cost<');
+		const txCost = html.indexOf('>Transaction Costs<');
 		expect(gas).toBeGreaterThan(-1);
 		expect(priceRange).toBeGreaterThan(gas);
 		expect(txCost).toBeGreaterThan(priceRange);
@@ -2086,7 +2086,7 @@ describe('Price Range section (Figma 647-3415)', () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
 		const priceRange = html.indexOf('>Price Range<');
-		const txCost = html.indexOf('>Transaction Cost<');
+		const txCost = html.indexOf('>Transaction Costs<');
 		// Guard against a vacuous pass: if either heading vanished, indexOf
 		// returns -1 and slice(-1, -1) would yield '', matching not.toMatch trivially.
 		expect(priceRange).toBeGreaterThan(-1);

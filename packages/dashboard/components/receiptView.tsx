@@ -280,7 +280,7 @@ export function Receipt({
 					    of the three methodology phrases (if present) links to
 					    /methodology in a new tab (Figma 546-694). The dispersion clause
 					    appends only when all three blocks priced (priceDispersion.ts). */}
-					<p className="text-[10px] leading-[16px] text-[var(--color-secondary)]">
+					<p className="text-[12px] leading-[12px] text-[var(--color-secondary)]">
 						<MethodologyText text={methodologyText} />
 						{dispersion ? ` ${dispersion}` : ''}
 					</p>
@@ -301,7 +301,7 @@ export function Receipt({
 				className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px]"
 				style={{ fontFeatureSettings: '"calt" 0' }}
 			>
-				Transaction Cost
+				Transaction Costs
 			</h2>
 
 			{/* Cost breakdown */}
