@@ -2036,7 +2036,7 @@ describe('Price Range section (Figma 647-3415)', () => {
 	it('appends the dispersion clause to the methodology descriptor', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={tripleMidRow as never} />);
-		expect(html).toContain('Price deviates 1.13bps between blocks.');
+		expect(html).toContain('Price moved -1.68bps from At Block to After Block.');
 	});
 
 	it('renders the manipulation badge as a full-width sibling, not inside the At Block cell', async () => {
@@ -2079,7 +2079,7 @@ describe('Price Range section (Figma 647-3415)', () => {
 		const html = renderToStaticMarkup(
 			<Receipt row={{ ...tripleMidRow, marketMidAfter: null } as never} />,
 		);
-		expect(html).not.toContain('between blocks');
+		expect(html).not.toContain('Price moved');
 	});
 
 	it('renders no USD subvalue on any Price Range row', async () => {
