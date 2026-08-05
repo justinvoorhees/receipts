@@ -85,12 +85,12 @@ describe('formatPriceDeltaToken', () => {
 		// ETH→WBTC (base WBTC, quote ETH), realized under the mid → bought below.
 		expect(formatPriceDeltaToken(35.02321455049866, 34.93402185961484, 'WBTC', 'ETH', true)).toEqual({
 			text: 'WBTC bought at 0.0892 ETH below Market Price',
-			sub: 'per 1 WBTC',
+			sub: 'At Block per 1 WBTC',
 		});
 		// WETH→USDC (base WETH, quote USDC), realized over the mid → sold above.
 		expect(formatPriceDeltaToken(3000, 3005, 'WETH', 'USDC', false)).toEqual({
 			text: 'WETH sold at 5.00 USDC above Market Price',
-			sub: 'per 1 WETH',
+			sub: 'At Block per 1 WETH',
 		});
 	});
 
@@ -719,7 +719,7 @@ describe('Price Delta row', () => {
 		// "per 1 WBTC" half is now a separate subvalue element, so assert it apart.
 		expect(html).toContain('WBTC bought at');
 		expect(html).toContain('below Market Price');
-		expect(html).toContain('per 1 WBTC');
+		expect(html).toContain('At Block per 1 WBTC');
 		// Execution Delta now states direction in prose; the pairing it must preserve
 		// is that a bought-below fill agrees with a positive Total Execution Delta.
 		expect(html).toContain('Per 1 ETH');
@@ -741,7 +741,7 @@ describe('Price Delta row', () => {
 		);
 		expect(html).toContain('WBTC bought at');
 		expect(html).toContain('above Market Price');
-		expect(html).toContain('per 1 WBTC');
+		expect(html).toContain('At Block per 1 WBTC');
 		// Execution Delta states the same "above" direction in its own sentence now.
 		expect(html).toContain('Per 1 ETH');
 	});
@@ -762,7 +762,7 @@ describe('Price Delta row', () => {
 		);
 		expect(html).toContain('WETH sold at');
 		expect(html).toContain('above Market Price');
-		expect(html).toContain('per 1 WETH');
+		expect(html).toContain('At Block per 1 WETH');
 		expect(html).toContain('Per 1 WETH');
 	});
 
@@ -780,7 +780,7 @@ describe('Price Delta row', () => {
 		);
 		expect(html).toContain('WETH sold at');
 		expect(html).toContain('below Market Price');
-		expect(html).toContain('per 1 WETH');
+		expect(html).toContain('At Block per 1 WETH');
 		expect(html).toContain('Per 1 WETH');
 	});
 
@@ -819,7 +819,7 @@ describe('Price Delta row', () => {
 		// The non-anchored path now uses the SAME sentence shape as the anchored one,
 		// denominated in the quote token, with "per 1 LFI" as the subvalue.
 		expect(html).toContain('LFI sold at 0.0292 GITLAWB below Market Price');
-		expect(html).toContain('per 1 LFI');
+		expect(html).toContain('At Block per 1 LFI');
 	});
 
 	it('reads "Bought … above" for a USDC→WETH buy over the mid (this was once inverted)', async () => {
@@ -832,7 +832,7 @@ describe('Price Delta row', () => {
 		);
 		expect(html).toContain('WETH bought at');
 		expect(html).toContain('above Market Price');
-		expect(html).toContain('per 1 WETH');
+		expect(html).toContain('At Block per 1 WETH');
 		expect(html).toContain('Per 1000.00 USDC');
 	});
 });
@@ -953,7 +953,7 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		const html = renderToStaticMarkup(<Receipt row={{ ...ethWbtc, pricingStatus: 'estimated' } as never} />);
 		// Price Delta: per-unit gap in the quote token (ETH), per 1 WBTC.
 		expect(html).toContain('WBTC bought at 0.0892 ETH below Market Price');
-		expect(html).toContain('per 1 WBTC');
+		expect(html).toContain('At Block per 1 WBTC');
 		// Execution Delta: whole-trade gap in USD — same direction, top block.
 		expect(html).toContain('WBTC bought at $4.57 below Market Price');
 		expect(html).toContain('Per 1 ETH');

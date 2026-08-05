@@ -507,8 +507,8 @@ describe('TradesTable', () => {
 	// the good half. Direction used to live in a tooltip and is now in the value
 	// text itself, with "per 1 WETH" split into the subvalue.
 	it.each([
-		['3005', '3000', 'WETH bought at 5.00 USDC above Market Price', 'per 1 WETH'],
-		['2995', '3000', 'WETH bought at 5.00 USDC below Market Price', 'per 1 WETH'],
+		['3005', '3000', 'WETH bought at 5.00 USDC above Market Price', 'At Block per 1 WETH'],
+		['2995', '3000', 'WETH bought at 5.00 USDC below Market Price', 'At Block per 1 WETH'],
 		['3000', '3000', 'None', null],
 	])('realized=%s market=%s renders Price Delta "%s" with subvalue %s', async (realizedPrice, marketMid, expectedValue, expectedSub) => {
 		const { TransactionDetailsDialog } = await import('./tradesTable');

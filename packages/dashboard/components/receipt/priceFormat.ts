@@ -62,7 +62,7 @@ function priceDeltaSentence(
 	magnitude: string,
 	direction: 'above' | 'below',
 ): PriceDeltaRow {
-	return { text: deltaSentence(base, baseIsOutput, magnitude, direction), sub: `per 1 ${base}` };
+	return { text: deltaSentence(base, baseIsOutput, magnitude, direction), sub: `At Block per 1 ${base}` };
 }
 
 /**
