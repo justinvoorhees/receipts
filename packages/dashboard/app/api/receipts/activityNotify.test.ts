@@ -38,12 +38,16 @@ const mockAnalyze = vi.mocked(analyzeTransaction);
 const mockGet = vi.mocked(getReceiptByHash);
 const mockInsert = vi.mocked(insertReceipt);
 
+// Must satisfy the route's hash-syntax guard (0x + 64 hex chars) — anything
+// shorter is rejected before it ever reaches these mocks.
+const VALID_HASH = '0x' + 'a'.repeat(64);
+
 const row = {
-	id: 1, txHash: '0xabc', aggregator: '0x', inputSymbol: 'WETH',
+	id: 1, txHash: VALID_HASH, aggregator: '0x', inputSymbol: 'WETH',
 	outputSymbol: 'USDC', notionalUsd: '4210', allInCostBps: '12.3',
 };
 
-const post = (hash = '0xabc') =>
+const post = (hash = VALID_HASH) =>
 	new Request('http://x/api/receipts', {
 		method: 'POST',
 		headers: { 'x-forwarded-for': '10.9.0.1', host: 'app.test', 'x-forwarded-proto': 'https' },
@@ -53,7 +57,7 @@ const post = (hash = '0xabc') =>
 beforeEach(() => {
 	notified.length = 0;
 	vi.clearAllMocks();
-	mockAnalyze.mockResolvedValue({ txHash: '0xabc', chainId: 8453 } as never);
+	mockAnalyze.mockResolvedValue({ txHash: VALID_HASH, chainId: 8453 } as never);
 	mockInsert.mockResolvedValue(row as never);
 });
 
@@ -76,7 +80,7 @@ describe('activity notification', () => {
 		const events = notified.filter((n) => n.kind === 'receipt_created');
 		expect(events).toHaveLength(1);
 		expect(events[0]!.text).toContain('WETH');
-		expect(events[0]!.text).toContain('https://app.test/?tx=0xabc');
+		expect(events[0]!.text).toContain(`https://app.test/?tx=${VALID_HASH}`);
 	});
 
 	// A shared link is viewed far more often than it is generated. Notifying on

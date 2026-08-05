@@ -183,6 +183,12 @@ export async function POST(req: Request): Promise<Response> {
 	if (!hash) {
 		return NextResponse.json({ error: 'Missing transaction hash.' }, { status: 400 });
 	}
+	// Reject syntactically bad hashes before the cache read or any RPC call —
+	// a malformed hash can never resolve to a transaction, so there's nothing
+	// to look up.
+	if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) {
+		return NextResponse.json({ error: 'Invalid transaction hash.' }, { status: 400 });
+	}
 
 	const chainId = body.chainId === undefined ? DEFAULT_CHAIN_ID : body.chainId;
 	// Validated BEFORE the DB read and the analysis — rejecting afterwards would

@@ -25,6 +25,11 @@ const mockInsert = vi.mocked(insertReceipt);
 const mockEnrich = vi.mocked(enrichLegRouters);
 const mockDelete = vi.mocked(deleteReceipt);
 
+// Must satisfy the route's hash-syntax guard (0x + 64 hex chars) — anything
+// shorter is rejected before it ever reaches these mocks.
+const VALID_HASH = '0x' + 'a'.repeat(64);
+const NOT_FOUND_HASH = '0x' + 'b'.repeat(64);
+
 function post(body: unknown): Request {
 	return new Request('http://x/api/receipts', {
 		method: 'POST',
@@ -49,7 +54,7 @@ function postFrom(ip: string, body: unknown): Request {
 }
 
 const sampleReceipt: Receipt = {
-	txHash: '0xabc',
+	txHash: VALID_HASH,
 	chainId: 8453,
 	blockNumber: 123,
 	aggregator: '0xagg',
@@ -112,7 +117,7 @@ describe('POST /api/receipts', () => {
 		mockGet.mockResolvedValue(null);
 		mockAnalyze.mockResolvedValue(null);
 
-		const res = await POST(post({ hash: '0xnope' }));
+		const res = await POST(post({ hash: NOT_FOUND_HASH }));
 
 		expect(res.status).toBe(404);
 		expect(await res.json()).toEqual({ error: 'Transaction not found.' });
@@ -120,10 +125,10 @@ describe('POST /api/receipts', () => {
 	});
 
 	it('200s with the existing stored row without re-analyzing', async () => {
-		const stored = { id: 7, txHash: '0xabc' } as never;
+		const stored = { id: 7, txHash: VALID_HASH } as never;
 		mockGet.mockResolvedValue(stored);
 
-		const res = await POST(post({ hash: '0xabc' }));
+		const res = await POST(post({ hash: VALID_HASH }));
 
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual(stored);
@@ -134,10 +139,10 @@ describe('POST /api/receipts', () => {
 	it('200s computing and inserting when not previously stored', async () => {
 		mockGet.mockResolvedValue(null);
 		mockAnalyze.mockResolvedValue(sampleReceipt);
-		const inserted = { id: 42, txHash: '0xabc' } as never;
+		const inserted = { id: 42, txHash: VALID_HASH } as never;
 		mockInsert.mockResolvedValue(inserted);
 
-		const res = await POST(post({ hash: '0xabc' }));
+		const res = await POST(post({ hash: VALID_HASH }));
 
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual(inserted);
@@ -173,26 +178,62 @@ describe('POST /api/receipts — chainId validation', () => {
 	});
 
 	it.each([1, 999999, -1, 0, 1.5])('rejects unsupported chainId %s with 400', async (cid) => {
-		const res = await POST(post({ hash: '0xabc', chainId: cid }));
+		const res = await POST(post({ hash: VALID_HASH, chainId: cid }));
 		expect(res.status).toBe(400);
 		expect(mockAnalyze).not.toHaveBeenCalled();
 	});
 
 	it('accepts the supported chain explicitly', async () => {
-		expect((await POST(post({ hash: '0xabc', chainId: 8453 }))).status).toBe(200);
+		expect((await POST(post({ hash: VALID_HASH, chainId: 8453 }))).status).toBe(200);
 	});
 
 	it('defaults to Base when chainId is omitted', async () => {
-		expect((await POST(post({ hash: '0xabc' }))).status).toBe(200);
-		expect(mockAnalyze).toHaveBeenCalledWith('0xabc', 8453, expect.anything());
+		expect((await POST(post({ hash: VALID_HASH }))).status).toBe(200);
+		expect(mockAnalyze).toHaveBeenCalledWith(VALID_HASH, 8453, expect.anything());
 	});
 
 	// Rejecting before the RPC call matters: validation that runs after the
 	// analysis would still have paid the ~40-call bill.
 	it('rejects a bad chainId before spending any RPC', async () => {
-		await POST(post({ hash: '0xabc', chainId: 42161 }));
+		await POST(post({ hash: VALID_HASH, chainId: 42161 }));
 		expect(mockAnalyze).not.toHaveBeenCalled();
 		expect(mockGet).not.toHaveBeenCalled();
+	});
+});
+
+// A malformed hash can never resolve to a transaction, so there is nothing to
+// look up — rejecting it before the cache read (let alone the ~40-call RPC
+// analysis) means garbage input costs nothing.
+describe('POST /api/receipts — hash syntax validation', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockGet.mockResolvedValue(null);
+		mockAnalyze.mockResolvedValue(sampleReceipt);
+		mockInsert.mockResolvedValue({ id: 1 } as never);
+		process.env.TCA_RPC_URL = 'http://rpc.test';
+	});
+
+	it.each([
+		['too short', '0x1234'],
+		['too long', VALID_HASH + 'a'],
+		['missing 0x prefix', 'a'.repeat(64)],
+		['uppercase X prefix', '0X' + 'a'.repeat(64)],
+		['non-hex characters', '0x' + 'g'.repeat(64)],
+		['internal whitespace', '0x' + 'a'.repeat(31) + ' ' + 'a'.repeat(32)],
+	])('rejects a hash with %s with 400', async (_label, hash) => {
+		const res = await POST(post({ hash }));
+		expect(res.status).toBe(400);
+		expect(await res.json()).toEqual({ error: 'Invalid transaction hash.' });
+	});
+
+	it('rejects a bad hash before touching the cache or any RPC', async () => {
+		await POST(post({ hash: '0xnotahash' }));
+		expect(mockGet).not.toHaveBeenCalled();
+		expect(mockAnalyze).not.toHaveBeenCalled();
+	});
+
+	it('accepts a well-formed hash', async () => {
+		expect((await POST(post({ hash: VALID_HASH }))).status).toBe(200);
 	});
 });
 
@@ -211,7 +252,7 @@ describe('POST /api/receipts — rate limiting', () => {
 		mockInsert.mockResolvedValue({ id: 1 } as never);
 		const ip = '198.51.100.10';
 		const codes: number[] = [];
-		for (let i = 0; i < 100; i++) codes.push((await POST(postFrom(ip, { hash: '0xabc' }))).status);
+		for (let i = 0; i < 100; i++) codes.push((await POST(postFrom(ip, { hash: VALID_HASH }))).status);
 		expect(codes).toContain(429);
 	});
 
@@ -220,7 +261,7 @@ describe('POST /api/receipts — rate limiting', () => {
 		mockAnalyze.mockResolvedValue(sampleReceipt);
 		mockInsert.mockResolvedValue({ id: 1 } as never);
 		const ip = '198.51.100.11';
-		for (let i = 0; i < 100; i++) await POST(postFrom(ip, { hash: '0xabc' }));
+		for (let i = 0; i < 100; i++) await POST(postFrom(ip, { hash: VALID_HASH }));
 		expect(mockAnalyze.mock.calls.length).toBeLessThan(100);
 	});
 
@@ -230,7 +271,7 @@ describe('POST /api/receipts — rate limiting', () => {
 		mockInsert.mockResolvedValue({ id: 1 } as never);
 		const ip = '198.51.100.12';
 		let res: Response | undefined;
-		for (let i = 0; i < 100; i++) res = await POST(postFrom(ip, { hash: '0xabc' }));
+		for (let i = 0; i < 100; i++) res = await POST(postFrom(ip, { hash: VALID_HASH }));
 		expect(res!.status).toBe(429);
 		expect(Number(res!.headers.get('retry-after'))).toBeGreaterThan(0);
 	});
@@ -238,21 +279,21 @@ describe('POST /api/receipts — rate limiting', () => {
 	// Cache hits are cheap, so they get a much higher ceiling than analyses —
 	// but not an unlimited one, or a hot-hash loop is still a free DoS.
 	it('allows far more cache hits than fresh analyses before limiting', async () => {
-		mockGet.mockResolvedValue({ id: 7, txHash: '0xabc' } as never);
+		mockGet.mockResolvedValue({ id: 7, txHash: VALID_HASH } as never);
 		const ip = '198.51.100.13';
 		let allowed = 0;
 		for (let i = 0; i < 40; i++) {
-			if ((await POST(postFrom(ip, { hash: '0xabc' }))).status === 200) allowed++;
+			if ((await POST(postFrom(ip, { hash: VALID_HASH }))).status === 200) allowed++;
 		}
 		expect(allowed).toBe(40);
 		expect(mockAnalyze).not.toHaveBeenCalled();
 	});
 
 	it('eventually limits cache hits too', async () => {
-		mockGet.mockResolvedValue({ id: 7, txHash: '0xabc' } as never);
+		mockGet.mockResolvedValue({ id: 7, txHash: VALID_HASH } as never);
 		const ip = '198.51.100.14';
 		const codes: number[] = [];
-		for (let i = 0; i < 400; i++) codes.push((await POST(postFrom(ip, { hash: '0xabc' }))).status);
+		for (let i = 0; i < 400; i++) codes.push((await POST(postFrom(ip, { hash: VALID_HASH }))).status);
 		expect(codes).toContain(429);
 	});
 });
@@ -322,13 +363,13 @@ describe('POST /api/receipts — concurrent insert of the same hash', () => {
 	});
 
 	it('returns the winning row when the insert loses the race', async () => {
-		const winner = { id: 99, txHash: '0xabc' } as never;
+		const winner = { id: 99, txHash: VALID_HASH } as never;
 		mockGet.mockResolvedValueOnce(null).mockResolvedValueOnce(winner);
 		mockInsert.mockRejectedValue(
 			Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }),
 		);
 
-		const res = await POST(post({ hash: '0xabc' }));
+		const res = await POST(post({ hash: VALID_HASH }));
 
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual(winner);
@@ -338,7 +379,7 @@ describe('POST /api/receipts — concurrent insert of the same hash', () => {
 		mockGet.mockResolvedValue(null);
 		mockInsert.mockRejectedValue(new Error('connection terminated'));
 
-		const res = await POST(post({ hash: '0xabc' }));
+		const res = await POST(post({ hash: VALID_HASH }));
 
 		expect(res.status).toBe(500);
 	});

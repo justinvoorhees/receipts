@@ -37,19 +37,23 @@ const mockAnalyze = vi.mocked(analyzeTransaction);
 const mockGet = vi.mocked(getReceiptByHash);
 const mockInsert = vi.mocked(insertReceipt);
 
+// Must satisfy the route's hash-syntax guard (0x + 64 hex chars) — anything
+// shorter is rejected before it ever reaches these mocks.
+const VALID_HASH = '0x' + 'a'.repeat(64);
+
 const post = (ip: string) =>
 	new Request('http://x/api/receipts', {
 		method: 'POST',
 		headers: { 'x-forwarded-for': ip, host: 'app.test' },
-		body: JSON.stringify({ hash: '0xabc' }),
+		body: JSON.stringify({ hash: VALID_HASH }),
 	});
 
 beforeEach(() => {
 	notified.length = 0;
 	mockGet.mockResolvedValue(null);
-	mockAnalyze.mockResolvedValue({ txHash: '0xabc', chainId: 8453 } as never);
+	mockAnalyze.mockResolvedValue({ txHash: VALID_HASH, chainId: 8453 } as never);
 	mockInsert.mockResolvedValue({
-		id: 1, txHash: '0xabc', aggregator: '0x', inputSymbol: 'WETH',
+		id: 1, txHash: VALID_HASH, aggregator: '0x', inputSymbol: 'WETH',
 		outputSymbol: 'USDC', notionalUsd: '100', allInCostBps: '5',
 	} as never);
 });

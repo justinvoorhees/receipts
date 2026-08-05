@@ -25,15 +25,19 @@ const mockAnalyze = vi.mocked(analyzeTransaction);
 const mockGet = vi.mocked(getReceiptByHash);
 const mockInsert = vi.mocked(insertReceipt);
 
+// Must satisfy the route's hash-syntax guard (0x + 64 hex chars) — anything
+// shorter is rejected before it ever reaches these mocks.
+const VALID_HASH = '0x' + 'a'.repeat(64);
+
 const post = (ip: string) =>
 	new Request('http://x/api/receipts', {
 		method: 'POST',
 		headers: { 'x-forwarded-for': ip },
-		body: JSON.stringify({ hash: '0xabc' }),
+		body: JSON.stringify({ hash: VALID_HASH }),
 	});
 
 beforeEach(() => {
-	mockAnalyze.mockResolvedValue({ txHash: '0xabc', chainId: 8453 } as never);
+	mockAnalyze.mockResolvedValue({ txHash: VALID_HASH, chainId: 8453 } as never);
 	mockInsert.mockResolvedValue({ id: 1 } as never);
 });
 
@@ -42,7 +46,7 @@ beforeEach(() => {
 // for everyone, which is a self-inflicted denial of service.
 describe('the global ceiling is spent by analyses, not by cache hits', () => {
 	it('leaves the ceiling intact after many cache hits', async () => {
-		mockGet.mockResolvedValue({ id: 7, txHash: '0xabc' } as never);
+		mockGet.mockResolvedValue({ id: 7, txHash: VALID_HASH } as never);
 		for (let i = 0; i < 60; i++) await POST(post(`10.20.0.${i % 200}`));
 		expect(mockAnalyze).not.toHaveBeenCalled();
 
