@@ -23,5 +23,6 @@
   "0x3ad19c61ad159aaec94a279c37f781ad95063e55": "StrategyV2",
   "0x001d91c0561581590942cdf16e7e3ef1f561d632": null,
   "0xf3622742b1e446d92e45e22923ef11c2fcd55d68": "ClankerFeeLocker",
-  "0xe85a59c628f7d27878aceb4bf3b35733630083a9": "Clanker"
+  "0xe85a59c628f7d27878aceb4bf3b35733630083a9": "Clanker",
+  "0x484ce84a92a17c108c94a91bb222daef93eb8ce7": "SmartVault"
 }
