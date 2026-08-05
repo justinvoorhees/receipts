@@ -89,6 +89,9 @@ export interface PricingResult {
   status: 'full' | 'estimated' | 'partial';
   /** Output-per-input mid at block N-1; null when partial. */
   marketMid: number | null;
+  /** Output-per-input mid at N-2 and N, from the SAME pool as marketMid. */
+  marketMidBefore: number | null;
+  marketMidAfter: number | null;
   notionalUsd: number | null;
   inputSymbol: string;
   outputSymbol: string;
@@ -114,6 +117,12 @@ export interface PricingDeps {
   benchmark: (args: { rpcUrl: string; blockNumber: bigint }) => Promise<BenchmarkResult>;
   /** Deepest-pool mid: output(tokenOut)-per-input(tokenIn) at `blockNumber`. */
   getPairMid: (tokenIn: string, tokenOut: string, blockNumber: bigint) => Promise<PairMidResult | null>;
+  /** Same pool as getPairMid, sampled at refBlock-1, refBlock, refBlock+1. */
+  getPairMidTriple: (
+    tokenIn: string,
+    tokenOut: string,
+    refBlock: bigint,
+  ) => Promise<PairMidTriple | null>;
   /** Best-effort bridged mid (output-per-input) for illiquid pairs, or null. */
   getEstimatedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<PairMidResult | null>;
   /** The single Market Price apparatus: one corroborated mid + tier. */
@@ -331,6 +340,8 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
   return {
     benchmark: getBenchmarkMid,
     getPairMid: (tokenIn, tokenOut, blockNumber) => defaultGetPairMid(poolReaders, tokenIn, tokenOut, blockNumber),
+    getPairMidTriple: (tokenIn, tokenOut, refBlock) =>
+      getPairMidTriple(poolReaders, tokenIn, tokenOut, refBlock),
     getEstimatedMid: (inputToken, outputToken, blockNumber) =>
       getEstimatedMidAtBlock(
         {
@@ -491,6 +502,8 @@ export async function priceReceipt(
   const partial = (notionalUsd: number | null = null): PricingResult => ({
     status: 'partial',
     marketMid: null,
+    marketMidBefore: null,
+    marketMidAfter: null,
     notionalUsd,
     inputSymbol,
     outputSymbol,
@@ -522,6 +535,12 @@ export async function priceReceipt(
       safeDecimals(deps.readDecimals, outputToken),
     ]);
 
+    // Sampled from the same pool as the ruler. Never throws: a failure here must
+    // degrade the two extra rows, not the receipt.
+    const triple = await deps
+      .getPairMidTriple(inputToken, outputToken, refBlock)
+      .catch(() => null);
+
     // ── Branch 1: USDC/WETH fast-path — full oracle-validated benchmark ──
     if (isUsdcWethPair(inputToken, outputToken)) {
       const bench = await deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber });
@@ -541,6 +560,8 @@ export async function priceReceipt(
       return {
         status: fastPathTier,
         marketMid,
+        marketMidBefore: triple?.before ?? null,
+        marketMidAfter: triple?.after ?? null,
         notionalUsd,
         inputSymbol,
         outputSymbol,
@@ -570,6 +591,8 @@ export async function priceReceipt(
       return {
         status,
         marketMid: mp.marketMid,
+        marketMidBefore: triple?.before ?? null,
+        marketMidAfter: triple?.after ?? null,
         notionalUsd,
         inputSymbol, outputSymbol, inputDecimals, outputDecimals,
         chainlinkPrice: null, poolDivergenceBps: null, manipulationFlag: false,

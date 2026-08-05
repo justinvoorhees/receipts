@@ -29,6 +29,7 @@ function makeDeps(over: Partial<PricingDeps> = {}): PricingDeps {
       throw new Error('benchmark not stubbed');
     },
     getPairMid: async () => null,
+    getPairMidTriple: async () => null,
     getEstimatedMid: async () => null,
     getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] }),
     getUsdValue: async () => null,
@@ -167,6 +168,33 @@ describe('priceReceipt', () => {
     expect(r.status).toBe('estimated');
     expect(r.marketMid).toBe(3.3);
     expect(r.tier).toBe('full'); // the apparatus's own tier is passed through verbatim
+  });
+
+  // the three-price receipt: adjacent-block mids ride alongside marketMid
+  it('returns the adjacent-block mids alongside marketMid', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 2.1, corroboratedBy: ['direct', 'bridged'], flags: [] }),
+        getPairMidTriple: async () => ({
+          before: 2.0, at: 2.1, after: 2.2, poolAddress: '0xpool', poolKind: 'univ3',
+        }),
+      }),
+    );
+    expect(r.marketMid).toBeCloseTo(2.1, 10);
+    expect(r.marketMidBefore).toBeCloseTo(2.0, 10);
+    expect(r.marketMidAfter).toBeCloseTo(2.2, 10);
+  });
+
+  it('leaves the adjacent mids null on the partial path', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B, inputAmountRaw: 0n, outputAmountRaw: 0n },
+      makeDeps(), // getMarketPrice -> none, getPairMidTriple -> null
+    );
+    expect(r.status).toBe('partial');
+    expect(r.marketMid).toBeNull();
+    expect(r.marketMidBefore).toBeNull();
+    expect(r.marketMidAfter).toBeNull();
   });
 
   // (c) never throws — an injected reader that throws still degrades to partial
