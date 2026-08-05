@@ -399,3 +399,76 @@ suite.
 - Transaction Cost section contents.
 - Rendering the fee-on-transfer flag, and the `tooltip-agg-fee` / `tooltip-accuracy`
   id rename — both separately earmarked.
+
+---
+
+## 11. Addendum (2026-08-05) — the composite-mid defect, and option D
+
+### 11.1 What §3 got wrong
+
+§3 asserted a "shared-pool invariant": all three mids must come from **one pool**. That framing was
+built on a false premise — that `market_mid` is the mid of a single reference pool. It is not.
+
+`marketPrice.ts:57` computes `marketMid = median([...liq.values()])`, i.e. the median **across
+liquidity classes** (`direct` = deepest direct pool, `bridged` = via WETH). The oracle class is
+corroborate-only and never enters the mid. So whenever a pair yields both a direct and a bridged
+price, `market_mid` is a **blend of two sources**, and there is no single pool whose time series it
+belongs to.
+
+Because the wings came from `getPairMidTriple` — the deepest **direct** pool only — the centre and
+the wings had different provenance on the general path. This is the same defect class as the
+USDC/WETH fast path (fixed in `dd33c58`), reached by a different mechanism.
+
+**Measured on the branch's own Arm 2 output: 8 of 26 wing-bearing receipts had byte-identical
+wings** — the direct pool provably did not move between N−2 and N — **yet would print non-zero
+movement.** Worst case, receipt 401 (`USDC→RIPS`) rendered:
+
+> Price deviates **1521.01bps** between blocks.
+
+on a pair whose sampled pool did not move at all. A fabricated claim of price movement, in prose,
+attached to the row the design emphasizes.
+
+Ids affected: 400, 401, 253, 485, 252, 251, 248, 504.
+
+### 11.2 Option D — compose the wings exactly as the centre is composed
+
+**Chosen 2026-08-05.** Rather than gate the feature on the two sources happening to agree, sample
+the *same composite* at three blocks:
+
+```
+getMarketPrice(in, out, refBlock - 1n)  →  N-2  (Before Block)
+getMarketPrice(in, out, refBlock)       →  N-1  (At Block, the ruler — REUSE the existing call)
+getMarketPrice(in, out, refBlock + 1n)  →  N    (After Block)
+```
+
+and take each result's `marketMid`. `getMarketPriceForPair` passes its `blockNumber` straight to
+the estimators, so there is **no internal −1 offset** — in deliberate contrast to `benchmark`,
+which samples at `blockNumber − 1` and is why the fast path uses `refBlock / blockNumber /
+refBlock + 2n`.
+
+Consistency is then guaranteed **by construction** rather than by a matching rule: the wings and
+the centre run identical composition logic, differing only in block. This is the property that
+prevents the defect class recurring — it cannot drift apart, because there is only one code path.
+
+**It also fixes coverage.** Under the old design the table populated only for pairs with a direct
+pool: 26 of 64 priced receipts (41%), with all 38 bridged "WETH-derived" mids rendering dashes
+forever. Under D a bridged mid composes at three blocks like any other, so coverage should
+approach 100%.
+
+**Cost, accepted.** `getMarketPriceForPair` runs three estimators (direct, bridged, oracle) per
+call, so three calls means ~3× that work, and the wings discard the oracle result because the
+oracle never enters the mid. Trimming the wings to liquidity classes only is a legitimate
+optimization, but it means a second composition path — the exact thing that caused this defect.
+Consistency wins; the optimization is a deferred follow-up.
+
+### 11.3 What this supersedes
+
+- **§3's shared-pool invariant is withdrawn for the general path.** The invariant is now:
+  *all three values are produced by the same composition function, evaluated at three blocks.*
+  The fast path's version of this (benchmark at three blocks) already satisfies it.
+- **`getPairMidTriple` / `PairMidTriple` become unreferenced** and are removed along with their
+  tests. This addendum is the anti-re-add breadcrumb: §3 prescribed a single-pool triple, and
+  anyone reading §3 alone would reintroduce it. Do not — a single-pool triple cannot be compared
+  against a composite centre.
+- **§7's coverage figures are stale.** The Arm1→Arm2 gate must be re-run after this change: D
+  alters which rows move and how many.
