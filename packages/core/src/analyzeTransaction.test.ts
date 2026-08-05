@@ -185,6 +185,25 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		// tiny output-per-input orientation, regardless of trade direction.
 		expect(Number(r!.realizedPrice)).toBeGreaterThan(100);
 		expect(Number(r!.marketMid)).toBeGreaterThan(100);
+		// The adjacent-block mids share the exact same toDisplayPrice/baseIsOutput
+		// orientation as marketMid — if the wings were persisted in the raw
+		// output-per-input orientation (toDisplayPrice skipped), they would come
+		// back around ~0.0003 instead of USD-per-WETH, and this would catch it.
+		expect(r!.marketMidBefore).not.toBeNull();
+		expect(r!.marketMidAfter).not.toBeNull();
+		expect(Number(r!.marketMidBefore)).toBeGreaterThan(100);
+		expect(Number(r!.marketMidAfter)).toBeGreaterThan(100);
+		// Together-or-not-at-all invariant: marketMid and its two wings share the
+		// same midReliable gate in the persist expression (analyzeTransaction.ts) —
+		// a null centre must never coexist with a non-null wing. This fixture
+		// resolves to the 'full' tier (marketMid non-null), so this assertion
+		// never exercises the null branch here; it is a structural regression
+		// guard against a future change that decouples the gates, not proof the
+		// null-centre path itself is covered (see the test file's header note).
+		if (r!.marketMid == null) {
+			expect(r!.marketMidBefore).toBeNull();
+			expect(r!.marketMidAfter).toBeNull();
+		}
 		// Oracle sub-fields flow through the USDC/WETH fast-path (regression guard
 		// for the priceReceipt -> Receipt forwarding wiring).
 		expect(r!.chainlinkPrice).not.toBeNull();
@@ -207,6 +226,14 @@ describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 		expect(r!.realizedPrice).not.toBeNull(); // execution price now populated
 		expect(r!.marketMid).not.toBeNull(); // bridged via WARP/WETH
 		expect(r!.allInCostBps).not.toBeNull(); // price delta follows
+		// Together-or-not-at-all invariant (see the USDC/WETH test above for the
+		// full comment) — checked again here on the 'estimated' tier, a second
+		// gate path through the same midReliable expression. Still vacuous on the
+		// null-centre branch: this fixture also resolves with marketMid non-null.
+		if (r!.marketMid == null) {
+			expect(r!.marketMidBefore).toBeNull();
+			expect(r!.marketMidAfter).toBeNull();
+		}
 		// The cost decomposition is surfaced whenever a market mid exists — on the
 		// estimated tier too, not just the oracle-validated full tier. It reconciles
 		// with allInCostBps (same mid computation) even though the oracle is absent.

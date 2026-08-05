@@ -186,6 +186,8 @@ export interface Receipt {
 	notionalUsd: number | null;
 	realizedPrice: number | null;
 	marketMid: number | null;
+	marketMidBefore: number | null;
+	marketMidAfter: number | null;
 	allInCostBps: number | null;
 	pricingStatus: 'full' | 'estimated' | 'partial';
 	tier: string | null;
@@ -455,6 +457,18 @@ export async function analyzeTransaction(
 			// inverse.
 			realizedPrice: toDisplayPrice(realizedPrice, baseIsOutput),
 			marketMid: midReliable ? toDisplayPrice(marketMid, baseIsOutput) : null,
+			// Same gate, same orientation, same expression shape as marketMid above.
+			// These three are one value or none — a triple with a null centre and
+			// non-null wings would render a table straddling a mid the receipt
+			// refuses to show.
+			marketMidBefore:
+				midReliable && pricing.marketMidBefore != null
+					? toDisplayPrice(pricing.marketMidBefore, baseIsOutput)
+					: null,
+			marketMidAfter:
+				midReliable && pricing.marketMidAfter != null
+					? toDisplayPrice(pricing.marketMidAfter, baseIsOutput)
+					: null,
 			allInCostBps,
 			pricingStatus: midReliable ? pricing.status : 'partial',
 			tier: midReliable ? pricing.tier : 'none',

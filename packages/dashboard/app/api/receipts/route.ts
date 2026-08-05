@@ -127,6 +127,8 @@ async function toNewReceipt(r: Receipt): Promise<NewReceipt> {
 		notionalUsd: num(r.notionalUsd),
 		realizedPrice: num(r.realizedPrice),
 		marketMid: num(r.marketMid),
+		marketMidBefore: num(r.marketMidBefore),
+		marketMidAfter: num(r.marketMidAfter),
 		allInCostBps: num(r.allInCostBps),
 		pricingStatus: r.pricingStatus,
 		tier: r.tier,

@@ -66,6 +66,8 @@ const sampleReceipt: Receipt = {
 	notionalUsd: 1000.5,
 	realizedPrice: 2380.1,
 	marketMid: 2381.0,
+	marketMidBefore: 2380.5,
+	marketMidAfter: 2381.5,
 	allInCostBps: 12.3,
 	pricingStatus: 'full',
 	tier: 'full',

@@ -40,6 +40,7 @@ function toUpdate(r, feeSinks) {
 		inputSymbol: r.inputSymbol, outputSymbol: r.outputSymbol,
 		inputAmount: String(r.inputAmount), outputAmount: String(r.outputAmount),
 		notionalUsd: num(r.notionalUsd), realizedPrice: num(r.realizedPrice), marketMid: num(r.marketMid),
+		marketMidBefore: num(r.marketMidBefore), marketMidAfter: num(r.marketMidAfter),
 		allInCostBps: num(r.allInCostBps), pricingStatus: r.pricingStatus, tier: r.tier,
 		methodology: r.methodology, marketPriceFlags: r.marketPriceFlags, blockNumber: r.blockNumber,
 		executionBps: num(r.executionBps), lpFeeBps: num(r.lpFeeBps), aggFeeBps: num(r.aggFeeBps),
