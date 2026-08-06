@@ -23,7 +23,7 @@ Three facts make this more than cosmetics.
 
 **The database is being removed next.** Without persistence, a receipt URL stops pointing at a stored row and becomes the complete input to the computation: `(chain, hash)` is exactly what `analyzeTransaction` needs. Getting the chain into the path now is what lets that change be a swap of one function body rather than a routing rewrite.
 
-**The chain is currently a constant in four places.** `DEFAULT_CHAIN_ID` is declared independently in `app/page.tsx:9` and `app/api/receipts/route.ts:25`, `SUPPORTED_CHAIN_IDS` in `app/api/receipts/route.ts:29`, and `basescan.org` is hardcoded in `components/receiptView.tsx:159` and again in `components/tradesTable.tsx`. Any second chain would have to find all of them.
+**The chain is currently a constant in eleven places.** `DEFAULT_CHAIN_ID` is declared independently in `app/page.tsx:9` and `app/api/receipts/route.ts:25`, `SUPPORTED_CHAIN_IDS` in `app/api/receipts/route.ts:29`, and `basescan.org` is hardcoded at eight sites across three component files (enumerated in §2). Any second chain would have to find all of them.
 
 ## 1. Route restructure
 
@@ -91,9 +91,21 @@ The single Base entry is `{ id: 8453, slug: 'base', name: 'Base', explorer: 'htt
 
 **Placement.** This lives in the dashboard, not core. Core already accepts `chainId: number` throughout (`analyzeTransaction.ts:239`, `classifyTransaction.ts:17`) and has no use for slugs or explorer hosts, both of which are presentation concerns.
 
-**What it absorbs.** Both `DEFAULT_CHAIN_ID` declarations, `SUPPORTED_CHAIN_IDS`, and both `basescan.org` literals. Adding chain #2 later touches this file and nothing else.
+**What it absorbs.** Both `DEFAULT_CHAIN_ID` declarations, `SUPPORTED_CHAIN_IDS`, and every `basescan.org` literal.
 
-**Explorer links become row-derived.** `receiptView.tsx` and `tradesTable.tsx` resolve `chainById(row.chainId)` at render rather than assuming Base. If a stored row carries a chain id the registry does not know, the affected element renders **without a link** rather than a confidently wrong Basescan URL — the same "absent is not measured" rule applied elsewhere in this codebase to unresolved fees and unreadable mids.
+**Explorer links: the literal is centralized, the chain is not yet threaded.** Corrected after checking the source — an earlier draft of this section named the wrong files and undercounted. The literal appears at **8 sites in 3 files**, none of them `tradesTable.tsx`:
+
+| File | Lines |
+|---|---|
+| `components/receiptView.tsx` | 159 |
+| `components/receipt/receiptDisplay.tsx` | 330, 344, 632 |
+| `components/receipt/receiptRows.tsx` | 220, 246, 412, 491 |
+
+All 8 sit inside pure helpers and row components that receive a bare address or a `RouteLeg` — `getPriceImpactRows`, `getAggregatorFeeLines`, `DetailRow`, `FillerRow`. **None of them has access to a chain.** Making links genuinely row-derived would mean threading a chain parameter through those signatures and every call site, which would be the bulk of this work, spent to make a one-entry registry look general.
+
+So this spec does the smaller, honest thing: each site becomes `explorerAddress(DEFAULT_CHAIN, addr)` or `explorerTx(DEFAULT_CHAIN, hash)`. The rendered `href` is byte-identical, so no signature changes and **no churn across the 18 existing assertions on the literal**. The host now lives in one module.
+
+**This does not deliver "chain #2 touches only the registry."** It cannot, without the threading above. What it buys is that the remaining work is a `grep DEFAULT_CHAIN` over 8 known call sites rather than a string hunt across three files — and the tripwire test in §6 is what forces someone to do it. Threading the real chain through, plus the "unknown chain renders no link" fallback, belongs to whichever change actually adds a second chain.
 
 ## 3. Load seam — `packages/dashboard/lib/loadReceipt.ts`
 
@@ -121,7 +133,7 @@ A comment on `CHAINS` in `chains.ts` records this, so the constraint is found by
 | Site | Change |
 |---|---|
 | `components/receiptSearch.tsx:76` | `router.push` targets `/tx/<DEFAULT_CHAIN.slug>/<hash>` |
-| `components/tradesTable.tsx:362` | `sharePath` derives its slug from `row.chainId` |
+| `components/tradesTable.tsx:362` | `sharePath` derives its slug from `chainById(row.chainId)`; if that is `null` the prop is omitted and `ShareButton` renders its existing no-path form, rather than sharing a URL naming the wrong chain |
 | `lib/alerts.ts:131` | Slack receipt link uses the new path |
 | `lib/alerts.test.ts:171,182` | assertions updated |
 | `app/api/receipts/activityNotify.test.ts:83` | assertion updated |
@@ -144,9 +156,11 @@ The database removal will make every GET of `/tx/<chain>/<hash>` a full analysis
 - **Single-hop assertion** — a mixed-case hash under the numeric alias reaches the canonical form in exactly one redirect. This is the specific thing that is easy to get wrong.
 - **Cheap rejection** — a malformed hash and an unknown slug each return 404 having made no RPC call and consumed no limiter slot.
 - **Registry** — slug and numeric resolution, `canonical` flag correctness, unknown input → `null`.
-- **Explorer helpers** — correct host per chain; a row with an unregistered `chainId` renders no link at all.
+- **Explorer helpers** — `explorerTx` and `explorerAddress` produce the expected URL for Base. The 18 existing assertions on the `basescan.org` literal are left untouched **on purpose**: they are the regression test that centralizing the literal changed no rendered output.
 - **Access** — `/tx/base/<hash>` decides `allow`.
-- **Single-chain tripwire** — a test asserting `CHAINS.length === 1`, whose failure message states that `getReceiptByHash` ignores `chain_id` and must be filtered before a second chain ships (§3). A comment can be skipped; a red test cannot. It is expected to fail loudly when someone adds a chain — that is the whole point, and its message tells them what to do about it.
+- **Single-chain tripwire** — a test asserting `CHAINS.length === 1`. A comment can be skipped; a red test cannot. It is expected to fail loudly when someone adds a chain — that is the whole point — and its failure message lists both debts that come due at that moment:
+  1. `getReceiptByHash` ignores `chain_id` and must filter on it (§3).
+  2. The 8 explorer-link sites pass `DEFAULT_CHAIN` and must take the real chain (§2).
 - **Updated assertions** in the four existing test sites listed in §4.
 
 New tests are verified **by mutation**: break the route deliberately and confirm each test fails. This repo has a recorded history of positionally-defective assertions that pass vacuously (`docs/superpowers/plans/2026-07-28-receipt-ui-figma-v3.md`), and a redirect test that silently asserts nothing is exactly that failure shape.
