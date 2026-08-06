@@ -247,10 +247,10 @@ export function Receipt({
 						: formatExecutionPrice(row.realizedPrice, base, quote)}
 				</DetailRow>
 				{/* Market Price + its methodology descriptor are ONE list item: the
-				    footnote sits 10px under the row (Figma 546-687 / 549-3112), which
+				    footnote sits 20px under the row (Figma 656-4217), which
 				    is why the row hugs and the wrapper owns the gap. The old
 				    `*`-linkage is gone — position carries it now. */}
-				<div className="flex flex-col gap-[10px]">
+				<div className="flex flex-col gap-[20px]">
 					{hasMarketPrice ? (
 						<MarketPriceTable
 							before={formatMidCell(row.marketMidBefore, base, quote)}
@@ -280,7 +280,7 @@ export function Receipt({
 					    of the three methodology phrases (if present) links to
 					    /methodology in a new tab (Figma 546-694). The dispersion clause
 					    appends only when all three blocks priced (priceDispersion.ts). */}
-					<p className="text-[12px] leading-[12px] text-[var(--color-secondary)]">
+					<p className="text-[12px] leading-[20px] text-[var(--color-secondary)]">
 						<MethodologyText text={methodologyText} />
 						{dispersion ? ` ${dispersion}` : ''}
 					</p>

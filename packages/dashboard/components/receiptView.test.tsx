@@ -1012,7 +1012,7 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		// Market Price methodology footnote (Figma 546-694) was brought up from 10px
 		// to 12px too, so no 10px text remains anywhere in the receipt.
 		expect(html).toContain('class="text-[12px] leading-[12px] text-right"');
-		expect(html).toContain('class="text-[12px] leading-[12px] text-[var(--color-secondary)]"');
+		expect(html).toContain('class="text-[12px] leading-[20px] text-[var(--color-secondary)]"');
 		expect(html.match(/text-\[10px\]/g)).toBeNull();
 	});
 
