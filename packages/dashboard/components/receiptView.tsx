@@ -185,12 +185,9 @@ export function Receipt({
 				{showFillerRow ? (
 					<FillerRow address={row.fillerAddress as string} />
 				) : (
-					<DetailRow label="Aggregator">
+					<DetailRow label="Provider" labelSubValue={beneficiaryAnchorNote(row) ?? undefined}>
 						<AggregatorValue row={row} />
 					</DetailRow>
-				)}
-				{!showFillerRow && beneficiaryAnchorNote(row) && (
-					<p className="text-[var(--color-secondary)]">{beneficiaryAnchorNote(row)}</p>
 				)}
 				<DetailRow label="Pair">{pairTitle}</DetailRow>
 				<DetailRow label="Chain">{chainLabel(row.chainId)}</DetailRow>
@@ -217,7 +214,7 @@ export function Receipt({
 					{formatTokenOut(row)}
 				</DetailRow>
 				{executionDelta != null && (
-					<DetailRow label="Execution Delta" subValue={executionDelta.sub ?? undefined}>
+					<DetailRow label="Execution Delta" subValue={executionDelta.sub ?? undefined} stackOnMobile>
 						{executionDelta.text}
 					</DetailRow>
 				)}
@@ -289,6 +286,7 @@ export function Receipt({
 				<DetailRow
 					label="Price Delta"
 					subValue={priceDelta?.sub ?? undefined}
+					stackOnMobile
 					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
 				>
 					{priceDelta?.text ?? 'N/A'}

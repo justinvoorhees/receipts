@@ -220,23 +220,23 @@ describe('UniswapX Filler row', () => {
 		normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'],
 	};
 
-	it('replaces the Aggregator row with Filler / via UniswapX + a Basescan link to the filler', async () => {
+	it('replaces the Provider row with Filler / via UniswapX + a Basescan link to the filler', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={fillerRow as never} hash={fillerRow.txHash} />);
 		expect(html).toContain('Filler');
 		expect(html).toContain('via UniswapX');
 		expect(html).toContain(`href="https://basescan.org/address/${fillerRow.fillerAddress}"`);
-		expect(html).not.toContain('>Aggregator<');
+		expect(html).not.toContain('>Provider<');
 		// The row itself now conveys "via UniswapX" — the separate note is redundant.
-		expect(html).not.toContain('Executed on your behalf via UniswapX');
+		expect(html).not.toContain('Executed via UniswapX');
 	});
 
-	it('falls back to the ordinary Aggregator row + note when fillerAddress is null (legacy row)', async () => {
+	it('falls back to the ordinary Provider row + note when fillerAddress is null (legacy row)', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const legacyRow = { ...fillerRow, fillerAddress: null };
 		const html = renderToStaticMarkup(<ReceiptView trade={legacyRow as never} hash={legacyRow.txHash} />);
-		expect(html).toContain('>Aggregator<');
-		expect(html).toContain('Executed on your behalf via UniswapX');
+		expect(html).toContain('>Provider<');
+		expect(html).toContain('Executed via UniswapX');
 		expect(html).not.toContain('>Filler<');
 	});
 
@@ -248,8 +248,8 @@ describe('UniswapX Filler row', () => {
 			normalizeFlags: ['BENEFICIARY_ANCHORED: y'],
 		};
 		const html = renderToStaticMarkup(<ReceiptView trade={netFlowRow as never} hash={netFlowRow.txHash} />);
-		expect(html).toContain('>Aggregator<');
-		expect(html).toContain('Executed on your behalf by a solver');
+		expect(html).toContain('>Provider<');
+		expect(html).toContain('Executed via Solver');
 		expect(html).not.toContain('>Filler<');
 	});
 });
@@ -1011,7 +1011,7 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		// The 10px subvalue/sublabel treatment is gone from the detail table, and the
 		// Market Price methodology footnote (Figma 546-694) was brought up from 10px
 		// to 12px too, so no 10px text remains anywhere in the receipt.
-		expect(html).toContain('class="text-[12px] leading-[12px] text-right"');
+		expect(html).toContain('class="whitespace-nowrap text-[12px] leading-[12px] text-right"');
 		expect(html).toContain('class="text-[12px] leading-[20px] text-[var(--color-secondary)]"');
 		expect(html.match(/text-\[10px\]/g)).toBeNull();
 	});
@@ -1462,14 +1462,16 @@ describe('list item heights', () => {
 	it('floors detail rows at 34px', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
-		const aggregator = html.indexOf('>Aggregator<');
+		const aggregator = html.indexOf('>Provider<');
 		expect(aggregator).toBeGreaterThan(-1);
 		// Anchored on the row's OWN nearest DetailRow wrapper, not "any earlier
 		// min-h-[34px] in the document" — a bare lastIndexOf-before-label check
-		// only works because Aggregator happens to be the first detail row, and
+		// only works because Provider happens to be the first detail row, and
 		// goes vacuous the moment a floored row is inserted above it.
-		// `md:grid-cols-[180px_1fr]` is DetailRow's own column spec (mobile stacks
-		// it under `flex flex-col`, so a bare "grid grid-cols-" no longer appears).
+		// `md:grid-cols-[180px_1fr]` is DetailRow's own column spec at md+ and is
+		// present on every DetailRow wrapper (stacked or not below md), so it is
+		// a stable anchor independent of the below-`md` layout, which both this
+		// test and the mobile pass keep changing.
 		const gridBeforeAggregator = html.lastIndexOf('md:grid-cols-[180px_1fr]', aggregator);
 		expect(html.slice(gridBeforeAggregator, aggregator)).toContain('min-h-[34px]');
 	});

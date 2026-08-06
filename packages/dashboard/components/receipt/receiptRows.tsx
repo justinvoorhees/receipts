@@ -92,6 +92,8 @@ export function DetailRow({
 	subValue,
 	subValueColor,
 	hug = false,
+	stackOnMobile = false,
+	labelSubValue,
 }: {
 	label: string;
 	children: React.ReactNode;
@@ -103,6 +105,14 @@ export function DetailRow({
 	/** Overrides the subvalue color; defaults to secondary. */
 	subValueColor?: string | undefined;
 	/**
+	 * Second line under the LABEL, 10px below it (matching FillerRow's
+	 * "Filler" / "via UniswapX" two-line label) — for a disclosure that
+	 * qualifies the row's label rather than its value, e.g. the Aggregator
+	 * row's beneficiary-anchor note ("Executed via UniswapX" / "Executed via
+	 * Solver").
+	 */
+	labelSubValue?: React.ReactNode;
+	/**
 	 * Opts this row out of the 34px floor so it hugs its content. Only the Market
 	 * Price row uses it: its methodology footnote sits 10px below the row inside a
 	 * shared wrapper, so a floor here would push the footnote off its mark
@@ -112,12 +122,24 @@ export function DetailRow({
 	 * unfloored and opts in.
 	 */
 	hug?: boolean;
+	/**
+	 * Stacks the value under the label below `md`, with a 15px gap (Figma
+	 * 667-4681 / 666-4616). Only Execution Delta and Price Delta use this —
+	 * every other DetailRow (Aggregator, Pair, Chain, Block, Token In/Out, Gas
+	 * Cost, Execution Price) keeps the label and value on one line at every
+	 * width (Figma 666-4468).
+	 */
+	stackOnMobile?: boolean;
 }) {
 	return (
 		<div
-			className={`flex flex-col gap-[15px] md:grid md:grid-cols-[180px_1fr] md:gap-x-[24px] md:gap-y-0 ${hug ? '' : 'min-h-[34px]'}`}
+			className={
+				stackOnMobile
+					? `flex flex-col gap-[15px] md:grid md:grid-cols-[180px_1fr] md:gap-x-[10px] md:gap-y-0 ${hug ? '' : 'min-h-[34px]'}`
+					: `flex items-start justify-between gap-x-[10px] md:grid md:grid-cols-[180px_1fr] ${hug ? '' : 'min-h-[34px]'}`
+			}
 		>
-			<div>
+			<div className={`shrink-0 ${labelSubValue != null ? 'flex flex-col gap-[10px]' : ''}`}>
 				{tooltip ? (
 					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 						{label}
@@ -130,8 +152,11 @@ export function DetailRow({
 						{label}
 					</span>
 				)}
+				{labelSubValue != null && (
+					<span className="text-[var(--color-secondary)]">{labelSubValue}</span>
+				)}
 			</div>
-			<div className="flex min-w-0 flex-col gap-[10px]">
+			<div className="flex min-w-0 flex-1 flex-col gap-[10px]">
 				{valueTooltip ? (
 					<span className="min-w-0 text-right">
 						<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
@@ -144,7 +169,7 @@ export function DetailRow({
 				)}
 				{subValue != null && (
 					<span
-						className="text-[12px] leading-[12px] text-right"
+						className="whitespace-nowrap text-[12px] leading-[12px] text-right"
 						style={{ color: subValueColor ?? 'var(--color-secondary)' }}
 					>
 						{subValue}
@@ -162,14 +187,31 @@ export function DetailRow({
  * persisted by core) — never a slug→address guess, since one aggregator can
  * run several routers (Odos V2/V3, 0x's per-deploy Settlers). Rows persisted
  * before `routerAddress` existed fall back to the slug when it IS the address
- * (unattributed aggregators); otherwise the name renders unlinked.
+ * (unattributed aggregators); otherwise the name renders unlinked. Also covers
+ * unattributed solvers: a beneficiary-anchored, non-UniswapX trade renders its
+ * solver address through this same row (the UniswapX filler has its own row,
+ * FillerRow, below).
+ *
+ * The Aggregator row stays on one line at every width (not `stackOnMobile`),
+ * so an unattributed 42-char address has no room to wrap cleanly there — it
+ * shows `shortTxHash`'s truncated form below `md`, where desktop has the
+ * width to show it in full.
  */
 export function AggregatorValue({ row }: { row: ReceiptRow }) {
 	const slug = row.aggregator.toLowerCase();
 	const address = row.routerAddress ?? (slug.startsWith('0x') && slug.length > 10 ? slug : null);
+	const full = formatProvider(slug, { full: true });
+	const short = formatProvider(slug);
 	const label = (
-		<span className="break-all" style={{ color: providerColor(slug) }}>
-			{formatProvider(slug, { full: true })}
+		<span style={{ color: providerColor(slug) }}>
+			{full === short ? (
+				full
+			) : (
+				<>
+					<span className="md:hidden">{short}</span>
+					<span className="hidden break-all md:inline">{full}</span>
+				</>
+			)}
 		</span>
 	);
 	if (!address) return label;
@@ -491,7 +533,7 @@ export function MarketPriceTable({
 			</p>
 			<div className="flex flex-col gap-[10px]">
 				{rows.map(([label, value, color]) => (
-					<div key={label} className="flex items-center gap-[20px]">
+					<div key={label} className="flex items-center justify-between gap-[20px]">
 						<p className="w-[87px] whitespace-nowrap" style={{ color, fontFeatureSettings: '"calt" 0' }}>{label}</p>
 						{/* min-w, NOT a fixed w: Figma 647-3599 sizes this column to its own
 						    example string ("35.0269 ETH = 1 WBTC" is exactly 20 chars ≈ 144px),

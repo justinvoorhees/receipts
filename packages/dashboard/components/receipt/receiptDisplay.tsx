@@ -515,8 +515,8 @@ const isAnchorToken = (flag: string): boolean => ANCHOR_TOKEN_PREFIXES.some((p) 
 export function beneficiaryAnchorNote(row: Partial<Pick<ReceiptRow, 'normalizeFlags'>>): string | null {
 	const flags = Array.isArray(row.normalizeFlags) ? row.normalizeFlags.filter((f): f is string => typeof f === 'string') : [];
 	if (!flags.some((f) => f.startsWith('BENEFICIARY_ANCHORED'))) return null;
-	if (flags.some((f) => f.startsWith('ANCHOR_VIA_UNISWAPX'))) return 'Executed on your behalf via UniswapX';
-	return 'Executed on your behalf by a solver';
+	if (flags.some((f) => f.startsWith('ANCHOR_VIA_UNISWAPX'))) return 'Executed via UniswapX';
+	return 'Executed via Solver';
 }
 
 /** True when this receipt should show the Filler row (UniswapX-anchored AND

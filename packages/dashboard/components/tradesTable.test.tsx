@@ -700,13 +700,13 @@ describe('beneficiaryAnchorNote', () => {
 	it('names UniswapX when anchored via the Fill event', async () => {
 		const { beneficiaryAnchorNote } = await import('./tradesTable');
 		expect(beneficiaryAnchorNote({ normalizeFlags: ['BENEFICIARY_ANCHORED: y', 'ANCHOR_VIA_UNISWAPX: z'] }))
-			.toBe('Executed on your behalf via UniswapX');
+			.toBe('Executed via UniswapX');
 	});
 
 	it('is generic for a net-flow relayer anchor', async () => {
 		const { beneficiaryAnchorNote } = await import('./tradesTable');
 		expect(beneficiaryAnchorNote({ normalizeFlags: ['BENEFICIARY_ANCHORED: y'] }))
-			.toBe('Executed on your behalf by a solver');
+			.toBe('Executed via Solver');
 	});
 });
 
