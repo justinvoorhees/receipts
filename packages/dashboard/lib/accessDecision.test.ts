@@ -92,3 +92,33 @@ describe('isProtected', () => {
 		expect(isProtected('/api/receipts', 'POST')).toBe(false);
 	});
 });
+
+// /tx/<chain>/<hash> is public BY OMISSION — accessDecision.ts uses a protected
+// list, so any new route is open unless named. Public is the intended policy
+// for a paste-a-hash receipt tool; this test makes it a decision on the record
+// rather than a default nobody chose.
+describe('the receipt route is public', () => {
+	const hash = '0x' + 'a'.repeat(64);
+
+	it('allows GET /tx/base/<hash> with no session', () => {
+		expect(
+			decideAccess({
+				pathname: `/tx/base/${hash}`,
+				method: 'GET',
+				configured: true,
+				hasValidSession: false,
+			}),
+		).toBe('allow');
+	});
+
+	it('allows it even when the access gate is unconfigured', () => {
+		expect(
+			decideAccess({
+				pathname: `/tx/base/${hash}`,
+				method: 'GET',
+				configured: false,
+				hasValidSession: false,
+			}),
+		).toBe('allow');
+	});
+});
