@@ -10,7 +10,7 @@ Four changes:
 
 1. **Route restructure** (§1) — `/tx/<chain-slug>/<hash>` becomes the canonical receipt URL; `/` becomes a search-only landing page.
 2. **Chain registry** (§2) — one module owning the slug ↔ id ↔ explorer mapping, absorbing today's scattered chain constants.
-3. **Load seam** (§3) — a single `loadReceipt(chain, hash)` function the DB removal can re-implement without touching routing.
+3. **Load seam** (§3) — a single `loadReceipt(chain, hash)` function the DB removal can re-implement without touching routing. The existing chain-blind receipt query is left alone, guarded by a tripwire test rather than fixed.
 4. **Link producers** (§4) — every place that mints a receipt URL moves to the new shape.
 
 Explicitly **out of scope**, with reasons in §8: enabling a second chain, per-chain RPC configuration, the database removal itself, and a chain picker in the search UI.
@@ -19,7 +19,7 @@ Explicitly **out of scope**, with reasons in §8: enabling a second chain, per-c
 
 Three facts make this more than cosmetics.
 
-**The database is already chain-aware; the read path is not.** `receipts` carries a `chain_id` column and a unique key on `(user_id, tx_hash, chain_id)` (`packages/db/src/schema.ts:114`), so it can legitimately hold the same transaction hash on two chains. But `getReceiptByHash` matches on `lower(tx_hash)` alone with `.limit(1)` (`packages/dashboard/lib/queries.ts:39-47`). The moment a second chain exists, that query returns whichever row Postgres happens to hand back first. The URL is the only place a chain can come from, so nothing downstream can be made correct until it is in the URL.
+**The database is already chain-aware; the read path is not.** `receipts` carries a `chain_id` column and a unique key on `(user_id, tx_hash, chain_id)` (`packages/db/src/schema.ts:114`), so it can legitimately hold the same transaction hash on two chains. But `getReceiptByHash` matches on `lower(tx_hash)` alone with `.limit(1)` (`packages/dashboard/lib/queries.ts:39-47`). The moment a second chain exists, that query returns whichever row Postgres happens to hand back first. The URL is the only place a chain can come from, so nothing downstream can be made correct until it is in the URL. This spec puts it in the URL but does **not** fix the query — see §3 for why that is safe today and what guards it.
 
 **The database is being removed next.** Without persistence, a receipt URL stops pointing at a stored row and becomes the complete input to the computation: `(chain, hash)` is exactly what `analyzeTransaction` needs. Getting the chain into the path now is what lets that change be a swap of one function body rather than a routing rewrite.
 
@@ -101,11 +101,20 @@ The single Base entry is `{ id: 8453, slug: 'base', name: 'Base', explorer: 'htt
 export async function loadReceipt(chain: Chain, hash: string): Promise<ReceiptRow | null>;
 ```
 
-The route calls only this. Today the body delegates to `getReceiptByHash(hash, chain.id)`. The database-removal spec replaces the body with an on-demand `analyzeTransaction` call and changes no routing, no redirect logic, and no link producer.
+The route calls only this. Today the body delegates to `getReceiptByHash(hash)`. The database-removal spec replaces the body with an on-demand `analyzeTransaction` call and changes no routing, no redirect logic, and no link producer.
 
-`getReceiptByHash` gains the `chain_id` filter it currently lacks at `lib/queries.ts:44`. This is a one-line `and(…)` and needs no migration — the `receipts_tx_hash_lower_idx` index still serves the `lower(tx_hash)` predicate, with `chain_id` applied as a filter on the result.
+`chain` is therefore accepted but unused by the current body. That is deliberate: it fixes the signature the DB removal needs, so that change edits one body rather than one body plus every caller.
 
-This filter is worth adding even though the database is scheduled for removal. Serving a URL that names a chain from a query that ignores the chain would be asserting something the code did not check.
+### The unscoped read stays — and why that is safe *only* while `CHAINS` has one entry
+
+`getReceiptByHash` matches on `lower(tx_hash)` with `.limit(1)` and ignores `chain_id` entirely (`lib/queries.ts:39-47`), even though the table's unique key is `(user_id, tx_hash, chain_id)` (`packages/db/src/schema.ts:114`). Adding the filter was considered and **cut**: the database is being removed next, and the query cannot currently return a wrong row, because §2 declares exactly one chain and every URL that resolves at all resolves to Base. There is no second chain's row for it to pick up.
+
+**Tripwire.** That safety is a property of the registry, not of the query. Adding a second entry to `CHAINS` while Postgres is still in the picture makes `/tx/<newchain>/<hash>` silently serve the Base receipt for the same hash — a wrong receipt rendered with full confidence, not an error. Whichever comes first:
+
+- **DB removed first** (the plan) — the question dissolves; `loadReceipt` computes from `(chain, hash)` and there is no row to mismatch.
+- **Second chain first** — `getReceiptByHash` must take `chainId` and filter on it *in that same change*. It is a one-line `and(…)` needing no migration; `receipts_tx_hash_lower_idx` still serves the `lower(tx_hash)` predicate with `chain_id` applied as a filter on the result.
+
+A comment on `CHAINS` in `chains.ts` records this, so the constraint is found by whoever adds the second chain rather than remembered from this document.
 
 ## 4. Link producers
 
@@ -137,6 +146,7 @@ The database removal will make every GET of `/tx/<chain>/<hash>` a full analysis
 - **Registry** — slug and numeric resolution, `canonical` flag correctness, unknown input → `null`.
 - **Explorer helpers** — correct host per chain; a row with an unregistered `chainId` renders no link at all.
 - **Access** — `/tx/base/<hash>` decides `allow`.
+- **Single-chain tripwire** — a test asserting `CHAINS.length === 1`, whose failure message states that `getReceiptByHash` ignores `chain_id` and must be filtered before a second chain ships (§3). A comment can be skipped; a red test cannot. It is expected to fail loudly when someone adds a chain — that is the whole point, and its message tells them what to do about it.
 - **Updated assertions** in the four existing test sites listed in §4.
 
 New tests are verified **by mutation**: break the route deliberately and confirm each test fails. This repo has a recorded history of positionally-defective assertions that pass vacuously (`docs/superpowers/plans/2026-07-28-receipt-ui-figma-v3.md`), and a redirect test that silently asserts nothing is exactly that failure shape.
