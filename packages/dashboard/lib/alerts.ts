@@ -16,6 +16,9 @@
  * persisted.
  */
 
+import { DEFAULT_CHAIN } from './chains';
+import { receiptPath } from './receiptUrl';
+
 export type AlertKind = 'budget_warning' | 'ceiling_reached' | 'receipt_created';
 
 /** Never rejects. Callers use `void notify(...)` and do not await. */
@@ -128,7 +131,10 @@ export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): strin
 	const via = r.aggregator ? ` via ${r.aggregator}` : '';
 	const notional = r.notionalUsd ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
 	const cost = r.allInCostBps ? ` · ${Number(r.allInCostBps).toFixed(1)} bps all-in` : '';
-	return `New receipt: ${pair}${via}${notional}${cost}\n${baseUrl}/?tx=${r.txHash}`;
+	// DEFAULT_CHAIN rather than the row's own chain: ReceiptSummary is structural
+	// and carries no chainId, and this message only ever fires for a receipt the
+	// API just analyzed — which SUPPORTED_CHAIN_IDS constrains to Base.
+	return `New receipt: ${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
 }
 
 /**

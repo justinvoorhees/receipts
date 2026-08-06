@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
+import { DEFAULT_CHAIN } from '../lib/chains';
+import { receiptPath } from '../lib/receiptUrl';
 
 // Shown as greyed placeholder text in the empty search field.
 const PLACEHOLDER_HASH = 'Transaction hash';
@@ -73,7 +75,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 			// not-found state rather than leaving the UI hung.
 		} finally {
 			setSubmitting(false);
-			router.push(`/?tx=${encodeURIComponent(trimmed)}` as Route);
+			router.push(receiptPath(DEFAULT_CHAIN, trimmed) as Route);
 		}
 	};
 

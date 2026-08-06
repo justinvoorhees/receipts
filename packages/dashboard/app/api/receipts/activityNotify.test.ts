@@ -80,7 +80,7 @@ describe('activity notification', () => {
 		const events = notified.filter((n) => n.kind === 'receipt_created');
 		expect(events).toHaveLength(1);
 		expect(events[0]!.text).toContain('WETH');
-		expect(events[0]!.text).toContain(`https://app.test/?tx=${VALID_HASH}`);
+		expect(events[0]!.text).toContain(`https://app.test/tx/base/${VALID_HASH}`);
 	});
 
 	// A shared link is viewed far more often than it is generated. Notifying on
