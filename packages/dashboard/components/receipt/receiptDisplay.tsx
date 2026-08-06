@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { costedLegs, isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
 import { shortTxHash } from '../../lib/formatters';
+import { DEFAULT_CHAIN, explorerAddress } from '../../lib/chains';
 import type { ReceiptRow, RouteLeg } from '../../lib/queries';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 import { formatUsdMagnitude } from './usdFormat';
@@ -327,7 +328,7 @@ export function getPriceImpactRows(
 		if (stepContext) {
 			return {
 				label: getVenueLabel(leg),
-				href: `https://basescan.org/address/${legLinkAddress(leg)}`,
+				href: explorerAddress(DEFAULT_CHAIN, legLinkAddress(leg)),
 				context: stepContext,
 				value: '–',
 				color: undefined,
@@ -341,7 +342,7 @@ export function getPriceImpactRows(
 			: formatDialogBps(-rawImpact);
 		return {
 			label: getVenueLabel(leg),
-			href: `https://basescan.org/address/${legLinkAddress(leg)}`,
+			href: explorerAddress(DEFAULT_CHAIN, legLinkAddress(leg)),
 			context: row
 				? legPairContext(leg, index, legs.length, row)
 				: `${tokenSymbol(leg.tokenIn)}/${tokenSymbol(leg.tokenOut)}`,
@@ -629,7 +630,7 @@ export function getAggregatorFeeLines(row: {
 	// rendering rather than inventing a label for an unknown collector.
 	return sinks.map((s) => ({
 		label: s.name ?? shortTxHash(s.address),
-		href: `https://basescan.org/address/${s.address}`,
+		href: explorerAddress(DEFAULT_CHAIN, s.address),
 		bps: s.feeBps,
 	}));
 }
