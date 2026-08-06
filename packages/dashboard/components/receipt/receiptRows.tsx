@@ -114,7 +114,9 @@ export function DetailRow({
 	hug?: boolean;
 }) {
 	return (
-		<div className={`grid grid-cols-[180px_1fr] gap-x-[24px] ${hug ? '' : 'min-h-[34px]'}`}>
+		<div
+			className={`flex flex-col gap-[15px] md:grid md:grid-cols-[180px_1fr] md:gap-x-[24px] md:gap-y-0 ${hug ? '' : 'min-h-[34px]'}`}
+		>
 			<div>
 				{tooltip ? (
 					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
@@ -323,7 +325,7 @@ export function BkdRow({
 	);
 	return (
 		<div className={`grid grid-cols-[1fr_92px] gap-x-[24px] ${standalone ? 'min-h-[34px]' : ''}`}>
-			<div className="min-w-0">
+			<div className="min-w-0 flex flex-col gap-[10px] md:block">
 				{tooltip ? (
 					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
 						{label}
@@ -333,7 +335,7 @@ export function BkdRow({
 					labelNode
 				)}
 				{context != null && (
-					<span className="ml-[10px] text-[var(--color-quaternary)]">{context}</span>
+					<span className="text-[var(--color-quaternary)] md:ml-[10px]">{context}</span>
 				)}
 			</div>
 			{valueTooltip ? (
@@ -483,7 +485,7 @@ export function MarketPriceTable({
 		[afterLabel, after, SEC],
 	];
 	return (
-		<div className="flex items-start justify-between text-[12px] leading-[12px]">
+		<div className="flex flex-col gap-[15px] md:flex-row md:items-start md:justify-between md:gap-0 text-[12px] leading-[12px]">
 			<p style={{ color: PRI, fontFeatureSettings: '"calt" 0' }} className="whitespace-nowrap">
 				Market Price
 			</p>

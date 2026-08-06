@@ -1464,11 +1464,13 @@ describe('list item heights', () => {
 		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
 		const aggregator = html.indexOf('>Aggregator<');
 		expect(aggregator).toBeGreaterThan(-1);
-		// Anchored on the row's OWN nearest grid wrapper, not "any earlier
+		// Anchored on the row's OWN nearest DetailRow wrapper, not "any earlier
 		// min-h-[34px] in the document" — a bare lastIndexOf-before-label check
 		// only works because Aggregator happens to be the first detail row, and
 		// goes vacuous the moment a floored row is inserted above it.
-		const gridBeforeAggregator = html.lastIndexOf('grid grid-cols-', aggregator);
+		// `md:grid-cols-[180px_1fr]` is DetailRow's own column spec (mobile stacks
+		// it under `flex flex-col`, so a bare "grid grid-cols-" no longer appears).
+		const gridBeforeAggregator = html.lastIndexOf('md:grid-cols-[180px_1fr]', aggregator);
 		expect(html.slice(gridBeforeAggregator, aggregator)).toContain('min-h-[34px]');
 	});
 
