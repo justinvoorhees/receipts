@@ -16,17 +16,19 @@ import {
 	createNotifier,
 	receiptCreatedMessage,
 } from '../../../lib/alerts.js';
+import { CHAINS, DEFAULT_CHAIN } from '../../../lib/chains.js';
 
 // core uses viem + fs (config load in tagging.ts) — must run on Node, not edge.
 export const runtime = 'nodejs';
 // Never statically cache: every paste is a fresh on-demand computation.
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_CHAIN_ID = 8453; // Base
+const DEFAULT_CHAIN_ID = DEFAULT_CHAIN.id;
 
 // Core hardwires viem's `base` chain, so any other id would store Base data
-// under a false chain label. Accept only what we actually analyze.
-const SUPPORTED_CHAIN_IDS = new Set([8453]);
+// under a false chain label. Accept only what we actually analyze — which is
+// now stated once, in lib/chains.ts, rather than duplicated here.
+const SUPPORTED_CHAIN_IDS = new Set(CHAINS.map((c) => c.id));
 
 const envInt = (name: string, fallback: number): number => {
 	const raw = Number(process.env[name]);
