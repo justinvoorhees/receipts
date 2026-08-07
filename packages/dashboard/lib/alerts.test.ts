@@ -158,8 +158,8 @@ describe('message formatting', () => {
 				aggregator: '0x',
 				inputSymbol: 'WETH',
 				outputSymbol: 'USDC',
-				notionalUsd: '4210.44',
-				allInCostBps: '12.37',
+				notionalUsd: 4210.44,
+				allInCostBps: 12.37,
 			},
 			'https://app.test',
 		);

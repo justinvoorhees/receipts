@@ -6,7 +6,7 @@
  * 'use client' to match the receipt/ leaf convention.
  */
 import { providerColor, formatProvider } from '../../lib/formatters';
-import type { ReceiptRow } from '../../lib/queries';
+import type { ReceiptModel } from '../../lib/receiptModel';
 import type { RouteLeg } from '../../lib/legRouterEnrichment';
 import { DEFAULT_CHAIN, explorerAddress } from '../../lib/chains';
 import {
@@ -199,7 +199,7 @@ export function DetailRow({
  * shows `shortTxHash`'s truncated form below `md`, where desktop has the
  * width to show it in full.
  */
-export function AggregatorValue({ row }: { row: ReceiptRow }) {
+export function AggregatorValue({ row }: { row: ReceiptModel }) {
 	const slug = row.aggregator.toLowerCase();
 	const address = row.routerAddress ?? (slug.startsWith('0x') && slug.length > 10 ? slug : null);
 	const full = formatProvider(slug, { full: true });
@@ -473,7 +473,7 @@ export function LegRow({
 	leg: RouteLeg;
 	index: number;
 	legsLength: number;
-	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>;
+	row: Pick<ReceiptModel, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>;
 	value: string;
 	color?: string | undefined;
 	requirePair?: boolean;

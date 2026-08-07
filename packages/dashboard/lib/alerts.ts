@@ -116,14 +116,14 @@ export function budgetWarningMessage(limit: number, remaining: number): string {
 	);
 }
 
-/** The receipt fields the activity message reads. Structural, so a ReceiptRow satisfies it. */
+/** The receipt fields the activity message reads. Structural, so a ReceiptModel satisfies it. */
 export interface ReceiptSummary {
 	txHash: string;
 	aggregator: string | null;
 	inputSymbol: string | null;
 	outputSymbol: string | null;
-	notionalUsd: string | null;
-	allInCostBps: string | null;
+	notionalUsd: number | null;
+	allInCostBps: number | null;
 }
 
 export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): string {

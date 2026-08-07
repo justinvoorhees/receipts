@@ -1,5 +1,6 @@
-import { getReceiptByHash, type ReceiptRow } from './queries';
+import { getReceiptByHash } from './queries';
 import type { Chain } from './chains';
+import type { ReceiptModel } from './receiptModel';
 
 /**
  * The single place the receipt route gets its data.
@@ -15,7 +16,11 @@ import type { Chain } from './chains';
  * chain.id) call. Fixing the shape here means that change edits one function
  * rather than one function and every caller.
  */
-export async function loadReceipt(chain: Chain, hash: string): Promise<ReceiptRow | null> {
+export async function loadReceipt(chain: Chain, hash: string): Promise<ReceiptModel | null> {
 	void chain;
-	return getReceiptByHash(hash);
+	// TEMPORARY cast: getReceiptByHash still returns a DB row (numerics as
+	// strings, no router/name enrichment) — the known interim state Task 6
+	// removes by replacing this body with an on-demand analysis call that
+	// returns a real ReceiptModel. No runtime behavior changes here.
+	return getReceiptByHash(hash) as unknown as Promise<ReceiptModel | null>;
 }

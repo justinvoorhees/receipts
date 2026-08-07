@@ -1,6 +1,6 @@
 'use client';
 import { ReceiptSearch } from './receiptSearch';
-import type { ReceiptRow } from '../lib/queries';
+import type { ReceiptModel } from '../lib/receiptModel';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { shortTxHash, formatGasUsd } from '../lib/formatters';
 import { DEFAULT_CHAIN, explorerTx } from '../lib/chains';
@@ -67,7 +67,7 @@ export function ReceiptView({
 	hash,
 	diagnosis,
 }: {
-	trade: ReceiptRow | null;
+	trade: ReceiptModel | null;
 	hash: string;
 	diagnosis?: AnalyzeFailure;
 }) {
@@ -92,7 +92,7 @@ export function Receipt({
 	onClose,
 	onDelete,
 }: {
-	row: ReceiptRow;
+	row: ReceiptModel;
 	sharePath?: string;
 	onClose?: () => void;
 	onDelete?: () => void;

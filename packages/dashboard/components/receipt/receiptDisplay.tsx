@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { costedLegs, isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
 import { shortTxHash } from '../../lib/formatters';
 import { DEFAULT_CHAIN, explorerAddress } from '../../lib/chains';
-import type { ReceiptRow } from '../../lib/queries';
+import type { ReceiptModel } from '../../lib/receiptModel';
 import type { RouteLeg } from '../../lib/legRouterEnrichment';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 import { formatUsdMagnitude } from './usdFormat';
@@ -279,7 +279,7 @@ export function legPairContext(
 	leg: Pick<RouteLeg, 'type' | 'tokenIn' | 'tokenOut' | 'tokenInSymbol' | 'tokenOutSymbol'>,
 	index: number,
 	legsLength: number,
-	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
+	row: Pick<ReceiptModel, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
 ): string {
 	const endpointSymbols = new Map<string, string>();
 	if (row.inputToken && row.inputToken.toLowerCase() !== NATIVE) {
@@ -314,7 +314,7 @@ export function legPairContext(
 
 export function getPriceImpactRows(
 	legs: Pick<RouteLeg, 'venue' | 'type' | 'tokenIn' | 'tokenOut' | 'priceImpactBps' | 'tokenInSymbol' | 'tokenOutSymbol' | 'router' | 'feeResolved'>[],
-	row?: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
+	row?: Pick<ReceiptModel, 'inputToken' | 'outputToken' | 'inputSymbol' | 'outputSymbol'>,
 ): {
 	label: string;
 	href: string;
@@ -514,7 +514,7 @@ const isAnchorToken = (flag: string): boolean => ANCHOR_TOKEN_PREFIXES.some((p) 
 
 /** Human disclosure that a receipt was anchored on the beneficiary, not tx.from.
  *  null for ordinary self-anchored receipts. */
-export function beneficiaryAnchorNote(row: Partial<Pick<ReceiptRow, 'normalizeFlags'>>): string | null {
+export function beneficiaryAnchorNote(row: Partial<Pick<ReceiptModel, 'normalizeFlags'>>): string | null {
 	const flags = Array.isArray(row.normalizeFlags) ? row.normalizeFlags.filter((f): f is string => typeof f === 'string') : [];
 	if (!flags.some((f) => f.startsWith('BENEFICIARY_ANCHORED'))) return null;
 	if (flags.some((f) => f.startsWith('ANCHOR_VIA_UNISWAPX'))) return 'Executed via UniswapX';
@@ -525,13 +525,13 @@ export function beneficiaryAnchorNote(row: Partial<Pick<ReceiptRow, 'normalizeFl
  *  a fillerAddress was persisted) in place of the Aggregator row. Rows
  *  anchored via UniswapX before the fillerAddress column existed (null)
  *  fall back to the ordinary Aggregator row — see ReceiptView. */
-export function isUniswapXFillerRow(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'fillerAddress'>>): boolean {
+export function isUniswapXFillerRow(row: Partial<Pick<ReceiptModel, 'normalizeFlags' | 'fillerAddress'>>): boolean {
 	if (row.fillerAddress == null) return false;
 	const flags = Array.isArray(row.normalizeFlags) ? row.normalizeFlags.filter((f): f is string => typeof f === 'string') : [];
 	return flags.some((f) => f.startsWith('ANCHOR_VIA_UNISWAPX'));
 }
 
-export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'decompConfidence'>>): string {
+export function getFlagLabel(row: Partial<Pick<ReceiptModel, 'normalizeFlags' | 'decompConfidence'>>): string {
 	const flags = Array.isArray(row.normalizeFlags)
 		? row.normalizeFlags.filter((flag): flag is string => typeof flag === 'string' && flag.trim().length > 0 && !isAnchorToken(flag))
 		: [];
@@ -539,7 +539,7 @@ export function getFlagLabel(row: Partial<Pick<ReceiptRow, 'normalizeFlags' | 'd
 }
 
 // Generalized token display: reads the input/output symbol + amount fields that
-// exist on both `ReceiptRow` (ReceiptView) and the History dialog's adapter.
+// exist on both `ReceiptModel` (ReceiptView) and the History dialog's adapter.
 export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number }): string {
 	return `${formatTokenAmount(row.inputAmount, row.inputSymbol)} ${row.inputSymbol}`;
 }

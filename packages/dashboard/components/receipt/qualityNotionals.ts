@@ -7,10 +7,10 @@
  * notional (`notionalUsd`) + one `marketMid`, no second (oracle-derived) ruler.
  *
  * This module imports only leaf modules (receipt/symbols) and a type-only
- * import from lib/queries — never TradesTable or ReceiptView — so it stays
- * genuinely importable in isolation from the client component tree.
+ * import from lib/receiptModel — never TradesTable or ReceiptView — so it
+ * stays genuinely importable in isolation from the client component tree.
  */
-import type { ReceiptRow } from '../../lib/queries';
+import type { ReceiptModel } from '../../lib/receiptModel';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 // Import from the pure leaf subpath (NOT the barrel): the barrel re-exports
 // analyzeTransaction → tagging → node:fs, which webpack cannot bundle for the
@@ -35,7 +35,7 @@ export function isAnchorable(symbol: string): boolean {
  * side anchors and a usable mid exists.
  */
 export function receiptDollars(
-	row: Pick<ReceiptRow, 'inputToken' | 'outputToken' | 'inputAmount' | 'outputAmount' | 'marketMid' | 'notionalUsd'>,
+	row: Pick<ReceiptModel, 'inputToken' | 'outputToken' | 'inputAmount' | 'outputAmount' | 'marketMid' | 'notionalUsd'>,
 ): { notionalIn: number; notionalOut: number; execResultUsd: number } | null {
 	const inAmt = Number(row.inputAmount);
 	const outAmt = Number(row.outputAmount);

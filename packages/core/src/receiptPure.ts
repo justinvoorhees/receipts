@@ -134,3 +134,10 @@ export function isFullyPriced(
   const costed = costedLegs(legs);
   return costed.length > 0 && costed.every((l) => l.priceImpactBps != null);
 }
+
+// Type-only re-export, erased at compile time — it adds no runtime edge from
+// this leaf to the barrel. It lives here so the `'use client'` receipt tree can
+// name the receipt type without importing from '@fabric-tca/core', which pulls
+// analyzeTransaction → tagging → node:fs. A type-only import from the barrel
+// would also erase, but the leaf-subpath rule is worth more without exceptions.
+export type { Receipt } from './analyzeTransaction.js';

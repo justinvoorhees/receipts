@@ -2,7 +2,7 @@
  * priceFormat — pure price-delta and base/quote orientation helpers for the receipt.
  * Split out of ReceiptView.tsx (2026-07-21). No JSX, no React: string/number logic.
  */
-import type { ReceiptRow } from '../../lib/queries';
+import type { ReceiptModel } from '../../lib/receiptModel';
 import { formatPriceMagnitude, formatSubvalueUsd } from './receiptDisplay';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';
 
@@ -152,7 +152,7 @@ export function priceDeltaDirection(marketMid: unknown, realizedPrice: unknown):
 // "USDC → WETH", WARP → ETH shows "WARP → ETH"). Price rows are separately quoted
 // USD-per-base and are unaffected by this ordering. input/output are populated
 // consistently for seed and computed rows, so we never parse `direction`.
-export function receiptPairTitle(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): string {
+export function receiptPairTitle(row: Pick<ReceiptModel, 'inputSymbol' | 'outputSymbol'>): string {
 	return `${row.inputSymbol} → ${row.outputSymbol}`;
 }
 
@@ -181,7 +181,7 @@ function symbolAnchorRank(symbol: string): number {
 // orientation the DB already stores realizedPrice/marketMid in (quote-per-base).
 // `baseIsOutput` is the trade direction relative to the base: true = the user
 // bought the base, false = sold it. Price Delta's verdict depends on it.
-export function pairBaseQuote(row: Pick<ReceiptRow, 'inputSymbol' | 'outputSymbol'>): {
+export function pairBaseQuote(row: Pick<ReceiptModel, 'inputSymbol' | 'outputSymbol'>): {
 	base: string;
 	quote: string;
 	baseIsOutput: boolean;
