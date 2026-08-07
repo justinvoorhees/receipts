@@ -1,7 +1,16 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const ORIGINAL = process.env.LOG_LEVEL;
-afterEach(() => { process.env.LOG_LEVEL = ORIGINAL; vi.restoreAllMocks(); });
+afterEach(() => {
+	// `process.env.LOG_LEVEL = undefined` coerces to the STRING "undefined",
+	// which configuredLevel() reads as a set-but-invalid value (falls back to
+	// 'info') rather than genuinely unset (falls back to the NODE_ENV default).
+	// When the ambient env had no LOG_LEVEL to begin with, restoring it means
+	// deleting the key, not assigning undefined to it.
+	if (ORIGINAL == null) delete process.env.LOG_LEVEL;
+	else process.env.LOG_LEVEL = ORIGINAL;
+	vi.restoreAllMocks();
+});
 
 async function freshLogger() {
 	vi.resetModules();
@@ -61,5 +70,23 @@ describe('log', () => {
 		log.debug('suppressed');
 		log.info('emitted');
 		expect(out).toHaveBeenCalledTimes(1);
+	});
+
+	// A genuinely UNSET LOG_LEVEL is the production default — it must defer to
+	// NODE_ENV, not be silently treated as an unrecognised value. This is
+	// distinct from 'falls back to info on an unrecognised LOG_LEVEL' above:
+	// that case has LOG_LEVEL SET to a bad string, this case has no key at all.
+	it('defers to the NODE_ENV default when LOG_LEVEL is unset', async () => {
+		delete process.env.LOG_LEVEL;
+		const originalNodeEnv = process.env.NODE_ENV;
+		process.env.NODE_ENV = 'development';
+		try {
+			const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+			const log = await freshLogger();
+			log.debug('shown in development');
+			expect(out).toHaveBeenCalledTimes(1);
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
 	});
 });

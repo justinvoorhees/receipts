@@ -9,11 +9,13 @@
  * nothing is rotated, nothing is retained by us. Durable logs, if ever wanted,
  * are a Railway log drain — not code here.
  *
- * Duplicated from packages/dashboard/lib/log.ts rather than shared: core
- * cannot import from dashboard, and this keeps core dependency-free. Same
- * design deliberately, not a divergent second logger — one LOG_LEVEL controls
- * both, since core is consumed as TypeScript source via transpilePackages and
- * shares the dashboard's runtime and env.
+ * The single implementation, exported via the `@fabric-tca/core/log`
+ * subpath (see package.json `exports`). packages/dashboard/lib/log.ts
+ * re-exports from here rather than duplicating it — dashboard can import
+ * from core (and already does elsewhere), so there is no direction this
+ * needs to be forked in. One LOG_LEVEL controls both, since core is
+ * consumed as TypeScript source via transpilePackages and shares the
+ * dashboard's runtime and env.
  */
 const LEVELS = ['error', 'warn', 'info', 'debug', 'trace'] as const;
 export type Level = (typeof LEVELS)[number];
