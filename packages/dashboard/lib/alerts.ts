@@ -165,7 +165,7 @@ export function originFrom(req: Request): string {
  */
 export function baseUrlFrom(req: Request): string {
 	const configured = process.env.APP_BASE_URL;
-	return configured && configured.length > 0 ? configured.replace(/\/$/, '') : originFrom(req);
+	return configured && configured.length > 0 ? configured.replace(/\/+$/, '') : originFrom(req);
 }
 
 /**
