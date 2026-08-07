@@ -13,6 +13,7 @@
 ## Global Constraints
 
 - **Indentation is TABS** throughout this codebase. Match it.
+- **Run vitest from the REPO ROOT, always.** Running `npx vitest run` from inside `packages/dashboard` silently collects only about half the suite (~484 of 1012 tests) and reports green. Every command in this plan assumes the repo root as cwd.
 - **`npm test` does NOT typecheck.** Every task's verification runs both `npx vitest run <path>` and `npx tsc --build`.
 - **Lint is the Railway deploy gate.** Run `npm run lint` before every commit.
 - **Never run `npm run build` while a dev server is up** — it writes into the same `.next` the dev server owns and the app renders unstyled. See `docs/superpowers/specs/` history and the detached-worktree recipe if a real build is needed.
