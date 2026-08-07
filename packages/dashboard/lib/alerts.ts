@@ -12,8 +12,9 @@
  * into an incident channel.
  *
  * Every send is fire-and-forget and nothing here rejects: a Slack outage must
- * not turn a 429 into a 500, nor fail a receipt that is already computed and
- * persisted.
+ * not turn a refusal into a 500, nor fail a receipt render that has already
+ * computed successfully — there is nothing to persist, and a webhook failure
+ * must not be able to take the page down.
  */
 
 import { DEFAULT_CHAIN } from './chains';
@@ -133,44 +134,19 @@ export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): strin
 	const notional = r.notionalUsd != null ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
 	const cost = r.allInCostBps != null ? ` · ${Number(r.allInCostBps).toFixed(1)} bps all-in` : '';
 	// DEFAULT_CHAIN rather than the row's own chain: ReceiptSummary is structural
-	// and carries no chainId, and this message only ever fires for a receipt the
-	// API just analyzed — which SUPPORTED_CHAIN_IDS constrains to Base.
-	return `New receipt: ${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
-}
-
-/**
- * The public origin of this request. Derived from headers rather than an env
- * var so it is correct in local dev and behind Railway's proxy without config.
- *
- * Trusts `Host` / `X-Forwarded-Proto`, both caller-controlled on a public,
- * unauthenticated endpoint — do not use this directly to build a link that is
- * posted somewhere trusted (e.g. Slack). Use `baseUrlFrom` for that, which
- * prefers `APP_BASE_URL` and only falls back to this derivation when unset.
- */
-export function originFrom(req: Request): string {
-	const host = req.headers.get('host') ?? 'localhost:3000';
-	const proto = req.headers.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-	return `${proto}://${host}`;
+	// and carries no chainId, and this message only ever fires from the /tx page
+	// render — which SUPPORTED_CHAIN_IDS constrains to Base.
+	//
+	// "Receipt viewed:", not "New receipt:" — nothing is persisted, so there is
+	// no "new" row being created. This fires on every successful render of
+	// /tx/<chain>/<hash>, including a repeat view of the same transaction; the
+	// label says what actually happens.
+	return `Receipt viewed: ${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
 }
 
 /**
  * The base URL to use in outbound links (e.g. the Slack receipt-created
- * message). Prefers the explicit `APP_BASE_URL` env var; falls back to
- * `originFrom(req)` when unset.
- *
- * `originFrom` trusts request headers (`Host`, `X-Forwarded-Proto`), which are
- * attacker-controlled on this public endpoint — a forged `Host` header would
- * otherwise land a convincing phishing link in the team's own Slack, sent by
- * the team's own bot. `APP_BASE_URL` removes that header from the trust chain
- * once it is set.
- */
-export function baseUrlFrom(req: Request): string {
-	const configured = process.env.APP_BASE_URL;
-	return configured && configured.length > 0 ? configured.replace(/\/+$/, '') : originFrom(req);
-}
-
-/**
- * `baseUrlFrom` for callers holding a Headers rather than a Request — server
+ * message), for callers holding a Headers rather than a Request — server
  * components, which never see the Request object.
  *
  * Same trust model, and it matters as much here: `Host` and `X-Forwarded-Proto`

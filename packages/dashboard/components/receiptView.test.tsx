@@ -187,29 +187,13 @@ describe('Receipt header', () => {
 		expect(html).not.toContain('unavailable for this pair');
 	});
 
-	it('renders no close/delete controls outside the dialog', async () => {
+	it('renders no close/delete controls — there is no dialog mode', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
 		// The rule under the input belongs to ReceiptView now, not Receipt — see
 		// the 'ReceiptSearch chrome' block for its coverage.
 		expect(html).not.toContain('Close transaction details');
 		expect(html).not.toContain('>Delete<');
-	});
-
-	it('in dialog mode (onClose/onDelete passed), renders the close button beside the header and a Delete button above Share', async () => {
-		const { Receipt } = await import('./receiptView');
-		const html = renderToStaticMarkup(
-			<Receipt row={fullUsdcWethRow as never} onClose={() => {}} onDelete={() => {}} />,
-		);
-		// The dialog has no rule ABOVE its header — but it does carry the Cost
-		// Breakdown rule further down, so assert ORDER, not absence. A bare
-		// not.toContain here passes vacuously until a body divider exists, then
-		// fails for the wrong reason.
-		expect(html.indexOf('aria-label="Close transaction details"'))
-			.toBeLessThan(html.indexOf('h-px w-full shrink-0 bg-[var(--color-primary)]'));
-		expect(html).toContain('>Delete<');
-		expect(html).toContain('>Share<');
-		expect(html.indexOf('>Delete<')).toBeLessThan(html.indexOf('>Share<'));
 	});
 });
 
@@ -1776,17 +1760,6 @@ describe('SHARE bar', () => {
 		const costBreakdownRule = html.indexOf('h-px w-full shrink-0 bg-[var(--color-primary)]');
 		const ruleAboveBar = html.lastIndexOf('h-px w-full shrink-0 bg-[var(--color-primary)]', share);
 		expect(ruleAboveBar).toBeGreaterThan(costBreakdownRule);
-	});
-
-	it('leaves the dialog buttons untouched', async () => {
-		const { Receipt } = await import('./receiptView');
-		const html = renderToStaticMarkup(
-			<Receipt row={fullUsdcWethRow as never} onClose={() => {}} onDelete={() => {}} />,
-		);
-		expect(html).toContain('>Share<');
-		expect(html).toContain('>Delete<');
-		expect(html).not.toContain('>SHARE<');
-		expect(html).not.toContain('h-[69px]');
 	});
 });
 

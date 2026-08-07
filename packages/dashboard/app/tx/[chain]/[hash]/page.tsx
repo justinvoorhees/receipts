@@ -136,7 +136,6 @@ export default async function ReceiptPage({
 	// On a genuine miss, diagnose why rather than showing a bare empty state.
 	let diagnosis: AnalyzeFailure | undefined;
 	if (receipt == null) {
-		const rpcUrl = process.env.TCA_RPC_URL;
 		const budget = await diagnosisLimiter(clientKeyFromHeaders(await headers()));
 		if (!budget.allowed) {
 			// Deliberately leave `diagnosis` unset rather than inventing a reason
@@ -144,9 +143,10 @@ export default async function ReceiptPage({
 			// transaction, and we have not looked at it.
 			diagnosis = undefined;
 		} else {
-			diagnosis = rpcUrl
-				? await classifyTransaction(hash, chain.id, { rpcUrl })
-				: { reason: 'ANALYZE_ERROR' };
+			// process.env.TCA_RPC_URL is guaranteed set here: loadReceipt() above
+			// throws synchronously-awaited when it is unset (see loadReceipt.ts),
+			// so control cannot reach this branch with it unset.
+			diagnosis = await classifyTransaction(hash, chain.id, { rpcUrl: process.env.TCA_RPC_URL! });
 		}
 	}
 

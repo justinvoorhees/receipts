@@ -79,7 +79,7 @@ export function ReceiptView({
 			<ReceiptSearch hash={hash} {...(failure ? { failure } : {})} />
 			{/* The rule under the input renders in EVERY state, including the empty
 			    page (Figma 544-2386) — which is why it lives here and not at the top
-			    of <Receipt>, where the dialog would also inherit it. */}
+			    of <Receipt>. */}
 			<Divider />
 			{trade != null && <Receipt row={trade} />}
 		</div>
@@ -88,14 +88,8 @@ export function ReceiptView({
 
 export function Receipt({
 	row,
-	sharePath,
-	onClose,
-	onDelete,
 }: {
 	row: ReceiptModel;
-	sharePath?: string;
-	onClose?: () => void;
-	onDelete?: () => void;
 }) {
 	const legs = normalizeRouteLegs(row.routeLegs);
 	const showFillerRow = isUniswapXFillerRow(row);
@@ -166,19 +160,6 @@ export function Receipt({
 						{shortTxHash(row.txHash)}
 					</a>
 				</h2>
-				{onClose != null && (
-					<button
-						type="button"
-						onClick={onClose}
-						aria-label="Close transaction details"
-						className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-[2px] p-[8px] text-[var(--color-primary)] transition-colors hover:bg-[var(--color-surface-low)] active:bg-[var(--color-surface-low)]"
-					>
-						<span aria-hidden="true" className="relative block h-[18px] w-[18px]">
-							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 rotate-45 bg-current" />
-							<span className="absolute left-1/2 top-0 h-[18px] w-[2px] -translate-x-1/2 -rotate-45 bg-current" />
-						</span>
-					</button>
-				)}
 			</div>
 
 			{/* Detail table */}
@@ -469,22 +450,11 @@ export function Receipt({
 				)}
 			</div>
 
-			{/* The rule above the share bar (Figma 546-793) belongs to the standalone
-			    page only — the dialog's button area is deliberately unchanged. */}
-			{onClose == null && <Divider />}
+			{/* The rule above the share bar (Figma 546-793). */}
+			<Divider />
 
 			<div className="flex flex-col gap-[10px]">
-				{onDelete != null && (
-					<button
-						type="button"
-						onClick={onDelete}
-						className="flex h-[40px] w-full shrink-0 cursor-pointer items-center justify-center bg-[var(--color-quaternary)] px-[20px] font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] text-[var(--color-white)]"
-						style={{ fontFeatureSettings: '"calt" 0' }}
-					>
-						Delete
-					</button>
-				)}
-				<ShareButton large={onClose == null} {...(sharePath !== undefined ? { path: sharePath } : {})} />
+				<ShareButton large />
 			</div>
 		</>
 	);

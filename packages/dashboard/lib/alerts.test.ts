@@ -4,8 +4,6 @@ import {
 	ceilingReachedMessage,
 	budgetWarningMessage,
 	receiptCreatedMessage,
-	originFrom,
-	baseUrlFrom,
 	baseUrlFromHeaders,
 } from './alerts';
 
@@ -164,6 +162,9 @@ describe('message formatting', () => {
 			},
 			'https://app.test',
 		);
+		// "Receipt viewed:", not "New receipt:" — nothing is persisted, so no row
+		// is being "created"; this fires on every render, including a repeat view.
+		expect(msg).toContain('Receipt viewed:');
 		expect(msg).toContain('WETH');
 		expect(msg).toContain('USDC');
 		expect(msg).toContain('0x');
@@ -203,46 +204,6 @@ describe('message formatting', () => {
 		);
 		expect(msg).toContain('$0');
 		expect(msg).toContain('0.0 bps all-in');
-	});
-});
-
-describe('originFrom', () => {
-	it('uses the forwarded protocol behind a proxy', () => {
-		const req = new Request('http://internal/api/receipts', {
-			headers: { host: 'app.up.railway.app', 'x-forwarded-proto': 'https' },
-		});
-		expect(originFrom(req)).toBe('https://app.up.railway.app');
-	});
-
-	it('falls back to http for localhost', () => {
-		const req = new Request('http://internal/api/receipts', { headers: { host: 'localhost:3000' } });
-		expect(originFrom(req)).toBe('http://localhost:3000');
-	});
-});
-
-describe('baseUrlFrom', () => {
-	const originalEnv = process.env.APP_BASE_URL;
-	afterEach(() => {
-		if (originalEnv === undefined) delete process.env.APP_BASE_URL;
-		else process.env.APP_BASE_URL = originalEnv;
-	});
-
-	// The request's Host header is attacker-controlled on this public endpoint;
-	// APP_BASE_URL must win so a forged Host can't land a phishing link in Slack.
-	it('prefers APP_BASE_URL over a hostile Host header', () => {
-		process.env.APP_BASE_URL = 'https://app.example.com';
-		const req = new Request('http://internal/api/receipts', {
-			headers: { host: 'evil.com', 'x-forwarded-proto': 'https' },
-		});
-		expect(baseUrlFrom(req)).toBe('https://app.example.com');
-	});
-
-	it('falls back to originFrom when APP_BASE_URL is unset', () => {
-		delete process.env.APP_BASE_URL;
-		const req = new Request('http://internal/api/receipts', {
-			headers: { host: 'app.up.railway.app', 'x-forwarded-proto': 'https' },
-		});
-		expect(baseUrlFrom(req)).toBe('https://app.up.railway.app');
 	});
 });
 
