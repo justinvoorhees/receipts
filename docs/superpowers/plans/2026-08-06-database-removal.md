@@ -556,6 +556,22 @@ In `packages/dashboard/lib/alerts.ts`, `ReceiptSummary` declares:
 
 Change both to `number | null`. The two `Number(...)` calls in `receiptCreatedMessage` below them are already correct for either — leave them. Update the doc comment above the interface from `a ReceiptRow satisfies it` to `a ReceiptModel satisfies it`.
 
+**This breaks one still-living call site.** `app/api/receipts/route.ts` calls
+`receiptCreatedMessage(inserted, …)` where `inserted` is a `ReceiptRow` whose
+numerics are strings, so widening the interface turns that into a type error.
+That route is deleted in Task 9; until then, coerce at the call site:
+
+```ts
+	void activityNotify('receipt_created', receiptCreatedMessage({
+		...inserted,
+		notionalUsd: inserted.notionalUsd == null ? null : Number(inserted.notionalUsd),
+		allInCostBps: inserted.allInCostBps == null ? null : Number(inserted.allInCostBps),
+	}, baseUrlFrom(req)));
+```
+
+This is scaffolding with a known expiry, not a pattern to copy. It exists so
+Task 5's typecheck gate is honest rather than deferred.
+
 - [ ] **Step 5: Update the test fixtures to numbers**
 
 In `packages/dashboard/components/receiptView.test.tsx`, every fixture numeric currently written as a string becomes a number: `notionalUsd: '1000'` → `notionalUsd: 1000`, `marketMid: '3421.5'` → `marketMid: 3421.5`, and so on for `realizedPrice`, `allInCostBps`, `inputAmount`, `outputAmount`, `lpFeeBps`, `aggFeeBps`, `slippageBps`, `gasCostUsd`, and the `marketMidBefore` / `marketMidAfter` pair.
