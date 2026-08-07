@@ -11,9 +11,11 @@ import {
 	createRateLimiter,
 } from '../../../../lib/rateLimit';
 import {
+	baseUrlFromHeaders,
 	budgetWarningMessage,
 	ceilingReachedMessage,
 	createNotifier,
+	receiptCreatedMessage,
 } from '../../../../lib/alerts.js';
 
 export const dynamic = 'force-dynamic';
@@ -72,6 +74,15 @@ const alertNotify = createNotifier({
 	debounceMs: 60 * 60 * 1000,
 });
 
+/**
+ * Deliberately NOT debounced — a launch-day burst of real receipts should all
+ * be reported. The global ceiling above already bounds the volume.
+ *
+ * Its own URL, independent of ALERT_WEBHOOK_URL: sharing a channel would bury a
+ * ceiling warning under activity during a flood.
+ */
+const activityNotify = createNotifier({ webhookUrl: process.env.ACTIVITY_WEBHOOK_URL });
+
 export default async function ReceiptPage({
 	params,
 }: {
@@ -90,19 +101,21 @@ export default async function ReceiptPage({
 	const client = clientKeyFromHeaders(await headers());
 
 	const perIp = await analysisLimiter(client);
-	const globalBudget = perIp.allowed
-		? await globalAnalysisLimiter(GLOBAL_KEY)
-		: { allowed: false, remaining: 0, retryAfterSecs: perIp.retryAfterSecs };
+	// Per-IP is checked first and short-circuits: a visitor throttled here never
+	// touched the shared budget, so the global limiter must not be charged for
+	// a request it didn't admit.
+	if (!perIp.allowed) {
+		return <CeilingNotice reason="perIp" retryAfterSecs={perIp.retryAfterSecs} />;
+	}
 
+	const globalBudget = await globalAnalysisLimiter(GLOBAL_KEY);
 	if (!globalBudget.allowed) {
-		if (perIp.allowed) {
-			console.warn('[tx] global analysis ceiling reached — pausing new receipts');
-			void alertNotify(
-				'ceiling_reached',
-				ceilingReachedMessage(GLOBAL_ANALYSES_PER_HOUR, globalBudget.retryAfterSecs),
-			);
-		}
-		return <CeilingNotice />;
+		console.warn('[tx] global analysis ceiling reached — pausing new receipts');
+		void alertNotify(
+			'ceiling_reached',
+			ceilingReachedMessage(GLOBAL_ANALYSES_PER_HOUR, globalBudget.retryAfterSecs),
+		);
+		return <CeilingNotice reason="global" />;
 	}
 	if (globalBudget.remaining <= GLOBAL_ANALYSES_PER_HOUR * BUDGET_WARNING_FRACTION) {
 		void alertNotify(
@@ -112,6 +125,12 @@ export default async function ReceiptPage({
 	}
 
 	const receipt = await loadReceipt(chain, hash);
+	if (receipt) {
+		void activityNotify(
+			'receipt_created',
+			receiptCreatedMessage(receipt, baseUrlFromHeaders(await headers())),
+		);
+	}
 
 	// On a genuine miss, diagnose why rather than showing a bare empty state.
 	let diagnosis: AnalyzeFailure | undefined;
@@ -138,15 +157,32 @@ export default async function ReceiptPage({
 }
 
 /**
- * The ceiling is a statement about US, not about the transaction. Every other
- * empty state on this page asserts something the analysis established; this one
- * must not, because no analysis ran.
+ * A refusal is a statement about US, not about the transaction. Every other
+ * empty state on this page asserts something the analysis established; this
+ * one must not, because no analysis ran.
+ *
+ * Two distinct causes get two distinct — and separately honest — messages.
+ * `perIp` is a per-visitor, per-minute throttle: brief, and specific to this
+ * caller, so it's safe to say it'll pass in moments. `global` is the shared
+ * hourly ceiling actually being exhausted: true for everyone, not brief.
+ * Collapsing them into one sentence would tell a merely-throttled visitor a
+ * false thing about the site's overall capacity — the same category of error
+ * this component exists to avoid making about the transaction.
  */
-function CeilingNotice() {
+function CeilingNotice({
+	reason,
+	retryAfterSecs,
+}: {
+	reason: 'perIp' | 'global';
+	retryAfterSecs?: number;
+}) {
+	const message =
+		reason === 'perIp'
+			? `You're requesting receipts faster than we allow. Please wait ${retryAfterSecs ?? 60}s and try again.`
+			: 'Receipt generation is temporarily unavailable — the hourly analysis budget is exhausted. Please try again shortly.';
 	return (
 		<div className="mt-[40px] font-['Sohne_Mono'] text-[12px] leading-[18px]">
-			Receipt generation is temporarily unavailable — the hourly analysis budget
-			is exhausted. Please try again shortly.
+			{message}
 		</div>
 	);
 }

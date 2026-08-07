@@ -6,6 +6,7 @@ import {
 	receiptCreatedMessage,
 	originFrom,
 	baseUrlFrom,
+	baseUrlFromHeaders,
 } from './alerts';
 
 /** A controllable clock, matching the pattern in rateLimit.test.ts. */
@@ -242,5 +243,34 @@ describe('baseUrlFrom', () => {
 			headers: { host: 'app.up.railway.app', 'x-forwarded-proto': 'https' },
 		});
 		expect(baseUrlFrom(req)).toBe('https://app.up.railway.app');
+	});
+});
+
+describe('baseUrlFromHeaders', () => {
+	const originalEnv = process.env.APP_BASE_URL;
+	afterEach(() => {
+		if (originalEnv === undefined) delete process.env.APP_BASE_URL;
+		else process.env.APP_BASE_URL = originalEnv;
+	});
+
+	// Same property as baseUrlFrom, for the Headers-holding caller (a server
+	// component): a forged Host header must not win over APP_BASE_URL, or a
+	// visitor could land a phishing link in the team's own Slack.
+	it('prefers APP_BASE_URL over a hostile Host header', () => {
+		process.env.APP_BASE_URL = 'https://app.example.com';
+		const h = new Headers({ host: 'evil.com', 'x-forwarded-proto': 'https' });
+		expect(baseUrlFromHeaders(h)).toBe('https://app.example.com');
+	});
+
+	it('falls back to the derived origin when APP_BASE_URL is unset', () => {
+		delete process.env.APP_BASE_URL;
+		const h = new Headers({ host: 'app.up.railway.app', 'x-forwarded-proto': 'https' });
+		expect(baseUrlFromHeaders(h)).toBe('https://app.up.railway.app');
+	});
+
+	it('falls back to http for localhost with no configured URL', () => {
+		delete process.env.APP_BASE_URL;
+		const h = new Headers({ host: 'localhost:3000' });
+		expect(baseUrlFromHeaders(h)).toBe('http://localhost:3000');
 	});
 });

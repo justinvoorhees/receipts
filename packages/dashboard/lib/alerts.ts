@@ -167,3 +167,20 @@ export function baseUrlFrom(req: Request): string {
 	const configured = process.env.APP_BASE_URL;
 	return configured && configured.length > 0 ? configured.replace(/\/$/, '') : originFrom(req);
 }
+
+/**
+ * `baseUrlFrom` for callers holding a Headers rather than a Request — server
+ * components, which never see the Request object.
+ *
+ * Same trust model, and it matters as much here: `Host` and `X-Forwarded-Proto`
+ * are attacker-controlled on this public route, and a forged Host would land a
+ * convincing phishing link in the team's own Slack, sent by the team's own bot.
+ * APP_BASE_URL removes those headers from the trust chain once it is set.
+ */
+export function baseUrlFromHeaders(h: Headers): string {
+	const configured = process.env.APP_BASE_URL;
+	if (configured) return configured.replace(/\/+$/, '');
+	const host = h.get('host') ?? 'localhost:3000';
+	const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+	return `${proto}://${host}`;
+}
