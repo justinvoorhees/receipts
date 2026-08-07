@@ -152,7 +152,7 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
   const POOL = '0x1111111111111111111111111111111111111111';
 
   it('flags a univ4 leg whose Swap event carried no fee (v4FeeRaw undefined) as defaulted', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     try {
       const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'univ4', undefined);
       expect(result).toEqual({ bps: 0, defaulted: true });
@@ -162,19 +162,20 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
   });
 
   it('warns, naming the consequence, when a univ4 fee is unresolved', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     try {
       await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'univ4', undefined);
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]![0]).toMatch(/\[createDefaultFeeReader\]/);
-      expect(warn.mock.calls[0]![0]).toMatch(/LP fee will read 0 bps/);
+      const written = JSON.parse(warn.mock.calls[0]![0] as string);
+      expect(written.module).toBe('createDefaultFeeReader');
+      expect(written.msg).toMatch(/LP fee will read 0 bps/);
     } finally {
       warn.mockRestore();
     }
   });
 
   it('does NOT flag or warn for a univ4 leg whose fee came through on the event', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     try {
       const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'univ4', 500);
       expect(result).toEqual({ bps: 5, defaulted: false });
@@ -187,12 +188,13 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
   it.each(['univ3', 'sushiv3', 'baseswapv3', 'pancakev3', 'hydrex', 'quickswapv4'] as const)(
     'flags a %s leg as defaulted when the fee() read fails',
     async (type) => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
       try {
         const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, type);
         expect(result).toEqual({ bps: 0, defaulted: true });
         expect(warn).toHaveBeenCalledTimes(1);
-        expect(warn.mock.calls[0]![0]).toMatch(/LP fee will read 0 bps/);
+        const written = JSON.parse(warn.mock.calls[0]![0] as string);
+        expect(written.msg).toMatch(/LP fee will read 0 bps/);
       } finally {
         warn.mockRestore();
       }
@@ -200,7 +202,7 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
   );
 
   it('leaves aerodrome_cl alone — it already reported unresolved fees correctly', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     try {
       const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'aerodrome_cl');
       expect(result).toEqual({ bps: 0, defaulted: true });
@@ -244,7 +246,7 @@ describe('createDefaultFeeReader — unresolved fees are reported, not disguised
   });
 
   it('keeps rfq at a genuine zero — a maker fill has no LP fee to resolve', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     try {
       const result = await createDefaultFeeReader(DEAD_RPC, 1000n)(POOL, 'rfq');
       expect(result).toEqual({ bps: 0, defaulted: false });

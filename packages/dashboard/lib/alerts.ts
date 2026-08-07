@@ -18,6 +18,7 @@
 
 import { DEFAULT_CHAIN } from './chains';
 import { receiptPath } from './receiptUrl';
+import { log as structuredLog } from './log';
 
 export type AlertKind = 'budget_warning' | 'ceiling_reached' | 'receipt_created';
 
@@ -31,7 +32,7 @@ export interface NotifierOptions {
 	debounceMs?: number;
 	fetchImpl?: typeof fetch;
 	now?: () => number;
-	log?: (message: string) => void;
+	log?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
 const TIMEOUT_MS = 3_000;
@@ -42,14 +43,14 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 		debounceMs = 0,
 		fetchImpl = fetch,
 		now = Date.now,
-		log = (m: string) => console.warn(m),
+		log = (m: string, fields?: Record<string, unknown>) => structuredLog.warn(m, fields),
 	} = opts;
 
 	// `log` is caller-supplied, so it can throw. Nothing in this module may reject:
 	// a broken logger must not turn a 429 into a 500.
-	const safeLog = (message: string) => {
+	const safeLog = (message: string, fields?: Record<string, unknown>) => {
 		try {
-			log(message);
+			log(message, fields);
 		} catch {
 			/* deliberately swallowed — see above */
 		}
@@ -69,7 +70,7 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 		lastSent.set(kind, now());
 
 		if (!webhookUrl) {
-			safeLog(`[notify:${kind}] ${text}`);
+			safeLog(text, { kind });
 			return;
 		}
 
@@ -96,7 +97,7 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 			if (previousSent == null) lastSent.delete(kind);
 			else lastSent.set(kind, previousSent);
 
-			safeLog(`[notify:${kind}] webhook failed: ${err instanceof Error ? err.message : String(err)}`);
+			safeLog(`webhook failed: ${err instanceof Error ? err.message : String(err)}`, { kind });
 		}
 	};
 }

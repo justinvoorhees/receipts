@@ -27,6 +27,7 @@ import path from 'node:path';
 import { loadSettlerRegistry, type SettlerRegistry } from './settlerRegistry.js';
 import { findAggregatorHints } from './aggregatorSignatures.js';
 import { labelAddress } from './tagging.js';
+import { log } from './log.js';
 
 export type DetectedVia = 'resolver' | 'address' | 'unknown';
 
@@ -54,9 +55,11 @@ try {
 	// never fail. Mirrors tagging.ts's contract. But warn: silently resolving
 	// every 0x trade to unknown is precisely the bug this module exists to fix,
 	// so a missing/misplaced config must not be invisible.
-	console.warn(
-		`[resolveAggregator] could not load ${SETTLERS_CONFIG_PATH} — 0x Settler trades will not resolve: ${err instanceof Error ? err.message : String(err)}`,
-	);
+	log.warn('could not load settler registry, 0x Settler trades will not resolve', {
+		module: 'resolveAggregator',
+		path: SETTLERS_CONFIG_PATH,
+		error: err instanceof Error ? err.message : String(err),
+	});
 	settlerRegistry = { byAddressLower: new Map(), all: [] };
 }
 

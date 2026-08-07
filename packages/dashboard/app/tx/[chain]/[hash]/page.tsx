@@ -4,6 +4,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { classifyTransaction, type AnalyzeFailure } from '@fabric-tca/core';
 import { resolveReceiptUrl } from '../../../../lib/receiptUrl';
 import { loadReceipt } from '../../../../lib/loadReceipt';
+import { log } from '../../../../lib/log';
 import { ReceiptView } from '../../../../components/receiptView';
 import {
 	clientKeyFromHeaders,
@@ -110,7 +111,7 @@ export default async function ReceiptPage({
 
 	const globalBudget = await globalAnalysisLimiter(GLOBAL_KEY);
 	if (!globalBudget.allowed) {
-		console.warn('[tx] global analysis ceiling reached — pausing new receipts');
+		log.warn('global analysis ceiling reached, pausing new receipts', { route: 'tx' });
 		void alertNotify(
 			'ceiling_reached',
 			ceilingReachedMessage(GLOBAL_ANALYSES_PER_HOUR, globalBudget.retryAfterSecs),
