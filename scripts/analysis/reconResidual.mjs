@@ -17,6 +17,9 @@
  * reserves and amountIn). Do not "fix" the single market ruler.
  *
  * Baseline 2026-07-30: |recon| median 17.41 p90 183.75; |slippage| p90 183.68.
+ * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+ * (docs/qa/corpus.json); this baseline was measured against the live table
+ * at the time, a different row set than this frozen corpus.
  *
  *   node scripts/analysis/reconResidual.mjs
  */

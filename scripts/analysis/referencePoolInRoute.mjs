@@ -13,6 +13,11 @@
  *
  * ⚠️ Small samples. Raise --limit before quoting the percentages.
  *
+ * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+ * (docs/qa/corpus.json); the figures above were measured over a 20-receipt
+ * sample from the old default `--limit`, not the full 62-receipt corpus
+ * this script now runs over by default.
+ *
  * The corpus (docs/qa/corpus.json) is frozen — it no longer grows — so
  * --limit is now a convenience for spot checks rather than a bound on an
  * unbounded table. It defaults to the full corpus and, when set, takes the
@@ -32,7 +37,7 @@ const { getPairMidAtBlock, makeRpcDecimalsCache } = await core('tokenPricing.js'
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 const decimals = makeRpcDecimalsCache(client);
 
-const rows = CORPUS.filter((r) => r.route_legs != null && r.block_number != null).slice(-limit);
+const rows = limit === 0 ? [] : CORPUS.filter((r) => r.route_legs != null && r.block_number != null).slice(-limit);
 
 let n = 0, hit = 0, multi = 0;
 const byShape = {};

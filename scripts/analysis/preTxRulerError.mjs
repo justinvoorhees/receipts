@@ -16,6 +16,11 @@
  * "your trade moved this pool X bps", and the post-tx price is FREE — every Swap
  * decoder already decodes sqrtPriceX96 and discards it (tradeDecoders.ts:71).
  *
+ * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+ * (docs/qa/corpus.json); the figures above were measured over a ≤40-receipt
+ * (75-leg) sample from the old default `--limit`, not the full 62-receipt
+ * corpus this script now runs over by default.
+ *
  * The corpus (docs/qa/corpus.json) is frozen — it no longer grows — so
  * --limit is now a convenience for spot checks rather than a bound on an
  * unbounded table. It defaults to the full corpus and, when set, takes the
@@ -39,7 +44,7 @@ const { base } = await import('viem/chains');
 const { readSlot0 } = await core('poolDiscovery.js');
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 
-const rows = CORPUS.slice(-limit);
+const rows = limit === 0 ? [] : CORPUS.filter((r) => r.route_legs != null && r.block_number != null).slice(-limit);
 
 const rulerErrs = [], footprints = [], flagged = [];
 let examined = 0, withNeighbours = 0;
