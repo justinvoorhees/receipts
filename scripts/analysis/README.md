@@ -1,12 +1,14 @@
 # Analysis scripts
 
-Read-only measurement scripts backing `docs/attribution-worklist.md`. None of
-them write to the database. They exist so the numbers in that document can be
-**re-measured rather than trusted** — the corpus grows, and several figures in
-there are from small samples.
+Read-only measurement scripts backing `docs/attribution-worklist.md`. Nothing
+here writes anywhere. They exist so the numbers in that document can be
+**re-measured rather than trusted** — several figures in there are from small
+samples.
 
-All read `TCA_DATABASE_URL` / `TCA_RPC_URL` from the repo-root `.env` directly
-(via `_env.mjs`), because `source .env` does not export by itself.
+All read from the frozen QA corpus (`docs/qa/corpus.json`, via `loadCorpus()`
+in `_env.mjs`) rather than a live table — the database this was once dumped
+from is gone. `TCA_RPC_URL` is read the same way, from the repo-root `.env`
+directly, because `source .env` does not export by itself.
 
 Some need `packages/core/dist` — run `npx tsc --build packages/core` first.
 ⚠️ Never `npm run build` while a dev server is running; it writes into the same

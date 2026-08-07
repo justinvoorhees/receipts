@@ -9,11 +9,8 @@
 		"start": "next start"
 	},
 	"dependencies": {
-		"@fabric-tca/db": "*",
 		"dotenv": "^17.4.2",
-		"drizzle-orm": "^0.33.0",
 		"next": "^15.0.0",
-		"postgres": "^3.4.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0"
 	},

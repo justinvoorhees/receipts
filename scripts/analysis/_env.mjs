@@ -14,9 +14,10 @@ export const env = Object.fromEntries(
 );
 
 /**
- * The frozen receipt corpus (docs/qa/corpus.json), in the raw postgres row
- * shape: snake_case keys, `numeric` columns as strings. Identical to what
- * `connect()` used to hand back, so callers destructure exactly as before.
+ * The frozen receipt corpus (docs/qa/corpus.json), in the raw snake_case row
+ * shape it was originally dumped in: snake_case keys, `numeric` columns as
+ * strings. Identical to what `connect()` used to hand back, so callers
+ * destructure exactly as before.
  *
  * Already ordered by id, so a `.filter()` preserves the old `order by id`.
  *

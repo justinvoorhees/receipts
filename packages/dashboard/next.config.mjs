@@ -14,7 +14,7 @@ loadEnv({ path: resolve(here, '..', '..', '.env') });
 const config = {
 	// Top-level since Next 15.5.20; it warns loudly under `experimental`.
 	typedRoutes: true,
-	transpilePackages: ['@fabric-tca/db', '@fabric-tca/core'],
+	transpilePackages: ['@fabric-tca/core'],
 	// Allow ngrok-tunneled requests to the dev server. Without this, Next 15 logs
 	// a cross-origin warning and may block HMR / static assets when the host
 	// header is `*.ngrok-free.app` instead of localhost.

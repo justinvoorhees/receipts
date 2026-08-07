@@ -22,7 +22,7 @@ describe('the frozen QA corpus', () => {
 
 	// Task 2's scripts destructure these by name. If the freeze ever changes
 	// shape, this fails here rather than as a wall of NaN in an analysis run.
-	it('preserves the raw snake_case postgres shape', () => {
+	it('preserves the raw snake_case shape it was frozen in', () => {
 		expect(corpus[0]).toHaveProperty('tx_hash');
 		expect(corpus[0]).toHaveProperty('notional_usd');
 		expect(corpus[0]).toHaveProperty('route_legs');
