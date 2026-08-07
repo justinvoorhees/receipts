@@ -2,8 +2,7 @@ import { DEFAULT_CHAIN, resolveChainParam, type Chain } from './chains';
 
 /**
  * URL policy for receipts, kept pure and free of Next imports so the whole
- * canonicalization matrix is testable without standing up a request — the same
- * split as middleware.ts / lib/accessDecision.ts.
+ * canonicalization matrix is testable without standing up a request.
  */
 
 export const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
