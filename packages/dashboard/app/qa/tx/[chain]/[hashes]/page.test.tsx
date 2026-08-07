@@ -28,13 +28,28 @@ const setNodeEnv = (value: string) => {
 	(process.env as { NODE_ENV: string }).NODE_ENV = value;
 };
 
-beforeEach(() => vi.clearAllMocks());
+// The guard is deny-by-default (`!== 'development'`): every test below except
+// the guard tests themselves needs NODE_ENV explicitly set to 'development'
+// to render, since vitest's ambient NODE_ENV is 'test'.
+beforeEach(() => {
+	vi.clearAllMocks();
+	setNodeEnv('development');
+});
 afterEach(() => setNodeEnv(ORIGINAL_ENV));
 
 describe('/qa/tx/[chain]/[hashes]', () => {
 	// The ONLY thing between a public URL and an unmetered n x 40 RPC call.
 	it('404s in production without analyzing anything', async () => {
 		setNodeEnv('production');
+		await expect(QaPage({ params: paramsFor(`${A},${B}`) })).rejects.toThrow('NEXT_NOT_FOUND');
+		expect(loadReceipt).not.toHaveBeenCalled();
+	});
+
+	// The polarity that matters: NOT `=== 'production'`. A deploy environment
+	// exporting an unrecognized NODE_ENV (e.g. 'staging') must still close the
+	// route, not open it.
+	it('404s on a non-production, non-development NODE_ENV value without analyzing anything', async () => {
+		setNodeEnv('staging');
 		await expect(QaPage({ params: paramsFor(`${A},${B}`) })).rejects.toThrow('NEXT_NOT_FOUND');
 		expect(loadReceipt).not.toHaveBeenCalled();
 	});
@@ -92,6 +107,15 @@ describe('/qa/tx/[chain]/[hashes]', () => {
 	// function — decoding is necessary (see the test above) but has to be safe.
 	it('rejects a percent-malformed hash param without throwing past notFound', async () => {
 		await expect(QaPage({ params: paramsFor('%') })).rejects.toThrow('NEXT_NOT_FOUND');
+		expect(loadReceipt).not.toHaveBeenCalled();
+	});
+
+	// Bounds the blast radius if the NODE_ENV guard ever fails open: unbounded,
+	// a pasted 100-hash list is ~4,000 serial RPC calls and a request that hangs
+	// for minutes.
+	it('404s on more than 20 hashes without analyzing anything', async () => {
+		const hashes = Array.from({ length: 21 }, (_, i) => `0x${String(i).padStart(64, '0')}`).join(',');
+		await expect(QaPage({ params: paramsFor(hashes) })).rejects.toThrow('NEXT_NOT_FOUND');
 		expect(loadReceipt).not.toHaveBeenCalled();
 	});
 

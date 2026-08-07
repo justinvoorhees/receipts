@@ -36,6 +36,16 @@ function safeDecode(value: string): string {
  * and an unmetered n x 40 RPC call — this page has no rate limiting at all,
  * deliberately, because locally it runs against your own key.
  *
+ * The guard is deny-by-default (`!== 'development'`), not allow-by-default
+ * (`=== 'production'`), and that polarity is deliberate. `next build` only
+ * defaults NODE_ENV to 'production' when it is UNSET — a deploy environment
+ * that exports NODE_ENV=development (or 'staging', or anything else) inlines
+ * that value instead (webpack's DefinePlugin bakes it into the bundle at
+ * build time), and an allow-by-default guard would evaluate false and open
+ * this route to the public internet with no rate limiting. A misconfigured
+ * NODE_ENV must close this route, not open it — so anything that isn't
+ * exactly 'development' 404s, including unrecognized values like 'staging'.
+ *
  * Stateless by design: the hashes live in the URL, so there is no corpus file to
  * curate and no state to keep. Paste whatever you are comparing.
  */
@@ -44,7 +54,7 @@ export default async function QaPage({
 }: {
 	params: Promise<{ chain: string; hashes: string }>;
 }) {
-	if (process.env.NODE_ENV === 'production') notFound();
+	if (process.env.NODE_ENV !== 'development') notFound();
 
 	const { chain: chainParam, hashes: hashesParam } = await params;
 
@@ -61,6 +71,10 @@ export default async function QaPage({
 	// resolve to notFound(), not an unhandled 500.
 	const hashes = safeDecode(hashesParam).split(',').map((h) => h.trim()).filter(Boolean);
 	if (hashes.length === 0 || !hashes.every((h) => HASH_RE.test(h))) notFound();
+	// Bounds the blast radius if the guard above ever fails open: unbounded, a
+	// pasted 100-hash list is ~4,000 serial RPC calls and a request that hangs
+	// for minutes.
+	if (hashes.length > 20) notFound();
 
 	// Sequential, not Promise.all: ten hashes in parallel is ~400 simultaneous
 	// RPC calls, which gets you rate-limited by the provider rather than fast.
