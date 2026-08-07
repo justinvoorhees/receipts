@@ -13,11 +13,17 @@
  *
  * ⚠️ Small samples. Raise --limit before quoting the percentages.
  *
- *   node scripts/analysis/referencePoolInRoute.mjs [--limit=40]
+ * The corpus (docs/qa/corpus.json) is frozen — it no longer grows — so
+ * --limit is now a convenience for spot checks rather than a bound on an
+ * unbounded table. It defaults to the full corpus and, when set, takes the
+ * most recent N qualifying rows by id.
+ *
+ *   node scripts/analysis/referencePoolInRoute.mjs [--limit=N]
  */
 import { loadCorpus, core, env, num } from './_env.mjs';
 
-const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? '--limit=40').slice(8));
+const CORPUS = loadCorpus();
+const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? `--limit=${CORPUS.length}`).slice(8));
 
 const { createPublicClient, http } = await import('viem');
 const { base } = await import('viem/chains');
@@ -26,7 +32,7 @@ const { getPairMidAtBlock, makeRpcDecimalsCache } = await core('tokenPricing.js'
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 const decimals = makeRpcDecimalsCache(client);
 
-const rows = loadCorpus().filter((r) => r.route_legs != null && r.block_number != null);
+const rows = CORPUS.filter((r) => r.route_legs != null && r.block_number != null).slice(-limit);
 
 let n = 0, hit = 0, multi = 0;
 const byShape = {};

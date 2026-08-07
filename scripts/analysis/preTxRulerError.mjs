@@ -16,11 +16,17 @@
  * "your trade moved this pool X bps", and the post-tx price is FREE — every Swap
  * decoder already decodes sqrtPriceX96 and discards it (tradeDecoders.ts:71).
  *
- *   node scripts/analysis/preTxRulerError.mjs [--limit=40]
+ * The corpus (docs/qa/corpus.json) is frozen — it no longer grows — so
+ * --limit is now a convenience for spot checks rather than a bound on an
+ * unbounded table. It defaults to the full corpus and, when set, takes the
+ * most recent N rows by id.
+ *
+ *   node scripts/analysis/preTxRulerError.mjs [--limit=N]
  */
 import { loadCorpus, core, env, median } from './_env.mjs';
 
-const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? '--limit=40').slice(8));
+const CORPUS = loadCorpus();
+const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? `--limit=${CORPUS.length}`).slice(8));
 
 const UNI_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const PANCAKE_V3_SWAP = '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83';
@@ -33,7 +39,7 @@ const { base } = await import('viem/chains');
 const { readSlot0 } = await core('poolDiscovery.js');
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 
-const rows = loadCorpus();
+const rows = CORPUS.slice(-limit);
 
 const rulerErrs = [], footprints = [], flagged = [];
 let examined = 0, withNeighbours = 0;
