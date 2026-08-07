@@ -241,9 +241,18 @@ Keep the flag working, but default it to the whole corpus:
 
 ```js
 const rows = loadCorpus()
-	.filter((r) => r.route_legs != null && r.block_number != null) // referencePoolInRoute only
-	.slice(-limit);                                                // limit defaults to corpus length
+	.filter((r) => r.route_legs != null && r.block_number != null)
+	.slice(-limit); // limit defaults to the corpus length
 ```
+
+**Both** scripts carry that `is not null` guard — it is not specific to
+`referencePoolInRoute`. Dropping it from `preTxRulerError` is not cosmetic:
+`BigInt(r.block_number)` throws a TypeError on null where the SQL silently
+excluded the row. It stays inert only as long as the frozen corpus happens to
+contain no null rows, which is not a property the code should depend on.
+
+Guard `--limit 0` explicitly: `.slice(-0)` is `.slice(0)`, which returns the
+whole array rather than none of it.
 
 `.slice(-limit)` preserves the old "most recent N" meaning against an
 id-ascending corpus. Change each script's limit default from 40 to the corpus
