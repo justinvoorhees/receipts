@@ -720,7 +720,10 @@ describe('loadReceipt', () => {
 	it('runs leg-router enrichment over the legs', async () => {
 		analyzeTransaction.mockResolvedValue(RECEIPT);
 		const out = await loadReceipt(BASE, RECEIPT.txHash);
-		expect(out!.routeLegs).toHaveLength(1);
+		// Assert the RESOLVED field, not the array length. `toHaveLength(1)` passes
+		// with the enrichment line deleted — the raw fixture already has one leg —
+		// so it pins nothing. Step 5's mutation check is what catches that.
+		expect(out!.routeLegs![0]!.router).toBeDefined();
 	});
 
 	// A missing RPC URL must not read as "this transaction does not exist".
