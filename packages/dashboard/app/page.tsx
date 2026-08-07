@@ -1,59 +1,34 @@
-import { headers } from 'next/headers';
-import { getReceiptByHash } from '../lib/queries';
+import type { Route } from 'next';
+import { permanentRedirect } from 'next/navigation';
+import { legacyReceiptRedirect } from '../lib/receiptUrl';
 import { ReceiptView } from '../components/receiptView';
-import { classifyTransaction, type AnalyzeFailure } from '@fabric-tca/core';
-import { clientKeyFromHeaders, createMemoryStore, createRateLimiter } from '../lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_CHAIN_ID = 8453;
-
 /**
- * `/?tx=…` spends RPC on every cache miss, and it is the cheapest path in the
- * app to trigger: a plain GET, so crawlers, link unfurlers and an <img> tag all
- * reach it with no JS and no CORS preflight. Cheaper per hit than a full
- * analysis (~1 call), so the ceiling is higher than the API's — but it is not
- * free and must not be unbounded.
+ * The index is the search box and nothing else. Receipts live at
+ * /tx/<chain>/<hash>.
+ *
+ * `?tx=` is still read, for ONE purpose: sending links shared before the move
+ * to their canonical home. This page never renders a receipt from it. A
+ * malformed hash is deliberately NOT redirected — the empty search box is a
+ * better answer than a 404 for someone who pasted badly.
  */
-const diagnosisLimiter = createRateLimiter(createMemoryStore(), {
-	limit: Number(process.env.RATE_LIMIT_DIAGNOSIS_PER_MIN) || 30,
-	windowMs: 60_000,
-});
-
-export default async function ReceiptPage({
+export default async function IndexPage({
 	searchParams,
 }: {
 	searchParams: Promise<{ tx?: string }>;
 }) {
 	const sp = await searchParams;
-	const explicit = sp.tx != null && sp.tx.trim() !== '';
-	// No default transaction: the bare index renders just the search input (empty
-	// hash → empty field). A receipt is only fetched for an explicitly-pasted tx.
-	const hash = explicit ? (sp.tx as string).trim() : '';
-	const receipt = explicit ? await getReceiptByHash(hash) : null;
-
-	// On a genuine miss for an explicitly-pasted hash, diagnose WHY (page is the
-	// single server render; successes are already persisted by the awaited POST).
-	let diagnosis: AnalyzeFailure | undefined;
-	if (receipt == null && explicit) {
-		const rpcUrl = process.env.TCA_RPC_URL;
-		const budget = await diagnosisLimiter(clientKeyFromHeaders(await headers()));
-		if (!budget.allowed) {
-			// Deliberately leave `diagnosis` unset rather than inventing a reason
-			// code: every AnalyzeFailure value asserts something about the
-			// transaction, and we have not looked at it. The page falls back to the
-			// plain search state instead of making a claim we did not verify.
-			diagnosis = undefined;
-		} else {
-			diagnosis = rpcUrl
-				? await classifyTransaction(hash, DEFAULT_CHAIN_ID, { rpcUrl })
-				: { reason: 'ANALYZE_ERROR' };
-		}
+	const tx = sp.tx?.trim();
+	if (tx) {
+		const canonical = legacyReceiptRedirect(tx);
+		if (canonical) permanentRedirect(canonical as Route);
 	}
 
 	return (
 		<div className="mt-[40px]">
-			<ReceiptView trade={receipt} hash={hash} {...(diagnosis ? { diagnosis } : {})} />
+			<ReceiptView trade={null} hash="" />
 		</div>
 	);
 }

@@ -7,6 +7,7 @@
  */
 import { providerColor, formatProvider } from '../../lib/formatters';
 import type { ReceiptRow, RouteLeg } from '../../lib/queries';
+import { DEFAULT_CHAIN, explorerAddress } from '../../lib/chains';
 import {
 	getVenueLabel,
 	isMakerLeg,
@@ -217,7 +218,7 @@ export function AggregatorValue({ row }: { row: ReceiptRow }) {
 	if (!address) return label;
 	return (
 		<a
-			href={`https://basescan.org/address/${address}`}
+			href={explorerAddress(DEFAULT_CHAIN, address)}
 			target="_blank"
 			rel="noreferrer"
 			className="underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
@@ -243,7 +244,7 @@ export function FillerRow({ address }: { address: string }) {
 			</div>
 			<span className="min-w-0 text-right">
 				<a
-					href={`https://basescan.org/address/${address}`}
+					href={explorerAddress(DEFAULT_CHAIN, address)}
 					target="_blank"
 					rel="noreferrer"
 					className="break-all text-[var(--color-primary)] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
@@ -409,7 +410,7 @@ export function BkdRow({
 function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
 	const link = (
 		<a
-			href={`https://basescan.org/address/${router.address}`}
+			href={explorerAddress(DEFAULT_CHAIN, router.address)}
 			target="_blank"
 			rel="noreferrer"
 			className="underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
@@ -488,7 +489,7 @@ export function LegRow({
 	return (
 		<BkdRow
 			label={getVenueLabel(leg)}
-			href={`https://basescan.org/address/${legLinkAddress(leg)}`}
+			href={explorerAddress(DEFAULT_CHAIN, legLinkAddress(leg))}
 			context={context}
 			value={value}
 			color={color}

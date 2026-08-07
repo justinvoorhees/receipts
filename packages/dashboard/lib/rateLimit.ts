@@ -3,9 +3,9 @@
  *
  * A single receipt analysis costs ~40 RPC calls (measured), so an unmetered
  * POST /api/receipts is a direct line to our RPC bill — and every accepted
- * request also writes a permanent DB row. The GET /?tx= path is cheaper per
- * hit (~1 call) but far easier to trigger: it needs no JS, no CORS preflight,
- * and fires from crawlers and link previews.
+ * request also writes a permanent DB row. The GET /tx/<chain>/<hash> path is
+ * cheaper per hit (~1 call) but far easier to trigger: it needs no JS, no CORS
+ * preflight, and fires from crawlers and link previews.
  *
  * The store is an interface on purpose. We run a single long-lived container
  * today, where an in-memory Map is correct and free. On a serverless host each

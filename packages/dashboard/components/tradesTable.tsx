@@ -15,6 +15,8 @@ import { Receipt } from './receiptView';
 // which do `await import('./TradesTable')`) keep resolving unchanged.
 import { getExecutionBreakdown, hasNoReadableLpFee, normalizeRouteLegs } from './receipt/receiptDisplay';
 import { receiptPairTitle } from './receipt/priceFormat';
+import { chainById } from '../lib/chains';
+import { receiptPath } from '../lib/receiptUrl';
 export * from './receipt/receiptDisplay';
 
 const COL = 'p-0 py-[10px] pl-[28px] align-baseline';
@@ -344,6 +346,11 @@ export function TransactionDetailsDialog({
 		return () => window.removeEventListener('keydown', onKeyDown);
 	}, [onClose]);
 
+	// A row whose chain is not registered gets NO share path rather than a URL
+	// naming the wrong chain. ShareButton's `path` is optional and falls back to
+	// window.location.href (components/receipt/receiptDisplay.tsx:29).
+	const shareChain = chainById(row.chainId);
+
 	return (
 		<div className="fixed inset-0 z-layer-dialog-scrim overflow-y-auto bg-[rgba(15,15,15,0.20)] backdrop-blur-[2px]">
 			<div
@@ -359,7 +366,12 @@ export function TransactionDetailsDialog({
 					aria-label="Transaction receipt"
 					className="relative flex w-full max-w-[720px] flex-col gap-[40px] bg-[var(--color-surface-base)] px-[40px] pt-[40px] pb-[40px] text-[var(--color-primary)] shadow-[8px_0px_8px_rgba(15,15,15,0.06),-8px_0px_8px_rgba(15,15,15,0.06)]"
 				>
-					<Receipt row={row} sharePath={`/?tx=${row.txHash}`} onClose={onClose} onDelete={handleDelete} />
+					<Receipt
+						row={row}
+						{...(shareChain ? { sharePath: receiptPath(shareChain, row.txHash) } : {})}
+						onClose={onClose}
+						onDelete={handleDelete}
+					/>
 				</section>
 			</div>
 		</div>

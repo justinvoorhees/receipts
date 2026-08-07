@@ -3,6 +3,7 @@ import { ReceiptSearch } from './receiptSearch';
 import type { ReceiptRow } from '../lib/queries';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { shortTxHash, formatGasUsd } from '../lib/formatters';
+import { DEFAULT_CHAIN, explorerTx } from '../lib/chains';
 import {
 	formatDialogBps,
 	formatExecutionPrice,
@@ -156,7 +157,7 @@ export function Receipt({
 			<div className="flex items-center justify-between">
 				<h2 className="w-fit">
 					<a
-						href={`https://basescan.org/tx/${row.txHash}`}
+						href={explorerTx(DEFAULT_CHAIN, row.txHash)}
 						target="_blank"
 						rel="noreferrer"
 						className="font-['Sohne_Breit'] font-medium text-[20px] leading-[20px] underline decoration-dotted decoration-[8%] underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"

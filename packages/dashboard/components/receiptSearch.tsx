@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
+import { resolveSearchSubmission } from '../lib/receiptUrl';
 
 // Shown as greyed placeholder text in the empty search field.
 const PLACEHOLDER_HASH = 'Transaction hash';
@@ -46,6 +47,15 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	const [submitting, setSubmitting] = useState(false);
 	const [loaderWord, setLoaderWord] = useState<string>(LOADER_WORDS[0]);
 	const lastLoaderWord = useRef<string | null>(null);
+	// Client-side-only failure (a bad paste never reaches the server). Distinct
+	// from the `failure` prop, which the server computes for a hash it already
+	// tried to analyze — that one must keep working exactly as it does today.
+	const [localFailure, setLocalFailure] = useState<AnalyzeFailure | undefined>(undefined);
+	// A paste fires 'paste' (our onPaste → go()) and then, as the browser applies
+	// the default insertion, 'input' (our onChange) — both from the SAME user
+	// action. Without this flag, onChange's unconditional clear would erase the
+	// invalid-paste failure that go() just set, moments after setting it.
+	const suppressNextClear = useRef(false);
 
 	useEffect(() => {
 		setValue(hash);
@@ -56,8 +66,15 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	// server page reads the now-persisted row; a miss is diagnosed and surfaces
 	// as a FailureNotice via the `failure` prop.
 	const go = async (raw: string) => {
+		if (submitting) return;
+		const submission = resolveSearchSubmission(raw);
+		if (submission.kind === 'empty') return;
+		if (submission.kind === 'invalid') {
+			setLocalFailure({ reason: 'INVALID_HASH' });
+			return;
+		}
+		setLocalFailure(undefined);
 		const trimmed = raw.trim();
-		if (!trimmed || submitting) return;
 		const word = nextLoaderWord(lastLoaderWord.current);
 		lastLoaderWord.current = word;
 		setLoaderWord(word);
@@ -73,7 +90,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 			// not-found state rather than leaving the UI hung.
 		} finally {
 			setSubmitting(false);
-			router.push(`/?tx=${encodeURIComponent(trimmed)}` as Route);
+			router.push(submission.to as Route);
 		}
 	};
 
@@ -81,7 +98,10 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 		void go(value);
 	};
 
-	const hasError = failure != null;
+	// Local failure wins: it reflects what the user just did, while the prop
+	// reflects the hash the server last rendered for.
+	const effectiveFailure = localFailure ?? failure;
+	const hasError = effectiveFailure != null;
 	const borderColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
 	const textColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
 
@@ -102,12 +122,22 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 					value={value}
 					placeholder={PLACEHOLDER_HASH}
 					autoFocus
-					onChange={(e) => setValue(e.target.value)}
+					onChange={(e) => {
+						setValue(e.target.value);
+						if (suppressNextClear.current) {
+							suppressNextClear.current = false;
+						} else {
+							setLocalFailure(undefined);
+						}
+					}}
 					onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
 					onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
 					onPaste={(e) => {
 						const pasted = e.clipboardData.getData('text').trim();
-						if (pasted) void go(pasted);
+						if (pasted) {
+							suppressNextClear.current = true;
+							void go(pasted);
+						}
 					}}
 					onMouseEnter={() => setInputHovered(true)}
 					onMouseLeave={() => setInputHovered(false)}
@@ -134,7 +164,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 					{submitting ? `${loaderWord}…` : 'Create Receipt'}
 				</button>
 			</div>
-			{failure && <FailureNotice failure={failure} />}
+			{effectiveFailure && <FailureNotice failure={effectiveFailure} />}
 		</div>
 	);
 }

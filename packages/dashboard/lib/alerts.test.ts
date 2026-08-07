@@ -168,7 +168,7 @@ describe('message formatting', () => {
 		expect(msg).toContain('0x');
 		expect(msg).toContain('$4210');
 		expect(msg).toContain('12.4 bps');
-		expect(msg).toContain('https://app.test/?tx=0xdead');
+		expect(msg).toContain('https://app.test/tx/base/0xdead');
 	});
 
 	it('tolerates a receipt with nothing resolved', () => {
@@ -179,7 +179,7 @@ describe('message formatting', () => {
 			},
 			'https://app.test',
 		);
-		expect(msg).toContain('https://app.test/?tx=0xbeef');
+		expect(msg).toContain('https://app.test/tx/base/0xbeef');
 		expect(msg).not.toContain('null');
 	});
 });

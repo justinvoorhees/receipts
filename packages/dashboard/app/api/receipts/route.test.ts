@@ -173,7 +173,7 @@ describe('POST /api/receipts — chainId validation', () => {
 		vi.clearAllMocks();
 		mockGet.mockResolvedValue(null);
 		mockAnalyze.mockResolvedValue(sampleReceipt);
-		mockInsert.mockResolvedValue({ id: 1 } as never);
+		mockInsert.mockResolvedValue({ id: 1, txHash: VALID_HASH } as never);
 		process.env.TCA_RPC_URL = 'http://rpc.test';
 	});
 
@@ -209,7 +209,7 @@ describe('POST /api/receipts — hash syntax validation', () => {
 		vi.clearAllMocks();
 		mockGet.mockResolvedValue(null);
 		mockAnalyze.mockResolvedValue(sampleReceipt);
-		mockInsert.mockResolvedValue({ id: 1 } as never);
+		mockInsert.mockResolvedValue({ id: 1, txHash: VALID_HASH } as never);
 		process.env.TCA_RPC_URL = 'http://rpc.test';
 	});
 

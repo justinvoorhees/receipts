@@ -38,7 +38,7 @@ const post = (ip: string) =>
 
 beforeEach(() => {
 	mockAnalyze.mockResolvedValue({ txHash: VALID_HASH, chainId: 8453 } as never);
-	mockInsert.mockResolvedValue({ id: 1 } as never);
+	mockInsert.mockResolvedValue({ id: 1, txHash: VALID_HASH } as never);
 });
 
 // A cache hit costs no RPC, so it must not consume the analysis ceiling — else a
