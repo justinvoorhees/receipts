@@ -1,11 +1,12 @@
 /**
  * Rate limiting for the paths that cost us money.
  *
- * A single receipt analysis costs ~40 RPC calls (measured), so an unmetered
- * POST /api/receipts is a direct line to our RPC bill — and every accepted
- * request also writes a permanent DB row. The GET /tx/<chain>/<hash> path is
- * cheaper per hit (~1 call) but far easier to trigger: it needs no JS, no CORS
- * preflight, and fires from crawlers and link previews.
+ * A single receipt analysis costs ~40 RPC calls (measured), and GET
+ * /tx/<chain>/<hash> is that full analysis on every hit — there is no cache
+ * and nothing is persisted. It is also public and needs no JS, no CORS
+ * preflight, and no password, so it fires just as readily from crawlers and
+ * link unfurlers as from a real visitor. An unmetered hit on this route is a
+ * direct line to the RPC bill.
  *
  * The store is an interface on purpose. We run a single long-lived container
  * today, where an in-memory Map is correct and free. On a serverless host each

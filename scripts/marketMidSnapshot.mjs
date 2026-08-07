@@ -1,12 +1,11 @@
 /**
  * marketMidSnapshot.mjs — snapshot the computed Market Price for every distinct
- * (input_token, output_token, block) pair in the receipts table, to a JSON file.
+ * (input_token, output_token, block) pair in the frozen QA corpus, to a JSON file.
  *
  * Purpose: regression-gate a pricing/discovery change WITHOUT trusting the
- * persisted `receipts.market_mid` column — persisted mids go stale silently when
- * core pricing changes, and some are stored in a display (inverted) orientation,
- * so they are not a clean baseline. Instead, snapshot the LIVE-computed mid on
- * two code versions and diff them (same orientation on both sides):
+ * corpus's own `market_mid` column — some rows store it in a display (inverted)
+ * orientation, so it is not a clean baseline. Instead, snapshot the LIVE-computed
+ * mid on two code versions and diff them (same orientation on both sides):
  *
  *   # on the pre-change base (e.g. main), with core dist built:
  *   git checkout <base> && npx tsc --build packages/core
@@ -23,9 +22,11 @@
  * and prints tier transitions so a drift that keeps oracle corroboration
  * (full->full) is distinguishable from one that does not.
  *
- * Reads TCA_RPC_URL / TCA_DATABASE_URL from the repo-root .env. No writes.
+ * Reads TCA_RPC_URL from the repo-root .env and its pairs from the frozen
+ * corpus (docs/qa/corpus.json). No writes, no database.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { loadCorpus } from './analysis/_env.mjs';
 
 const env = Object.fromEntries(
 	readFileSync(new URL('../.env', import.meta.url), 'utf8')
@@ -57,13 +58,21 @@ function diff(basePath, afterPath) {
 }
 
 async function snapshot(outPath) {
-	const { default: postgres } = await import('postgres');
 	const { createDefaultPricingDeps } = await import(new URL('../packages/core/dist/pricing.js', import.meta.url));
-	const sql = postgres(env.TCA_DATABASE_URL, { prepare: false });
 	const deps = createDefaultPricingDeps(env.TCA_RPC_URL);
-	const rows = await sql`select distinct input_token, output_token, block_number from receipts`;
+	// Distinct (input_token, output_token, block_number) triples out of the
+	// frozen corpus — the same set `select distinct … from receipts` used to
+	// produce, just read from JSON instead of a live table.
+	const seen = new Set();
+	const pairs = [];
+	for (const r of loadCorpus()) {
+		const key = `${r.input_token}|${r.output_token}|${r.block_number}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		pairs.push({ input_token: r.input_token, output_token: r.output_token, block_number: r.block_number });
+	}
 	const res = {};
-	for (const r of rows) {
+	for (const r of pairs) {
 		const key = `${r.input_token}|${r.output_token}|${r.block_number}`;
 		try {
 			const mp = await deps.getMarketPrice(r.input_token, r.output_token, BigInt(r.block_number) - 1n);
@@ -74,11 +83,10 @@ async function snapshot(outPath) {
 	}
 	writeFileSync(outPath, JSON.stringify(res, null, 2));
 	console.log(`wrote ${outPath}: ${Object.keys(res).length} pairs`);
-	await sql.end();
 }
 
 const args = process.argv.slice(2);
-if (!env.TCA_RPC_URL || !env.TCA_DATABASE_URL) { console.error('Missing TCA_RPC_URL or TCA_DATABASE_URL'); process.exit(1); }
+if (!env.TCA_RPC_URL) { console.error('Missing TCA_RPC_URL'); process.exit(1); }
 if (args[0] === '--diff') {
 	if (args.length !== 3) { console.error('usage: --diff <base.json> <after.json>'); process.exit(1); }
 	diff(args[1], args[2]);

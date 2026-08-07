@@ -13,6 +13,7 @@ import type { VenueType, Leg } from './routeGraph.js';
 import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
 import { readSlot0, readV2Reserves, readV4Slot0, V4_POOL_MANAGER, readInfinityPoolKey, readInfinitySlot0, INFINITY_CL_POOL_MANAGER } from './poolDiscovery.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
+import { log } from './log.js';
 
 /** Sort two token addresses into Uniswap (token0, token1) order (lower = token0). */
 function sortLegTokens(a: string, b: string): { token0: string; token1: string; inverted: boolean } {
@@ -182,10 +183,12 @@ const EIP1967_IMPL_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a
  * `settlementDecoders.ts`, so a systematically broken reader cannot stay silent.
  */
 function unresolvedFee(addr: string, type: VenueType, cause: string): { bps: number; defaulted: boolean } {
-	console.warn(
-		`[createDefaultFeeReader] could not resolve the fee tier for ${type} pool ${addr} — ` +
-		`its LP fee will read 0 bps and be reported as unresolved: ${cause}`,
-	);
+	log.warn('could not resolve the fee tier, LP fee will read 0 bps and be reported as unresolved', {
+		module: 'createDefaultFeeReader',
+		venueType: type,
+		pool: addr,
+		cause,
+	});
 	return { bps: 0, defaulted: true };
 }
 

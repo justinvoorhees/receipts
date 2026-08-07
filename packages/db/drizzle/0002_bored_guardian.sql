@@ -1,1 +1,0 @@
-CREATE INDEX IF NOT EXISTS "receipts_tx_hash_lower_idx" ON "receipts" USING btree (lower("tx_hash"));

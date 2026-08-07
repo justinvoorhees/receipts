@@ -13,6 +13,7 @@
 ## Global Constraints
 
 - **Indentation is TABS** throughout this codebase. Match it.
+- **Run vitest from the REPO ROOT, always.** Running `npx vitest run` from inside `packages/dashboard` silently collects only about half the suite (~484 of 1012 tests) and reports green. Every command in this plan assumes the repo root as cwd.
 - **`npm test` does NOT typecheck.** Every task's verification runs both `npx vitest run <path>` and `npx tsc --build`.
 - **Lint is the Railway deploy gate.** Run `npm run lint` before every commit.
 - **Never run `npm run build` while a dev server is up** — it writes into the same `.next` the dev server owns and the app renders unstyled. See `docs/superpowers/specs/` history and the detached-worktree recipe if a real build is needed.
@@ -225,10 +226,41 @@ In each script, delete its `const sql = await connect();` line and any `await sq
 | `unpricedCauses.mjs` | `` await sql`… from receipts where route_legs is not null order by id` `` | `loadCorpus().filter((r) => r.route_legs != null)` |
 | `referencePoolInRoute.mjs` | `` await sql`… where route_legs is not null and block_number is not null` `` | `loadCorpus().filter((r) => r.route_legs != null && r.block_number != null)` |
 | `coverageEstimate.mjs` | `` await sql`… from receipts order by id` `` | `loadCorpus()` |
-| `preTxRulerError.mjs` | `` await sql`select tx_hash, block_number, slippage_bps from receipts` `` | `loadCorpus()` |
+| `preTxRulerError.mjs` | `` await sql`… order by id desc limit ${limit}` `` | see below |
+| `referencePoolInRoute.mjs` | `` await sql`… order by id desc limit ${limit}` `` | see below |
 | `rpcProviderAB.mjs` | `` await sql`… from receipts order by id asc` `` | `loadCorpus()` |
 
 The narrower `select` lists are not reproduced — `loadCorpus()` returns every column and the scripts read the ones they name.
+
+**`preTxRulerError.mjs` and `referencePoolInRoute.mjs` also carry `order by id
+desc limit ${limit}`,** driven by a `--limit` CLI flag defaulting to 40. That
+existed to bound a table that grew without limit. The corpus does not grow — it
+is 62 frozen rows, and 62 is now the entire population rather than a sample.
+
+Keep the flag working, but default it to the whole corpus:
+
+```js
+const rows = loadCorpus()
+	.filter((r) => r.route_legs != null && r.block_number != null)
+	.slice(-limit); // limit defaults to the corpus length
+```
+
+**Both** scripts carry that `is not null` guard — it is not specific to
+`referencePoolInRoute`. Dropping it from `preTxRulerError` is not cosmetic:
+`BigInt(r.block_number)` throws a TypeError on null where the SQL silently
+excluded the row. It stays inert only as long as the frozen corpus happens to
+contain no null rows, which is not a property the code should depend on.
+
+Guard `--limit 0` explicitly: `.slice(-0)` is `.slice(0)`, which returns the
+whole array rather than none of it.
+
+`.slice(-limit)` preserves the old "most recent N" meaning against an
+id-ascending corpus. Change each script's limit default from 40 to the corpus
+length, and note in its header that the flag is now a convenience for spot
+checks rather than a bound on an unbounded table.
+
+A flag that silently does nothing is worse than no flag — someone passes
+`--limit 10`, gets 62 rows, and trusts the number.
 
 - [ ] **Step 3: Restate the baselines in the script headers**
 
@@ -555,6 +587,22 @@ In `packages/dashboard/lib/alerts.ts`, `ReceiptSummary` declares:
 
 Change both to `number | null`. The two `Number(...)` calls in `receiptCreatedMessage` below them are already correct for either — leave them. Update the doc comment above the interface from `a ReceiptRow satisfies it` to `a ReceiptModel satisfies it`.
 
+**This breaks one still-living call site.** `app/api/receipts/route.ts` calls
+`receiptCreatedMessage(inserted, …)` where `inserted` is a `ReceiptRow` whose
+numerics are strings, so widening the interface turns that into a type error.
+That route is deleted in Task 9; until then, coerce at the call site:
+
+```ts
+	void activityNotify('receipt_created', receiptCreatedMessage({
+		...inserted,
+		notionalUsd: inserted.notionalUsd == null ? null : Number(inserted.notionalUsd),
+		allInCostBps: inserted.allInCostBps == null ? null : Number(inserted.allInCostBps),
+	}, baseUrlFrom(req)));
+```
+
+This is scaffolding with a known expiry, not a pattern to copy. It exists so
+Task 5's typecheck gate is honest rather than deferred.
+
 - [ ] **Step 5: Update the test fixtures to numbers**
 
 In `packages/dashboard/components/receiptView.test.tsx`, every fixture numeric currently written as a string becomes a number: `notionalUsd: '1000'` → `notionalUsd: 1000`, `marketMid: '3421.5'` → `marketMid: 3421.5`, and so on for `realizedPrice`, `allInCostBps`, `inputAmount`, `outputAmount`, `lpFeeBps`, `aggFeeBps`, `slippageBps`, `gasCostUsd`, and the `marketMidBefore` / `marketMidAfter` pair.
@@ -672,7 +720,10 @@ describe('loadReceipt', () => {
 	it('runs leg-router enrichment over the legs', async () => {
 		analyzeTransaction.mockResolvedValue(RECEIPT);
 		const out = await loadReceipt(BASE, RECEIPT.txHash);
-		expect(out!.routeLegs).toHaveLength(1);
+		// Assert the RESOLVED field, not the array length. `toHaveLength(1)` passes
+		// with the enrichment line deleted — the raw fixture already has one leg —
+		// so it pins nothing. Step 5's mutation check is what catches that.
+		expect(out!.routeLegs![0]!.router).toBeDefined();
 	});
 
 	// A missing RPC URL must not read as "this transaction does not exist".
@@ -1310,7 +1361,7 @@ export default async function QaPage({
 	if (!resolved) notFound();
 
 	// Validated before anything is spent — a malformed list costs one regex each.
-	const hashes = decodeURIComponent(hashesParam).split(',').map((h) => h.trim()).filter(Boolean);
+	const hashes = safeDecode(hashesParam).split(',').map((h) => h.trim()).filter(Boolean);
 	if (hashes.length === 0 || !hashes.every((h) => HASH_RE.test(h))) notFound();
 
 	// Sequential, not Promise.all: ten hashes in parallel is ~400 simultaneous
@@ -1367,6 +1418,24 @@ export default async function QaPage({
 ```
 
 `overflow-x-auto` on the wrapper is required — a wide table must scroll inside its own container rather than the page body.
+
+**The decode is load-bearing and must be guarded, not deleted.** Measured
+against a live dev server: a literal comma in the path arrives at this route as
+`%2C`, not as `,` — ordinary `%XX` sequences are decoded by the App Router, but
+the segment separator is not. So dropping `decodeURIComponent` breaks the
+comma-separated URL shape, which is the whole page. But calling it bare throws
+`URIError` on a malformed sequence like `/qa/tx/base/%`, producing a 500 before
+any validation runs. Wrap it:
+
+```ts
+/** A malformed percent-sequence is a bad URL, not a server error. */
+function safeDecode(s: string): string {
+	try { return decodeURIComponent(s); } catch { notFound(); }
+}
+```
+
+Pin both halves with tests: `%2C` resolves to two hashes, and `%` 404s without
+calling `loadReceipt`.
 
 - [ ] **Step 4: Run to verify they pass**
 

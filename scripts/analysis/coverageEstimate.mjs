@@ -8,14 +8,9 @@
  *
  *   node scripts/analysis/coverageEstimate.mjs
  */
-import { connect, costedLegs, isFullyPriced, priceImpactCoverage, num } from './_env.mjs';
+import { loadCorpus, costedLegs, isFullyPriced, priceImpactCoverage, num } from './_env.mjs';
 
-const sql = await connect();
-const rows = await sql`
-  select id, tier, aggregator, notional_usd, slippage_bps, pricing_status,
-         decomp_confidence, route_legs
-  from receipts order by id`;
-await sql.end();
+const rows = loadCorpus();
 
 const buckets = {
 	noLegs: [],        // no route_legs at all — gate cannot apply

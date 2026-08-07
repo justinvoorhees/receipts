@@ -17,17 +17,15 @@
  * reserves and amountIn). Do not "fix" the single market ruler.
  *
  * Baseline 2026-07-30: |recon| median 17.41 p90 183.75; |slippage| p90 183.68.
+ * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+ * (docs/qa/corpus.json); this baseline was measured against the live table
+ * at the time, a different row set than this frozen corpus.
  *
  *   node scripts/analysis/reconResidual.mjs
  */
-import { connect, num, quantile } from './_env.mjs';
+import { loadCorpus, num, quantile } from './_env.mjs';
 
-const sql = await connect();
-const rows = await sql`
-  select id, tx_hash, tier, route_shape, notional_usd, all_in_cost_bps,
-         slippage_bps, recon_residual_bps, decomp_confidence
-  from receipts where route_legs is not null order by id`;
-await sql.end();
+const rows = loadCorpus().filter((r) => r.route_legs != null);
 
 const withRecon = rows.filter((r) => r.recon_residual_bps != null);
 console.log(`receipts with legs: ${rows.length}`);

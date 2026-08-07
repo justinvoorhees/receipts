@@ -116,16 +116,16 @@ describe('fallbackMethodology', () => {
 	});
 });
 
-// A full USDC/WETH receipt, generalized ReceiptRow shape (Task 8+).
+// A full USDC/WETH receipt, generalized ReceiptModel shape (Task 8+).
 const fullUsdcWethRow = {
 	txHash: '0x1234567890abcdef1234567890abcdef12345678',
 	chainId: 8453, blockNumber: 123, aggregator: 'kyberswap', direction: 'buy_weth',
 	inputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
 	outputToken: '0x4200000000000000000000000000000000000006',
 	inputSymbol: 'USDC', outputSymbol: 'WETH',
-	inputAmount: '1000.00', outputAmount: '0.33', notionalUsd: '1000.00',
-	realizedPrice: '3000', marketMid: '3000', allInCostBps: '-1', pricingStatus: 'full',
-	lpFeeBps: '1', aggFeeBps: '0', slippageBps: '-2', executionBps: '-1', gasCostUsd: '0.001',
+	inputAmount: 1000.00, outputAmount: 0.33, notionalUsd: 1000.00,
+	realizedPrice: 3000, marketMid: 3000, allInCostBps: -1, pricingStatus: 'full',
+	lpFeeBps: 1, aggFeeBps: 0, slippageBps: -2, executionBps: '-1', gasCostUsd: 0.001,
 	hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
 	reconResidualBps: null, manipulationFlag: false,
 };
@@ -187,29 +187,13 @@ describe('Receipt header', () => {
 		expect(html).not.toContain('unavailable for this pair');
 	});
 
-	it('renders no close/delete controls outside the dialog', async () => {
+	it('renders no close/delete controls — there is no dialog mode', async () => {
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(<Receipt row={fullUsdcWethRow as never} />);
 		// The rule under the input belongs to ReceiptView now, not Receipt — see
 		// the 'ReceiptSearch chrome' block for its coverage.
 		expect(html).not.toContain('Close transaction details');
 		expect(html).not.toContain('>Delete<');
-	});
-
-	it('in dialog mode (onClose/onDelete passed), renders the close button beside the header and a Delete button above Share', async () => {
-		const { Receipt } = await import('./receiptView');
-		const html = renderToStaticMarkup(
-			<Receipt row={fullUsdcWethRow as never} onClose={() => {}} onDelete={() => {}} />,
-		);
-		// The dialog has no rule ABOVE its header — but it does carry the Cost
-		// Breakdown rule further down, so assert ORDER, not absence. A bare
-		// not.toContain here passes vacuously until a body divider exists, then
-		// fails for the wrong reason.
-		expect(html.indexOf('aria-label="Close transaction details"'))
-			.toBeLessThan(html.indexOf('h-px w-full shrink-0 bg-[var(--color-primary)]'));
-		expect(html).toContain('>Delete<');
-		expect(html).toContain('>Share<');
-		expect(html.indexOf('>Delete<')).toBeLessThan(html.indexOf('>Share<'));
 	});
 });
 
@@ -263,7 +247,7 @@ describe('Receipt unnamed fee-sink attribution', () => {
 	const rowUnder = (aggregator: string) => ({
 		...fullUsdcWethRow,
 		aggregator,
-		aggFeeBps: '80',
+		aggFeeBps: 80,
 		feeRecipient: sink,
 	});
 
@@ -296,9 +280,9 @@ describe('Receipt partial state', () => {
 		inputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
 		outputToken: '0x000000000000000000000000000000000000dead',
 		inputSymbol: 'AAA', outputSymbol: 'BBB',
-		inputAmount: '1000', outputAmount: '5', notionalUsd: '1000',
+		inputAmount: 1000, outputAmount: 5, notionalUsd: 1000,
 		realizedPrice: null, marketMid: null, allInCostBps: null, pricingStatus: 'partial',
-		lpFeeBps: '3', aggFeeBps: '2', slippageBps: null, executionBps: null, gasCostUsd: '0.01',
+		lpFeeBps: 3, aggFeeBps: 2, slippageBps: null, executionBps: null, gasCostUsd: 0.01,
 		hopCount: 1, routeShape: 'single', decompConfidence: 'low', routeLegs: [], routePure: true,
 		reconResidualBps: null, manipulationFlag: null,
 	};
@@ -328,8 +312,8 @@ describe('Receipt token-denominated price rows', () => {
 			aggregator: 'fabric', pricingStatus: 'estimated',
 			inputSymbol: 'WARP', outputSymbol: 'ETH',
 			inputToken: '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07', outputToken: 'native',
-			inputAmount: '202116011.45', outputAmount: '0.0778', notionalUsd: '134.96',
-			realizedPrice: '0.000000000385', marketMid: '0.000000000394', allInCostBps: '221',
+			inputAmount: 202116011.45, outputAmount: 0.0778, notionalUsd: 134.96,
+			realizedPrice: 0.000000000385, marketMid: 0.000000000394, allInCostBps: 221,
 			chainlinkPrice: null, manipulationFlag: false,
 		};
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
@@ -359,9 +343,9 @@ describe('Receipt estimated pricing tier', () => {
 		aggregator: 'fabric',
 		pricingStatus: 'estimated',
 		// best-effort mid + realized price present, but no oracle fields
-		realizedPrice: '0.00000068',
-		marketMid: '0.00000069',
-		allInCostBps: '14',
+		realizedPrice: 0.00000068,
+		marketMid: 0.00000069,
+		allInCostBps: 14,
 		chainlinkPrice: null,
 		manipulationFlag: false,
 	};
@@ -390,7 +374,7 @@ describe('Receipt estimated pricing tier', () => {
 		const partialRow = {
 			...fullUsdcWethRow,
 			pricingStatus: 'partial',
-			realizedPrice: '0.00000068',
+			realizedPrice: 0.00000068,
 			marketMid: null,
 			allInCostBps: null,
 		};
@@ -706,9 +690,9 @@ describe('Price Delta row', () => {
 		...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
 		inputSymbol: 'ETH', outputSymbol: 'WBTC',
 		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
-		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
-		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
-		allInCostBps: '-25.53', chainlinkPrice: null,
+		inputAmount: 1, outputAmount: 0.02862539, notionalUsd: 1791.1353895147784,
+		marketMid: 35.02321455049866, realizedPrice: 34.93402185961484,
+		allInCostBps: -25.53, chainlinkPrice: null,
 	};
 
 	it('renders the anchored USD delta as a "Bought … below" sentence, agreeing with Execution Quality', async () => {
@@ -737,7 +721,7 @@ describe('Price Delta row', () => {
 		// Consistent loss: received 0.0284 WBTC (< the ~0.028552 the mid implies for 1 ETH),
 		// so realizedPrice = 1/0.0284 ≈ 35.2113 ETH/WBTC (paid more ETH per WBTC than the mid).
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...ethWbtc, outputAmount: '0.0284', realizedPrice: '35.2113', allInCostBps: '25' } as never} />,
+			<Receipt row={{ ...ethWbtc, outputAmount: 0.0284, realizedPrice: 35.2113, allInCostBps: 25 } as never} />,
 		);
 		expect(html).toContain('WBTC bought at');
 		expect(html).toContain('above Market Price');
@@ -756,8 +740,8 @@ describe('Price Delta row', () => {
 				inputSymbol: 'WETH', outputSymbol: 'USDC',
 				inputToken: '0x4200000000000000000000000000000000000006',
 				outputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
-				inputAmount: '1', outputAmount: '3005',
-				marketMid: '3000', realizedPrice: '3005',
+				inputAmount: 1, outputAmount: 3005,
+				marketMid: 3000, realizedPrice: 3005,
 			} as never} />,
 		);
 		expect(html).toContain('WETH sold at');
@@ -774,8 +758,8 @@ describe('Price Delta row', () => {
 				inputSymbol: 'WETH', outputSymbol: 'USDC',
 				inputToken: '0x4200000000000000000000000000000000000006',
 				outputToken: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
-				inputAmount: '1', outputAmount: '2995',
-				marketMid: '3000', realizedPrice: '2995',
+				inputAmount: 1, outputAmount: 2995,
+				marketMid: 3000, realizedPrice: 2995,
 			} as never} />,
 		);
 		expect(html).toContain('WETH sold at');
@@ -789,7 +773,7 @@ describe('Price Delta row', () => {
 		// A genuine tie: 3000 USDC → 1 WETH at a 3000 USDC/WETH mid → realized == mid,
 		// so the single-ruler Execution Delta is exactly $0 and the Price Delta is None.
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...fullUsdcWethRow, inputAmount: '3000', outputAmount: '1', notionalUsd: '3000' } as never} />,
+			<Receipt row={{ ...fullUsdcWethRow, inputAmount: 3000, outputAmount: 1, notionalUsd: 3000 } as never} />,
 		);
 		expect(html).toContain('None');
 		expect(html).not.toContain('than Market Price');
@@ -807,9 +791,9 @@ describe('Price Delta row', () => {
 				inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
 				inputToken: '0x3722264ab15a1dfce5a5af89e6547f7949a8aba3',
 				outputToken: '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3',
-				inputAmount: '6745937.5', outputAmount: '7234145.96',
-				marketMid: '1.1016', realizedPrice: '1.0724',
-				allInCostBps: '265', chainlinkPrice: null,
+				inputAmount: 6745937.5, outputAmount: 7234145.96,
+				marketMid: 1.1016, realizedPrice: 1.0724,
+				allInCostBps: 265, chainlinkPrice: null,
 			} as never} />,
 		);
 		expect(html).toContain('0.0292 GITLAWB');
@@ -828,7 +812,7 @@ describe('Price Delta row', () => {
 		// Paid 3005 USDC/WETH against a 3000 mid → a $5/ETH overpay → the fill lands above Market Price.
 		// ReceiptView.test.tsx:470 once asserted this was "better".
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...fullUsdcWethRow, marketMid: '3000', realizedPrice: '3005' } as never} />,
+			<Receipt row={{ ...fullUsdcWethRow, marketMid: 3000, realizedPrice: 3005 } as never} />,
 		);
 		expect(html).toContain('WETH bought at');
 		expect(html).toContain('above Market Price');
@@ -847,8 +831,8 @@ describe('Size row', () => {
 				inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
 				inputToken: '0x3722264ab15a1dfce5a5af89e6547f7949a8aba3',
 				outputToken: '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3',
-				inputAmount: '6745937.5', outputAmount: '7234145.96', notionalUsd: '1791.1353895147784',
-				marketMid: '1.1016', realizedPrice: '1.0724', chainlinkPrice: null,
+				inputAmount: 6745937.5, outputAmount: 7234145.96, notionalUsd: 1791.1353895147784,
+				marketMid: 1.1016, realizedPrice: 1.0724, chainlinkPrice: null,
 			} as never} />,
 		);
 		expect(html).toContain('Size');
@@ -866,8 +850,8 @@ describe('Size row', () => {
 				...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
 				inputSymbol: 'ETH', outputSymbol: 'WBTC',
 				inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
-				inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
-				marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
+				inputAmount: 1, outputAmount: 0.02862539, notionalUsd: 1791.1353895147784,
+				marketMid: 35.02321455049866, realizedPrice: 34.93402185961484,
 				chainlinkPrice: null,
 			} as never} />,
 		);
@@ -883,7 +867,7 @@ describe('Size row', () => {
 		const html = renderToStaticMarkup(
 			<Receipt row={{
 				...fullUsdcWethRow, pricingStatus: 'partial',
-				marketMid: null, allInCostBps: null, notionalUsd: '1000.00',
+				marketMid: null, allInCostBps: null, notionalUsd: 1000.00,
 			} as never} />,
 		);
 		expect(html).toContain('Size');
@@ -898,8 +882,8 @@ describe('Size row', () => {
 				inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
 				inputToken: '0x1111111111111111111111111111111111111111',
 				outputToken: '0x2222222222222222222222222222222222222222',
-				inputAmount: '1000', outputAmount: '2400', notionalUsd: '134.96',
-				marketMid: '2.5', realizedPrice: '2.4', chainlinkPrice: null,
+				inputAmount: 1000, outputAmount: 2400, notionalUsd: 134.96,
+				marketMid: 2.5, realizedPrice: 2.4, chainlinkPrice: null,
 			} as never} />,
 		);
 		expect(html).toContain('$134.96');
@@ -924,9 +908,9 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		...fullUsdcWethRow, aggregator: 'kyberswap',
 		inputSymbol: 'ETH', outputSymbol: 'WBTC',
 		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
-		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
-		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
-		allInCostBps: '-25.53', chainlinkPrice: null,
+		inputAmount: 1, outputAmount: 0.02862539, notionalUsd: 1791.1353895147784,
+		marketMid: 35.02321455049866, realizedPrice: 34.93402185961484,
+		allInCostBps: -25.53, chainlinkPrice: null,
 	};
 
 	it('renders per-side USD notionals + Execution Delta, no Size', async () => {
@@ -985,7 +969,7 @@ describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis
 		// marketMid/realizedPrice/notionalUsd — too far off to coincidentally match.
 		const { Receipt } = await import('./receiptView');
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...ethWbtc, pricingStatus: 'full', allInCostBps: '999.99' } as never} />,
+			<Receipt row={{ ...ethWbtc, pricingStatus: 'full', allInCostBps: 999.99 } as never} />,
 		);
 		expect(html).not.toContain('999.99');
 		// The value actually derived from receiptDollars {execResultUsd, notionalIn}
@@ -1000,9 +984,9 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
 		inputSymbol: 'ETH', outputSymbol: 'WBTC',
 		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
-		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
-		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
-		allInCostBps: '-25.53', chainlinkPrice: null,
+		inputAmount: 1, outputAmount: 0.02862539, notionalUsd: 1791.1353895147784,
+		marketMid: 35.02321455049866, realizedPrice: 34.93402185961484,
+		allInCostBps: -25.53, chainlinkPrice: null,
 	};
 
 	it('sizes detail-row subvalues at 12px, matching the rest of the list', async () => {
@@ -1031,7 +1015,7 @@ describe('Receipt UI polish (2026-07-21 Figma pass)', () => {
 		const { Receipt } = await import('./receiptView');
 		// Received fewer WBTC than the mid implies → a loss.
 		const html = renderToStaticMarkup(
-			<Receipt row={{ ...ethWbtc, outputAmount: '0.0284', realizedPrice: '35.2113', allInCostBps: '25' } as never} />,
+			<Receipt row={{ ...ethWbtc, outputAmount: 0.0284, realizedPrice: 35.2113, allInCostBps: 25 } as never} />,
 		);
 		expect(html).toContain('WBTC bought at $9.57 above Market Price');
 		expect(html).not.toContain('--color-red');
@@ -1089,7 +1073,7 @@ describe('Third-party fee sinks', () => {
 		const row = {
 			...fullUsdcWethRow,
 			aggregator: 'Nordstern',
-			aggFeeBps: '22',
+			aggFeeBps: 22,
 			feeRecipient: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae',
 			feeSinks: [
 				{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null },
@@ -1117,7 +1101,7 @@ describe('Cost Breakdown tooltip copy (Figma 288-4340)', () => {
 	const row = {
 		...fullUsdcWethRow,
 		aggregator: 'Nordstern',
-		aggFeeBps: '22',
+		aggFeeBps: 22,
 		feeSinks: [
 			{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 22, source: 'retained_balance', name: null },
 		],
@@ -1534,7 +1518,7 @@ describe('group section bottom padding (Figma 546-713)', () => {
 		const withFee = {
 			...fullUsdcWethRow,
 			aggregator: 'Nordstern',
-			aggFeeBps: '22',
+			aggFeeBps: 22,
 			feeSinks: [
 				{ address: '0x3dbe077e7986657e95e1cc50089f17a5a4af0aae', feeBps: 19.02, source: 'retained_balance', name: null },
 			],
@@ -1732,9 +1716,9 @@ describe('Execution Delta row', () => {
 		...fullUsdcWethRow, aggregator: 'kyberswap', pricingStatus: 'estimated',
 		inputSymbol: 'ETH', outputSymbol: 'WBTC',
 		inputToken: 'native', outputToken: '0x0555e30da8f98308edb960aa94c0db47230d2b9c',
-		inputAmount: '1', outputAmount: '0.02862539', notionalUsd: '1791.1353895147784',
-		marketMid: '35.02321455049866', realizedPrice: '34.93402185961484',
-		allInCostBps: '-25.53', chainlinkPrice: null,
+		inputAmount: 1, outputAmount: 0.02862539, notionalUsd: 1791.1353895147784,
+		marketMid: 35.02321455049866, realizedPrice: 34.93402185961484,
+		allInCostBps: -25.53, chainlinkPrice: null,
 	};
 
 	it('renders the sentence and the Per {tokenIn} subvalue, not Gained/Lost', async () => {
@@ -1776,17 +1760,6 @@ describe('SHARE bar', () => {
 		const costBreakdownRule = html.indexOf('h-px w-full shrink-0 bg-[var(--color-primary)]');
 		const ruleAboveBar = html.lastIndexOf('h-px w-full shrink-0 bg-[var(--color-primary)]', share);
 		expect(ruleAboveBar).toBeGreaterThan(costBreakdownRule);
-	});
-
-	it('leaves the dialog buttons untouched', async () => {
-		const { Receipt } = await import('./receiptView');
-		const html = renderToStaticMarkup(
-			<Receipt row={fullUsdcWethRow as never} onClose={() => {}} onDelete={() => {}} />,
-		);
-		expect(html).toContain('>Share<');
-		expect(html).toContain('>Delete<');
-		expect(html).not.toContain('>SHARE<');
-		expect(html).not.toContain('h-[69px]');
 	});
 });
 
@@ -2004,9 +1977,9 @@ describe('Price Range section (Figma 647-3415)', () => {
 	// priceDispersion.test.ts's 1.13bps case).
 	const tripleMidRow = {
 		...fullUsdcWethRow,
-		marketMidBefore: '35.0269',
-		marketMid: '35.0232',
-		marketMidAfter: '35.0173',
+		marketMidBefore: 35.0269,
+		marketMid: 35.0232,
+		marketMidAfter: 35.0173,
 	};
 	// The file's other partial/unpriced fixtures are scoped inside their own
 	// describe blocks (e.g. 'Market Price composite'); built the same way here

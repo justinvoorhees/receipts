@@ -11,7 +11,7 @@ The receipt answers **"what happened in this trade"** — not "was this a good t
 - **Execution Delta** — realized price vs. a single pool-relative Market Price ruler, in USD and bps.
 - **Pricing tier** — `full` / `estimated` / `none`, with a methodology descriptor saying how the Market Price was derived. Legs that can't be priced (RFQ fills, fee-on-transfer tokens) are left unpriced rather than guessed at.
 
-Two tabs: **Receipts** (the search + receipt) and **History** (every receipt persisted so far, sortable).
+Paste a hash, get a receipt — computed fresh from chain data every time. Nothing is stored, so there is no history view.
 
 ## Stack
 
@@ -31,30 +31,27 @@ fabric-tca-decoder/
 │   └── superpowers/         Per-feature design docs and implementation plans
 ├── packages/
 │   ├── core/                Analysis engine — trace decoding, route decomposition, pricing
-│   ├── db/                  Drizzle schema + migrations for Postgres
 │   └── dashboard/           Next.js app (App Router)
 └── scripts/
-    ├── repopulateReceipts.mjs   Re-analyze persisted receipts in place
     └── marketMidSnapshot.mjs    A/B live-compute market mids (pricing regression checks)
 ```
 
 ## How it works
 
-1. The dashboard POSTs the hash to `/api/receipts`, which calls core's `analyzeTransaction`.
+1. Navigating to `/tx/<chain>/<hash>` calls core's `analyzeTransaction` — a fresh analysis, every time.
 2. Core pulls the transaction, its receipt logs, and one `debug_traceTransaction` callTracer trace via viem.
 3. It resolves the aggregator (registry lookup on `tx.to`, then settler resolvers), and the trader — re-anchoring on the trade beneficiary when `tx.from` is a relayer or solver.
 4. It reconstructs the route as a conserved DAG, splits it into legs, and classifies each leg's venue by event topic → `factory()` → curated address.
 5. It reads a Market Price per pair from the deepest qualifying pool, corroborated (never moved) by an oracle, and derives per-leg fees and price impact.
-6. The result is persisted to the `receipts` table. A second paste of the same hash is served from the cache.
+6. The receipt is returned and rendered. Nothing is stored — a second paste of the same hash re-runs the whole analysis.
 
 Aggregator and venue identity live in `configs/`, resolved **at read time** — growing a registry retroactively attributes existing history with no repopulation.
 
 ## Quick start
 
 ```bash
-cp .env.example .env          # TCA_DATABASE_URL + TCA_RPC_URL are required
+cp .env.example .env          # TCA_RPC_URL is required
 npm install
-npm run db:migrate            # apply Drizzle migrations
 npm run dev                   # dashboard on http://localhost:3000
 ```
 
@@ -71,17 +68,13 @@ npm run dev                   # dashboard on http://localhost:3000
 
 | Var | |
 |---|---|
-| `TCA_DATABASE_URL` | Postgres. Required by the dashboard and the scripts. |
 | `TCA_RPC_URL` | Base archive endpoint. Required. |
-| `APP_ACCESS_PASSWORD` | Shared password for `/trades` + `DELETE`. Unset ⇒ those return 503; the public receipt tool still works. |
-| `APP_SESSION_SECRET` | Signs the session cookie. Rotate to log every session out. `openssl rand -base64 32`. |
-| `RATE_LIMIT_ANALYSES_PER_MIN` | Optional, default 20. Fresh analyses per IP — the expensive path (~40 RPC calls each). |
+| `RATE_LIMIT_ANALYSES_PER_MIN` | Optional, default 20. Fresh analyses per IP — the expensive path (~40 RPC calls each). Every hit is a fresh analysis now; there is no cache. |
 | `RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR` | Optional, default 500. Circuit breaker across **all** clients — the only limit a distributed flood cannot walk around. |
-| `RATE_LIMIT_REQUESTS_PER_MIN` | Optional, default 120. Cheaper ceiling covering cache hits. |
-| `RATE_LIMIT_DIAGNOSIS_PER_MIN` | Optional, default 30. Covers `GET /tx/<chain>/<hash>`, which spends RPC on a cache miss. |
+| `RATE_LIMIT_DIAGNOSIS_PER_MIN` | Optional, default 30. Covers the diagnosis path on `GET /tx/<chain>/<hash>` when a hash doesn't decode as a swap, which spends RPC to explain why. |
 | `ETHERSCAN_API_KEY` | Optional. Names verified fee-sink contracts on the receipt; without it those lines fall back to a generic label. |
 | `DUNE_API_KEY` | Currently inert — `DUNE_ETH_USD_QUERY_ID` in `duneOracle.ts` is still `0`. |
-| `ALERT_WEBHOOK_URL` | Optional. Slack/Discord incoming-webhook URL for incidents (the global spend ceiling), debounced to one message/hour. Unset ⇒ log-only. **Set on the deployment, not locally** — local and production share one database, so a local receipt is a real receipt and posts to the same channel as production. |
+| `ALERT_WEBHOOK_URL` | Optional. Slack/Discord incoming-webhook URL for incidents (the global spend ceiling), debounced to one message/hour. Unset ⇒ log-only. **Set on the deployment, not locally** — if this points at the same webhook production uses, a local receipt posts to the same channel as production traffic. |
 | `ACTIVITY_WEBHOOK_URL` | Optional. Separate webhook URL, one message per newly generated receipt, not debounced. Independent of `ALERT_WEBHOOK_URL` — an unset URL never falls back to the other stream's URL. Same local-vs-production caveat as above. |
 | `APP_BASE_URL` | Optional. Base URL used to build the receipt link in the activity webhook message. Without it the link is derived from the request's `Host` header, which is caller-controlled on this public endpoint. |
 
@@ -91,12 +84,11 @@ npm run dev                   # dashboard on http://localhost:3000
 - **Archive node + Trace Mode required.** `debug_traceTransaction` and historical `eth_call` need an archive plan. We run QuickNode, where the trace methods additionally require the paid **Trace Mode** add-on — it is off by default, and without it the decoder yields no receipts at all rather than degrading. Free tiers return "Requested resource not found".
 - **QuickNode caps `eth_getLogs` at a 10,000-block range.** Past that it returns HTTP 413 regardless of how few logs match — a range limit, not a size limit. Any new log scan must page in ≤10k chunks; see `CHUNK_BLOCKS` in `refreshReactors.ts`.
 - **Registry edits need a server restart**, not a browser refresh — configs are read from disk at module load.
-- **Persisted receipts go stale silently.** The API route never recomputes a cache hit, so a change to pricing or decomposition leaves old rows on the old logic. Run `scripts/repopulateReceipts.mjs` after any such change; never patch columns onto stale rows.
 - **RPC e2e tests skip without `TCA_RPC_URL` exported.** `source .env` alone does not export — use `set -a && source .env && set +a`. A bare `npm test` is a weaker gate than it looks.
-- **The receipt tool is public; only `/trades` and `DELETE` are gated.** Policy lives in `lib/accessDecision.ts`. ⚠️ It is an explicit **PROTECTED list**, not deny-by-default — **a route added later is public unless you list it there.** Anything that reads or mutates stored data must be added. Protected routes fail closed (503) when the password is unconfigured; the public tool keeps working.
-- **⚠️ Rate limiting is the only thing between an anonymous visitor and the RPC bill**, since `POST /api/receipts` needs no password. Per-IP limits are walkable by using more IPs — `RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR` is the circuit breaker that actually caps spend, and when it trips new analyses pause for *everyone*.
+- **The receipt tool is entirely public — there is no login, no gate, no protected route.** `GET /tx/<chain>/<hash>` is the only path that spends RPC, and it is open to anyone with the URL.
+- **⚠️ Rate limiting is the only thing between an anonymous visitor and the RPC bill**, since every receipt is a fresh ~40-call analysis and needs no password. Per-IP limits are walkable by using more IPs — `RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR` is the circuit breaker that actually caps spend, and when it trips new analyses pause for *everyone*.
 - **⚠️ Rate-limit counters live in process memory.** Correct on a single container (Railway). On a multi-instance or serverless deploy each instance keeps its own counters, so every limit — including the global ceiling — multiplies by the instance count and the protection quietly weakens. Swap the store in `lib/rateLimit.ts` for Redis before scaling out; the interface exists so call sites do not change.
-- **`user_id` is NULL on every row, and that used to void the unique index.** Postgres treats NULLs as distinct, so `UNIQUE(user_id, tx_hash, chain_id)` never fired. It is now `NULLS NOT DISTINCT` (migration `0001`), which means concurrent inserts of the same hash now *conflict* instead of duplicating — the API route resolves that to the winning row.
+- **`/qa/tx/<chain>/<hashes>` is dev-only and has no rate limiting at all.** It relies entirely on a `NODE_ENV !== 'development'` guard being the first statement in the route — deny-by-default, so a misconfigured `NODE_ENV` (anything other than exactly `'development'`, including an unset one defaulting to `'production'`) closes the route rather than opening it. It is also capped at 20 hashes per request. If the guard ever fails open regardless, it is an unmetered door to the RPC bill — run `scripts/smokeDeploy.mjs <url>` after every deploy for exactly that reason (manual; there is no CI wiring).
 
 ## v1 carryover
 
@@ -104,7 +96,7 @@ The previous project (Fabric aggregator benchmark) is tagged `tca-v1-aggregator-
 
 ## Architecture notes
 
-- **Postgres over SQLite.** The spec calls SQLite "MVP", but a dashboard makes concurrent reads desirable from day one.
-- **TypeScript end-to-end.** The spec defaulted to Python; a single language keeps the analysis engine and the dashboard sharing types via Drizzle. `debug_traceTransaction` is a raw viem `request()` call.
-- **Core is RPC-pure.** `analyzeTransaction` talks to the chain and nothing else. Anything needing a third-party API (verified contract names) lives on the persist path, not in the analysis.
+- **Receipts are computed on demand and never stored.** A mined transaction plus fixed pricing code is a pure function, so there is no state to keep — the trade-off is that a link shared with fifty people triggers fifty analyses, bounded only by the rate limits above. The only thing the service persists is log lines; a best-effort contract-name cache is written to the container's ephemeral filesystem and does not survive a deploy.
+- **TypeScript end-to-end.** The spec defaulted to Python; a single language keeps the analysis engine and the dashboard sharing types directly. `debug_traceTransaction` is a raw viem `request()` call.
+- **Core is RPC-pure.** `analyzeTransaction` talks to the chain and nothing else. Anything needing a third-party API (verified contract names) is enriched afterward, in `loadReceipt`.
 - **Client components import pure helpers from `@fabric-tca/core/pure`,** not the barrel — the barrel reaches `fs` and breaks the webpack build.

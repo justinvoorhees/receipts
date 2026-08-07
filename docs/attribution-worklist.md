@@ -1,5 +1,13 @@
 # Attribution Worklist — next steps
 
+> ⚠️ **The database was removed 2026-08-06.** There is no `receipts` table and
+> nothing to write back to — every reference below to "repopulating" or
+> "persisted" rows now means re-running the analysis scripts in
+> `scripts/analysis/` against the frozen `docs/qa/corpus.json`, not a write.
+> `scripts/repopulateReceipts.mjs`, named further down, was deleted along with
+> the database; there is no replacement for the write it used to do. `/trades`
+> is gone too — see `app/qa/tx/<chain>/<hashes>` for its dev-only replacement.
+
 Handoff written 2026-07-30. Four workstreams, ordered by value. All figures are
 measured against the 62 persisted receipts that carry `route_legs`.
 

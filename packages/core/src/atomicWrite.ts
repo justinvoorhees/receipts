@@ -10,8 +10,10 @@ import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
  * one, never a mixture.
  *
  * Returns whether the write landed. Never throws: this runs on a request path
- * and the caller's durable store is the database, so a read-only filesystem
- * (serverless, a locked-down container) must degrade quietly.
+ * and its only caller (contractNames.ts's persistCache) treats the write as a
+ * best-effort, per-instance cache with no durable store behind it — a
+ * read-only filesystem (serverless, a locked-down container) must degrade
+ * quietly, not fail the request.
  */
 export function atomicWriteJson(filePath: string, data: unknown): boolean {
 	// Same directory as the target: rename is only atomic within a filesystem,

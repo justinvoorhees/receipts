@@ -13,11 +13,22 @@
  *
  * ⚠️ Small samples. Raise --limit before quoting the percentages.
  *
- *   node scripts/analysis/referencePoolInRoute.mjs [--limit=40]
+ * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+ * (docs/qa/corpus.json); the figures above were measured over a 20-receipt
+ * sample from the old default `--limit`, not the full 62-receipt corpus
+ * this script now runs over by default.
+ *
+ * The corpus (docs/qa/corpus.json) is frozen — it no longer grows — so
+ * --limit is now a convenience for spot checks rather than a bound on an
+ * unbounded table. It defaults to the full corpus and, when set, takes the
+ * most recent N qualifying rows by id.
+ *
+ *   node scripts/analysis/referencePoolInRoute.mjs [--limit=N]
  */
-import { connect, core, env, num } from './_env.mjs';
+import { loadCorpus, core, env, num } from './_env.mjs';
 
-const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? '--limit=40').slice(8));
+const CORPUS = loadCorpus();
+const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? `--limit=${CORPUS.length}`).slice(8));
 
 const { createPublicClient, http } = await import('viem');
 const { base } = await import('viem/chains');
@@ -26,13 +37,7 @@ const { getPairMidAtBlock, makeRpcDecimalsCache } = await core('tokenPricing.js'
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 const decimals = makeRpcDecimalsCache(client);
 
-const sql = await connect();
-const rows = await sql`
-  select tx_hash, block_number, input_token, output_token, tier, route_shape,
-         hop_count, notional_usd, slippage_bps, route_legs
-  from receipts where route_legs is not null and block_number is not null
-  order by id desc limit ${limit}`;
-await sql.end();
+const rows = limit === 0 ? [] : CORPUS.filter((r) => r.route_legs != null && r.block_number != null).slice(-limit);
 
 let n = 0, hit = 0, multi = 0;
 const byShape = {};

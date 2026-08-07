@@ -13,9 +13,22 @@ export const env = Object.fromEntries(
 		.map((l) => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }),
 );
 
-export async function connect() {
-	const { default: postgres } = await import('postgres');
-	return postgres(env.TCA_DATABASE_URL, { ssl: 'require', max: 1 });
+/**
+ * The frozen receipt corpus (docs/qa/corpus.json), in the raw snake_case row
+ * shape it was originally dumped in: snake_case keys, `numeric` columns as
+ * strings. Identical to what `connect()` used to hand back, so callers
+ * destructure exactly as before.
+ *
+ * Already ordered by id, so a `.filter()` preserves the old `order by id`.
+ *
+ * This is a FROZEN file, not a live table. It cannot tell you whether today's
+ * code disagrees with today's chain — only whether today's code disagrees with
+ * the code that produced this snapshot.
+ */
+export function loadCorpus() {
+	return JSON.parse(
+		readFileSync(new URL('../../docs/qa/corpus.json', import.meta.url), 'utf8'),
+	);
 }
 
 export const core = (file) =>

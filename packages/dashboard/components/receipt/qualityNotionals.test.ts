@@ -24,7 +24,7 @@ describe('receiptDollars (single ruler, display-orientation aware)', () => {
 		// Stored DISPLAY mid = 35.0232 ETH-per-WBTC (core inverted the 0.0285525 output-per-input
 		// because baseIsOutput). notionalUsd = 1791.14 = notionalIn. A naive impl (no un-invert)
 		// would compute a LOSS here.
-		const d = receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: '1', outputAmount: '0.028625', marketMid: '35.0232', notionalUsd: '1791.14' })!;
+		const d = receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: 1, outputAmount: 0.028625, marketMid: 35.0232, notionalUsd: 1791.14 })!;
 		expect(d.notionalIn).toBeCloseTo(1791.14, 2);
 		expect(d.execResultUsd).toBeGreaterThan(4);
 		expect(d.execResultUsd).toBeLessThan(5);
@@ -34,15 +34,15 @@ describe('receiptDollars (single ruler, display-orientation aware)', () => {
 	it('base-is-input, output-anchored (TKN->USDC): mid stored as-is; feeds derived notionalIn', () => {
 		// baseIsOutput=false (base=TKN=input) -> mid not inverted. midOPi=2, realizedOPi=1005/500=2.01.
 		// notionalUsd = 1000 = notionalOut.
-		const d = receiptDollars({ inputToken: TKN, outputToken: USDC, inputAmount: '500', outputAmount: '1005', marketMid: '2', notionalUsd: '1000' })!;
+		const d = receiptDollars({ inputToken: TKN, outputToken: USDC, inputAmount: 500, outputAmount: 1005, marketMid: 2, notionalUsd: 1000 })!;
 		expect(d.notionalOut).toBeCloseTo(1000, 6);
 		expect(d.notionalIn).toBeCloseTo(1000 * 2 / 2.01, 6);
 		expect(d.execResultUsd).toBeCloseTo(d.notionalOut - d.notionalIn, 6);
 	});
 
 	it('returns null when no side anchors or a required field is missing', () => {
-		expect(receiptDollars({ inputToken: TKN, outputToken: TKB, inputAmount: '1', outputAmount: '1', marketMid: '1', notionalUsd: '1' })).toBeNull();
-		expect(receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: '1', outputAmount: '0.028625', marketMid: null, notionalUsd: '1791.14' })).toBeNull();
-		expect(receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: '1', outputAmount: '0.028625', marketMid: '35.0232', notionalUsd: null })).toBeNull();
+		expect(receiptDollars({ inputToken: TKN, outputToken: TKB, inputAmount: 1, outputAmount: 1, marketMid: 1, notionalUsd: 1 })).toBeNull();
+		expect(receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: 1, outputAmount: 0.028625, marketMid: null, notionalUsd: 1791.14 })).toBeNull();
+		expect(receiptDollars({ inputToken: WETH, outputToken: WBTC, inputAmount: 1, outputAmount: 0.028625, marketMid: 35.0232, notionalUsd: null })).toBeNull();
 	});
 });

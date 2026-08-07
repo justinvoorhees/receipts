@@ -10,6 +10,7 @@
  * and calls the reactor internally still matches.
  */
 import { readFile } from 'node:fs/promises';
+import { log } from './log.js';
 
 export type LogLite = { address: string; topics: readonly string[] };
 
@@ -81,9 +82,11 @@ export async function loadEntryPoints(path: string): Promise<Set<string>> {
 	try {
 		return parseEntryPoints(await readFile(path, 'utf8'));
 	} catch (err) {
-		console.warn(
-			`[settlementDecoders] could not load ${path} — ERC-4337 trades will not re-anchor: ${err instanceof Error ? err.message : String(err)}`,
-		);
+		log.warn('could not load EntryPoint allowlist, ERC-4337 trades will not re-anchor', {
+			module: 'settlementDecoders',
+			path,
+			error: err instanceof Error ? err.message : String(err),
+		});
 		return new Set();
 	}
 }
@@ -107,9 +110,11 @@ export async function loadReactors(path: string): Promise<Set<string>> {
 	try {
 		return parseReactors(await readFile(path, 'utf8'));
 	} catch (err) {
-		console.warn(
-			`[settlementDecoders] could not load ${path} — UniswapX trades will not re-anchor: ${err instanceof Error ? err.message : String(err)}`,
-		);
+		log.warn('could not load reactor allowlist, UniswapX trades will not re-anchor', {
+			module: 'settlementDecoders',
+			path,
+			error: err instanceof Error ? err.message : String(err),
+		});
 		return new Set();
 	}
 }

@@ -17,17 +17,14 @@
  * nulls it so the loss vanishes into the residual.
  *
  * ⚠️ Do NOT raise PI_IMPLAUSIBLE_CAP_BPS to "see the impact" — those values are
- * wrong, which is why the clamp fired. Fix the reader, then repopulate.
+ * wrong, which is why the clamp fired. Fix the reader, then re-run this script
+ * against the frozen corpus (there is no live table to repopulate anymore).
  *
  *   node scripts/analysis/unpricedCauses.mjs
  */
-import { connect, costedLegs, num } from './_env.mjs';
+import { loadCorpus, costedLegs, num } from './_env.mjs';
 
-const sql = await connect();
-const rows = await sql`
-  select id, tier, notional_usd, slippage_bps, normalize_flags, route_legs
-  from receipts where route_legs is not null order by id`;
-await sql.end();
+const rows = loadCorpus().filter((r) => r.route_legs != null);
 
 const RX = /MID_NULL|PI_IMPLAUSIBLE|RFQ_LEG|ROUTE_NOT_DECOMPOSED|LEG_FEE_IMPLAUSIBLE|AMOUNT_IN_ZERO/;
 const byCause = {};

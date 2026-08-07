@@ -13,17 +13,14 @@
 		"test": "vitest run",
 		"build": "tsc --build && npm --workspace packages/dashboard run build",
 		"start": "npm --workspace packages/dashboard run start",
-		"db:generate": "drizzle-kit generate",
-		"db:migrate": "drizzle-kit migrate",
-		"db:check": "drizzle-kit check",
 		"settlers:refresh": "tsc --build && node packages/core/dist/scripts/refreshSettlers.js",
 		"reactors:refresh": "tsc --build && node packages/core/dist/scripts/refreshReactors.js",
 		"aggregators:coverage": "tsc --build && node packages/core/dist/scripts/reportAggregatorCoverage.js"
 	},
 	"devDependencies": {
 		"@types/node": "^20.14.0",
-		"drizzle-kit": "^0.24.0",
 		"eslint": "^9.0.0",
+		"postgres": "^3.4.9",
 		"prettier": "^3.3.0",
 		"typescript": "^5.4.0",
 		"typescript-eslint": "^8.60.1",

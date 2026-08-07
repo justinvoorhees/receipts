@@ -4,8 +4,7 @@ import {
 	ceilingReachedMessage,
 	budgetWarningMessage,
 	receiptCreatedMessage,
-	originFrom,
-	baseUrlFrom,
+	baseUrlFromHeaders,
 } from './alerts';
 
 /** A controllable clock, matching the pattern in rateLimit.test.ts. */
@@ -158,11 +157,14 @@ describe('message formatting', () => {
 				aggregator: '0x',
 				inputSymbol: 'WETH',
 				outputSymbol: 'USDC',
-				notionalUsd: '4210.44',
-				allInCostBps: '12.37',
+				notionalUsd: 4210.44,
+				allInCostBps: 12.37,
 			},
 			'https://app.test',
 		);
+		// "Receipt viewed:", not "New receipt:" — nothing is persisted, so no row
+		// is being "created"; this fires on every render, including a repeat view.
+		expect(msg).toContain('Receipt viewed:');
 		expect(msg).toContain('WETH');
 		expect(msg).toContain('USDC');
 		expect(msg).toContain('0x');
@@ -182,44 +184,54 @@ describe('message formatting', () => {
 		expect(msg).toContain('https://app.test/tx/base/0xbeef');
 		expect(msg).not.toContain('null');
 	});
+
+	it('renders a genuinely zero all-in cost, not a blank segment (0 is falsy, absence is null)', () => {
+		// Regression: notionalUsd/allInCostBps used to arrive as Drizzle strings,
+		// where '0' is truthy. Now that ReceiptSummary is number | null, a truthy
+		// guard would silently drop a real zero-cost execution's "bps all-in"
+		// segment — indistinguishable from a receipt where the cost was never
+		// resolved at all. Must check != null, not truthiness.
+		const msg = receiptCreatedMessage(
+			{
+				txHash: '0xzero',
+				aggregator: '0x',
+				inputSymbol: 'WETH',
+				outputSymbol: 'USDC',
+				notionalUsd: 0,
+				allInCostBps: 0,
+			},
+			'https://app.test',
+		);
+		expect(msg).toContain('$0');
+		expect(msg).toContain('0.0 bps all-in');
+	});
 });
 
-describe('originFrom', () => {
-	it('uses the forwarded protocol behind a proxy', () => {
-		const req = new Request('http://internal/api/receipts', {
-			headers: { host: 'app.up.railway.app', 'x-forwarded-proto': 'https' },
-		});
-		expect(originFrom(req)).toBe('https://app.up.railway.app');
-	});
-
-	it('falls back to http for localhost', () => {
-		const req = new Request('http://internal/api/receipts', { headers: { host: 'localhost:3000' } });
-		expect(originFrom(req)).toBe('http://localhost:3000');
-	});
-});
-
-describe('baseUrlFrom', () => {
+describe('baseUrlFromHeaders', () => {
 	const originalEnv = process.env.APP_BASE_URL;
 	afterEach(() => {
 		if (originalEnv === undefined) delete process.env.APP_BASE_URL;
 		else process.env.APP_BASE_URL = originalEnv;
 	});
 
-	// The request's Host header is attacker-controlled on this public endpoint;
-	// APP_BASE_URL must win so a forged Host can't land a phishing link in Slack.
+	// Same property as baseUrlFrom, for the Headers-holding caller (a server
+	// component): a forged Host header must not win over APP_BASE_URL, or a
+	// visitor could land a phishing link in the team's own Slack.
 	it('prefers APP_BASE_URL over a hostile Host header', () => {
 		process.env.APP_BASE_URL = 'https://app.example.com';
-		const req = new Request('http://internal/api/receipts', {
-			headers: { host: 'evil.com', 'x-forwarded-proto': 'https' },
-		});
-		expect(baseUrlFrom(req)).toBe('https://app.example.com');
+		const h = new Headers({ host: 'evil.com', 'x-forwarded-proto': 'https' });
+		expect(baseUrlFromHeaders(h)).toBe('https://app.example.com');
 	});
 
-	it('falls back to originFrom when APP_BASE_URL is unset', () => {
+	it('falls back to the derived origin when APP_BASE_URL is unset', () => {
 		delete process.env.APP_BASE_URL;
-		const req = new Request('http://internal/api/receipts', {
-			headers: { host: 'app.up.railway.app', 'x-forwarded-proto': 'https' },
-		});
-		expect(baseUrlFrom(req)).toBe('https://app.up.railway.app');
+		const h = new Headers({ host: 'app.up.railway.app', 'x-forwarded-proto': 'https' });
+		expect(baseUrlFromHeaders(h)).toBe('https://app.up.railway.app');
+	});
+
+	it('falls back to http for localhost with no configured URL', () => {
+		delete process.env.APP_BASE_URL;
+		const h = new Headers({ host: 'localhost:3000' });
+		expect(baseUrlFromHeaders(h)).toBe('http://localhost:3000');
 	});
 });

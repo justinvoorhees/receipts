@@ -34,7 +34,7 @@ vi.mock('../../../../lib/loadReceipt', () => ({ loadReceipt: vi.fn(async () => n
 // Safe to stub wholesale: components import RUNTIME values only from
 // '@fabric-tca/core/pure' (a different specifier). What they take from
 // '@fabric-tca/core' is `import type` and erases at compile.
-vi.mock('@fabric-tca/core', () => ({ classifyTransaction: vi.fn(async () => ({ reason: 'NOT_A_SWAP' })) }));
+vi.mock('@fabric-tca/core', () => ({ classifyTransaction: vi.fn(async () => ({ reason: 'NOT_DECODABLE' })) }));
 
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
 const { DEFAULT_CHAIN } = await import('../../../../lib/chains');

@@ -12,12 +12,14 @@
  * into an incident channel.
  *
  * Every send is fire-and-forget and nothing here rejects: a Slack outage must
- * not turn a 429 into a 500, nor fail a receipt that is already computed and
- * persisted.
+ * not turn a refusal into a 500, nor fail a receipt render that has already
+ * computed successfully — there is nothing to persist, and a webhook failure
+ * must not be able to take the page down.
  */
 
 import { DEFAULT_CHAIN } from './chains';
 import { receiptPath } from './receiptUrl';
+import { log as structuredLog } from './log';
 
 export type AlertKind = 'budget_warning' | 'ceiling_reached' | 'receipt_created';
 
@@ -31,7 +33,7 @@ export interface NotifierOptions {
 	debounceMs?: number;
 	fetchImpl?: typeof fetch;
 	now?: () => number;
-	log?: (message: string) => void;
+	log?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
 const TIMEOUT_MS = 3_000;
@@ -42,14 +44,14 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 		debounceMs = 0,
 		fetchImpl = fetch,
 		now = Date.now,
-		log = (m: string) => console.warn(m),
+		log = (m: string, fields?: Record<string, unknown>) => structuredLog.warn(m, fields),
 	} = opts;
 
 	// `log` is caller-supplied, so it can throw. Nothing in this module may reject:
 	// a broken logger must not turn a 429 into a 500.
-	const safeLog = (message: string) => {
+	const safeLog = (message: string, fields?: Record<string, unknown>) => {
 		try {
-			log(message);
+			log(message, fields);
 		} catch {
 			/* deliberately swallowed — see above */
 		}
@@ -69,7 +71,7 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 		lastSent.set(kind, now());
 
 		if (!webhookUrl) {
-			safeLog(`[notify:${kind}] ${text}`);
+			safeLog(text, { kind });
 			return;
 		}
 
@@ -96,7 +98,7 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 			if (previousSent == null) lastSent.delete(kind);
 			else lastSent.set(kind, previousSent);
 
-			safeLog(`[notify:${kind}] webhook failed: ${err instanceof Error ? err.message : String(err)}`);
+			safeLog(`webhook failed: ${err instanceof Error ? err.message : String(err)}`, { kind });
 		}
 	};
 }
@@ -116,54 +118,46 @@ export function budgetWarningMessage(limit: number, remaining: number): string {
 	);
 }
 
-/** The receipt fields the activity message reads. Structural, so a ReceiptRow satisfies it. */
+/** The receipt fields the activity message reads. Structural, so a ReceiptModel satisfies it. */
 export interface ReceiptSummary {
 	txHash: string;
 	aggregator: string | null;
 	inputSymbol: string | null;
 	outputSymbol: string | null;
-	notionalUsd: string | null;
-	allInCostBps: string | null;
+	notionalUsd: number | null;
+	allInCostBps: number | null;
 }
 
 export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): string {
 	const pair = `${r.inputSymbol ?? '?'} → ${r.outputSymbol ?? '?'}`;
 	const via = r.aggregator ? ` via ${r.aggregator}` : '';
-	const notional = r.notionalUsd ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
-	const cost = r.allInCostBps ? ` · ${Number(r.allInCostBps).toFixed(1)} bps all-in` : '';
+	const notional = r.notionalUsd != null ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
+	const cost = r.allInCostBps != null ? ` · ${Number(r.allInCostBps).toFixed(1)} bps all-in` : '';
 	// DEFAULT_CHAIN rather than the row's own chain: ReceiptSummary is structural
-	// and carries no chainId, and this message only ever fires for a receipt the
-	// API just analyzed — which SUPPORTED_CHAIN_IDS constrains to Base.
-	return `New receipt: ${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
-}
-
-/**
- * The public origin of this request. Derived from headers rather than an env
- * var so it is correct in local dev and behind Railway's proxy without config.
- *
- * Trusts `Host` / `X-Forwarded-Proto`, both caller-controlled on a public,
- * unauthenticated endpoint — do not use this directly to build a link that is
- * posted somewhere trusted (e.g. Slack). Use `baseUrlFrom` for that, which
- * prefers `APP_BASE_URL` and only falls back to this derivation when unset.
- */
-export function originFrom(req: Request): string {
-	const host = req.headers.get('host') ?? 'localhost:3000';
-	const proto = req.headers.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-	return `${proto}://${host}`;
+	// and carries no chainId, and this message only ever fires from the /tx page
+	// render — which SUPPORTED_CHAIN_IDS constrains to Base.
+	//
+	// "Receipt viewed:", not "New receipt:" — nothing is persisted, so there is
+	// no "new" row being created. This fires on every successful render of
+	// /tx/<chain>/<hash>, including a repeat view of the same transaction; the
+	// label says what actually happens.
+	return `Receipt viewed: ${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
 }
 
 /**
  * The base URL to use in outbound links (e.g. the Slack receipt-created
- * message). Prefers the explicit `APP_BASE_URL` env var; falls back to
- * `originFrom(req)` when unset.
+ * message), for callers holding a Headers rather than a Request — server
+ * components, which never see the Request object.
  *
- * `originFrom` trusts request headers (`Host`, `X-Forwarded-Proto`), which are
- * attacker-controlled on this public endpoint — a forged `Host` header would
- * otherwise land a convincing phishing link in the team's own Slack, sent by
- * the team's own bot. `APP_BASE_URL` removes that header from the trust chain
- * once it is set.
+ * Same trust model, and it matters as much here: `Host` and `X-Forwarded-Proto`
+ * are attacker-controlled on this public route, and a forged Host would land a
+ * convincing phishing link in the team's own Slack, sent by the team's own bot.
+ * APP_BASE_URL removes those headers from the trust chain once it is set.
  */
-export function baseUrlFrom(req: Request): string {
+export function baseUrlFromHeaders(h: Headers): string {
 	const configured = process.env.APP_BASE_URL;
-	return configured && configured.length > 0 ? configured.replace(/\/$/, '') : originFrom(req);
+	if (configured) return configured.replace(/\/+$/, '');
+	const host = h.get('host') ?? 'localhost:3000';
+	const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+	return `${proto}://${host}`;
 }
