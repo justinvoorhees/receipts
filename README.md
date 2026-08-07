@@ -78,7 +78,7 @@ npm run dev                   # dashboard on http://localhost:3000
 | `RATE_LIMIT_ANALYSES_PER_MIN` | Optional, default 20. Fresh analyses per IP — the expensive path (~40 RPC calls each). |
 | `RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR` | Optional, default 500. Circuit breaker across **all** clients — the only limit a distributed flood cannot walk around. |
 | `RATE_LIMIT_REQUESTS_PER_MIN` | Optional, default 120. Cheaper ceiling covering cache hits. |
-| `RATE_LIMIT_DIAGNOSIS_PER_MIN` | Optional, default 30. Covers `GET /?tx=`, which spends RPC on a cache miss. |
+| `RATE_LIMIT_DIAGNOSIS_PER_MIN` | Optional, default 30. Covers `GET /tx/<chain>/<hash>`, which spends RPC on a cache miss. |
 | `ETHERSCAN_API_KEY` | Optional. Names verified fee-sink contracts on the receipt; without it those lines fall back to a generic label. |
 | `DUNE_API_KEY` | Currently inert — `DUNE_ETH_USD_QUERY_ID` in `duneOracle.ts` is still `0`. |
 | `ALERT_WEBHOOK_URL` | Optional. Slack/Discord incoming-webhook URL for incidents (the global spend ceiling), debounced to one message/hour. Unset ⇒ log-only. **Set on the deployment, not locally** — local and production share one database, so a local receipt is a real receipt and posts to the same channel as production. |

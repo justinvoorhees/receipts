@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHAIN } from './chains';
-import { legacyReceiptRedirect, receiptPath, resolveReceiptUrl } from './receiptUrl';
+import { legacyReceiptRedirect, receiptPath, resolveReceiptUrl, resolveSearchSubmission } from './receiptUrl';
 
 const HASH = '0x' + 'a'.repeat(64);
 const MIXED = '0x' + 'A'.repeat(64);
@@ -81,5 +81,34 @@ describe('legacyReceiptRedirect', () => {
 	it('returns null for a malformed hash rather than redirecting to a 404', () => {
 		expect(legacyReceiptRedirect('nonsense')).toBeNull();
 		expect(legacyReceiptRedirect('')).toBeNull();
+	});
+});
+
+describe('resolveSearchSubmission', () => {
+	it('navigates a valid lowercase hash to the canonical path', () => {
+		expect(resolveSearchSubmission(HASH)).toEqual({ kind: 'navigate', to: `/tx/base/${HASH}` });
+	});
+
+	it('navigates a valid mixed-case hash to the LOWERCASED path', () => {
+		expect(resolveSearchSubmission(MIXED)).toEqual({ kind: 'navigate', to: `/tx/base/${HASH}` });
+	});
+
+	it('treats an empty string as empty', () => {
+		expect(resolveSearchSubmission('')).toEqual({ kind: 'empty' });
+	});
+
+	it('treats whitespace-only input as empty', () => {
+		expect(resolveSearchSubmission('   ')).toEqual({ kind: 'empty' });
+	});
+
+	// These are exactly the shapes a real user pastes into the box — a bad
+	// paste must surface the inline FailureNotice, not a bare 404 (Finding 1).
+	it.each([
+		['too short', '0x' + 'a'.repeat(63)],
+		['not hex', '0x' + 'z'.repeat(64)],
+		['bare token address', '0x' + 'a'.repeat(40)],
+		['a full Basescan URL', `https://basescan.org/tx/${HASH}`],
+	])('flags %s as invalid', (_label, bad) => {
+		expect(resolveSearchSubmission(bad)).toEqual({ kind: 'invalid' });
 	});
 });

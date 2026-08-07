@@ -59,3 +59,26 @@ export function legacyReceiptRedirect(tx: string): string | null {
 	if (!HASH_RE.test(trimmed)) return null;
 	return receiptPath(DEFAULT_CHAIN, trimmed);
 }
+
+/**
+ * What the search box should do with what the user typed.
+ *
+ * Extracted from the component because the decision is testable and a click
+ * handler is not — this repo renders with renderToStaticMarkup and has no DOM.
+ *
+ * `invalid` exists so a bad paste gets the inline FailureNotice it always got,
+ * with the search box still on screen. Navigating to a malformed hash would
+ * land on the route's 404, which is right for a typed URL and wrong as an
+ * answer to someone who just mistyped into the box.
+ */
+export type SearchSubmission =
+	| { kind: 'navigate'; to: string }
+	| { kind: 'invalid' }
+	| { kind: 'empty' };
+
+export function resolveSearchSubmission(raw: string): SearchSubmission {
+	const trimmed = raw.trim();
+	if (!trimmed) return { kind: 'empty' };
+	if (!HASH_RE.test(trimmed)) return { kind: 'invalid' };
+	return { kind: 'navigate', to: receiptPath(DEFAULT_CHAIN, trimmed) };
+}

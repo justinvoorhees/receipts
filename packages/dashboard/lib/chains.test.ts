@@ -61,7 +61,7 @@ describe('single-chain assumptions', () => {
 		expect(
 			CHAINS.length,
 			[
-				'A second chain was added. Two things are now silently WRONG and must be fixed in this same change:',
+				'A second chain was added. Three things are now silently WRONG and must be fixed in this same change:',
 				'',
 				'  1. lib/queries.ts getReceiptByHash() matches on lower(tx_hash) alone and ignores chain_id,',
 				'     even though the unique key is (user_id, tx_hash, chain_id). Two chains sharing a tx hash',
@@ -70,6 +70,11 @@ describe('single-chain assumptions', () => {
 				'  2. The 8 explorer links in receiptView.tsx, receipt/receiptDisplay.tsx and',
 				'     receipt/receiptRows.tsx pass DEFAULT_CHAIN, not the row’s own chain. They will point',
 				'     at Basescan for every chain. Thread the real chain through.',
+				'',
+				'  3. receipt/priceFormat.ts NAMED_CHAINS is an independent chain-id→name map (1, 10, 137,',
+				'     8453, 42161) feeding chainLabel(), which renders the receipt’s "Chain" row. It does not',
+				'     read the registry, so it will not notice a chain added there — it silently falls back',
+				'     to `Chain N`. Add the new chain’s name here too.',
 				'',
 				'See docs/superpowers/specs/2026-08-06-multichain-urls-design.md §2 and §3.',
 			].join('\n'),
