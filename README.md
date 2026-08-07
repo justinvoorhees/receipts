@@ -88,7 +88,7 @@ npm run dev                   # dashboard on http://localhost:3000
 - **The receipt tool is entirely public — there is no login, no gate, no protected route.** `GET /tx/<chain>/<hash>` is the only path that spends RPC, and it is open to anyone with the URL.
 - **⚠️ Rate limiting is the only thing between an anonymous visitor and the RPC bill**, since every receipt is a fresh ~40-call analysis and needs no password. Per-IP limits are walkable by using more IPs — `RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR` is the circuit breaker that actually caps spend, and when it trips new analyses pause for *everyone*.
 - **⚠️ Rate-limit counters live in process memory.** Correct on a single container (Railway). On a multi-instance or serverless deploy each instance keeps its own counters, so every limit — including the global ceiling — multiplies by the instance count and the protection quietly weakens. Swap the store in `lib/rateLimit.ts` for Redis before scaling out; the interface exists so call sites do not change.
-- **`/qa/tx/<chain>/<hashes>` is dev-only and has no rate limiting at all.** It relies entirely on a `NODE_ENV === 'production'` guard being the first statement in the route. If that guard ever fails open, it is an unmetered door to the RPC bill — `scripts/smokeDeploy.mjs` checks this against every deploy for exactly that reason.
+- **`/qa/tx/<chain>/<hashes>` is dev-only and has no rate limiting at all.** It relies entirely on a `NODE_ENV !== 'development'` guard being the first statement in the route — deny-by-default, so a misconfigured `NODE_ENV` (anything other than exactly `'development'`, including an unset one defaulting to `'production'`) closes the route rather than opening it. It is also capped at 20 hashes per request. If the guard ever fails open regardless, it is an unmetered door to the RPC bill — run `scripts/smokeDeploy.mjs <url>` after every deploy for exactly that reason (manual; there is no CI wiring).
 
 ## v1 carryover
 
@@ -96,7 +96,7 @@ The previous project (Fabric aggregator benchmark) is tagged `tca-v1-aggregator-
 
 ## Architecture notes
 
-- **Receipts are computed on demand and never stored; the service persists nothing.** A mined transaction plus fixed pricing code is a pure function, so there is no state to keep — the trade-off is that a link shared with fifty people triggers fifty analyses, bounded only by the rate limits above.
+- **Receipts are computed on demand and never stored.** A mined transaction plus fixed pricing code is a pure function, so there is no state to keep — the trade-off is that a link shared with fifty people triggers fifty analyses, bounded only by the rate limits above. The only thing the service persists is log lines; a best-effort contract-name cache is written to the container's ephemeral filesystem and does not survive a deploy.
 - **TypeScript end-to-end.** The spec defaulted to Python; a single language keeps the analysis engine and the dashboard sharing types directly. `debug_traceTransaction` is a raw viem `request()` call.
 - **Core is RPC-pure.** `analyzeTransaction` talks to the chain and nothing else. Anything needing a third-party API (verified contract names) is enriched afterward, in `loadReceipt`.
 - **Client components import pure helpers from `@fabric-tca/core/pure`,** not the barrel — the barrel reaches `fs` and breaks the webpack build.

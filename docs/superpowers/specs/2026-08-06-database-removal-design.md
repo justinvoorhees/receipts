@@ -16,7 +16,10 @@ fixed pricing code path is a pure function; the receipt is its output. Storing
 that output buys deduplication and nothing else, and it buys it at the price of
 a datastore that can disagree with the code that produced it.
 
-After this change the only thing the service writes is log lines.
+After this change the only thing the service persists is log lines; a
+best-effort contract-name cache is written to the container's ephemeral
+filesystem (`configs/contractNames.json`, via `persistCache()` in
+`packages/core/src/contractNames.ts`) and does not survive a deploy.
 
 ## What the tool becomes
 
@@ -158,7 +161,12 @@ Per-hash failures are isolated: one bad hash renders one bad cell, not a 500.
 - five methods: `error`, `warn`, `info`, `debug`, `trace`
 - one JSON line per event to stdout/stderr: `{level, msg, ...fields}`
 
-Every existing `console.*` in `packages/dashboard` and `packages/core` converts.
+Every existing `console.*` in `packages/dashboard` and `packages/core` converts,
+with one deliberate carve-out: the 24 `console.*` calls in
+`packages/core/src/scripts/` stay as-is — those are human-facing CLI output
+(`settlers:refresh`, `reactors:refresh`, `aggregators:coverage`, etc.), not
+service logs, and converting them to `log.*` would route operator-facing
+output through the same JSON-line format built for Railway's log stream.
 
 Where logs go: nowhere we control. stdout → Railway's log stream → Railway's
 retention. No file, no rotation, nothing at rest. Durable logs, if ever wanted,
@@ -232,12 +240,27 @@ month, permanently. This is the real price of the change.
 **No caching means no deduplication.** Every view of every receipt is ~40 RPC
 calls. A link that reaches fifty people in two seconds fires fifty concurrent
 analyses and trips the 500/hour global ceiling on a single popular receipt, at
-which point real users get 429s. Accepted deliberately: get the database out
+which point real users get refused. Accepted deliberately: get the database out
 first, decide caching with a clear head.
 
 **Both limiters are per-process.** Already true today, but it matters more with
 no shared row to deduplicate on: at two Railway replicas the hourly ceiling
 silently becomes 1,000/hr.
+
+**A rate-limit refusal now returns HTTP 200, not 429.** The App Router gives a
+page no way to set an arbitrary status code, so a throttled request renders
+`<CeilingNotice />` inside a normal 200 response instead of the deleted API
+route's real 429-with-`Retry-After`. The stated threat model for this limiter
+is crawlers, link unfurlers, and bare `<img>` tags — exactly the clients that
+honor a 429 and ignore prose in an HTML body. A crawler served 200 keeps
+crawling at the same rate; the ceiling caps the RPC spend but not the request
+volume. It also removes any status-code signal that would let monitoring tell
+"serving" apart from "refusing everyone," and a CDN placed in front of this
+later would risk caching a 200 "unavailable" body at a real receipt URL.
+Accepted as inherent to moving the limiter from a route handler onto a page
+render. If it needs solving, the option is reintroducing `middleware.ts` so a
+real status code can be set ahead of the page — not something to do as part of
+this change.
 
 **Sequencing.** Multichain Tasks 5 and 6 rewrite `page.tsx` and the link
 producers. Doing this first means writing those files twice.

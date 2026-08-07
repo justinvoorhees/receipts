@@ -26,6 +26,11 @@ Some need `packages/core/dist` — run `npx tsc --build packages/core` first.
 
 ## Baselines at 2026-07-30 (62 receipts with `route_legs`)
 
+Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+(`docs/qa/corpus.json`); the "62" below is a coincidence, not the same set.
+The old figures describe a 62-row live-table snapshot from 2026-07-30, not
+today's frozen file — do not quote this block as current.
+
 ```
 coverage        LP fee 76.6% · price impact 83.5% (notional-weighted)
 subtraction     13 receipts no leg priced · 7 SILENTLY WRONG · 42 correct
@@ -38,8 +43,12 @@ reference pool  in the route only ~20% of the time
 
 ## Reading them honestly
 
-- **Small samples.** The reference-pool and pre-tx figures came from 20-receipt
-  and 75-leg samples. Raise `--limit` before quoting a percentage.
+- **Small samples — historically.** The reference-pool and pre-tx figures in
+  the superseded baseline above came from 20-receipt and 75-leg samples, back
+  when `--limit` defaulted small. `--limit` now defaults to the full frozen
+  corpus (`referencePoolInRoute.mjs`, `preTxRulerError.mjs`), so a bare re-run
+  measures everything; it is a convenience for spot checks, not something you
+  need to raise before quoting a percentage.
 - **The tail is contaminated.** The worst rows are `conf=low` and several carry
   `notional_usd` of $0–$3. Trust medians, not maxima.
 - **Test `feeTierBps > 0`, never `!= null`.** A zero tier passes a null check and
