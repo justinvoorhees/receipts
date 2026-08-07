@@ -226,10 +226,32 @@ In each script, delete its `const sql = await connect();` line and any `await sq
 | `unpricedCauses.mjs` | `` await sql`… from receipts where route_legs is not null order by id` `` | `loadCorpus().filter((r) => r.route_legs != null)` |
 | `referencePoolInRoute.mjs` | `` await sql`… where route_legs is not null and block_number is not null` `` | `loadCorpus().filter((r) => r.route_legs != null && r.block_number != null)` |
 | `coverageEstimate.mjs` | `` await sql`… from receipts order by id` `` | `loadCorpus()` |
-| `preTxRulerError.mjs` | `` await sql`select tx_hash, block_number, slippage_bps from receipts` `` | `loadCorpus()` |
+| `preTxRulerError.mjs` | `` await sql`… order by id desc limit ${limit}` `` | see below |
+| `referencePoolInRoute.mjs` | `` await sql`… order by id desc limit ${limit}` `` | see below |
 | `rpcProviderAB.mjs` | `` await sql`… from receipts order by id asc` `` | `loadCorpus()` |
 
 The narrower `select` lists are not reproduced — `loadCorpus()` returns every column and the scripts read the ones they name.
+
+**`preTxRulerError.mjs` and `referencePoolInRoute.mjs` also carry `order by id
+desc limit ${limit}`,** driven by a `--limit` CLI flag defaulting to 40. That
+existed to bound a table that grew without limit. The corpus does not grow — it
+is 62 frozen rows, and 62 is now the entire population rather than a sample.
+
+Keep the flag working, but default it to the whole corpus:
+
+```js
+const rows = loadCorpus()
+	.filter((r) => r.route_legs != null && r.block_number != null) // referencePoolInRoute only
+	.slice(-limit);                                                // limit defaults to corpus length
+```
+
+`.slice(-limit)` preserves the old "most recent N" meaning against an
+id-ascending corpus. Change each script's limit default from 40 to the corpus
+length, and note in its header that the flag is now a convenience for spot
+checks rather than a bound on an unbounded table.
+
+A flag that silently does nothing is worse than no flag — someone passes
+`--limit 10`, gets 62 rows, and trusts the number.
 
 - [ ] **Step 3: Restate the baselines in the script headers**
 
