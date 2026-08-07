@@ -182,6 +182,27 @@ describe('message formatting', () => {
 		expect(msg).toContain('https://app.test/tx/base/0xbeef');
 		expect(msg).not.toContain('null');
 	});
+
+	it('renders a genuinely zero all-in cost, not a blank segment (0 is falsy, absence is null)', () => {
+		// Regression: notionalUsd/allInCostBps used to arrive as Drizzle strings,
+		// where '0' is truthy. Now that ReceiptSummary is number | null, a truthy
+		// guard would silently drop a real zero-cost execution's "bps all-in"
+		// segment — indistinguishable from a receipt where the cost was never
+		// resolved at all. Must check != null, not truthiness.
+		const msg = receiptCreatedMessage(
+			{
+				txHash: '0xzero',
+				aggregator: '0x',
+				inputSymbol: 'WETH',
+				outputSymbol: 'USDC',
+				notionalUsd: 0,
+				allInCostBps: 0,
+			},
+			'https://app.test',
+		);
+		expect(msg).toContain('$0');
+		expect(msg).toContain('0.0 bps all-in');
+	});
 });
 
 describe('originFrom', () => {

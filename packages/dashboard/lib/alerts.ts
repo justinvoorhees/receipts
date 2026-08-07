@@ -129,8 +129,8 @@ export interface ReceiptSummary {
 export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): string {
 	const pair = `${r.inputSymbol ?? '?'} → ${r.outputSymbol ?? '?'}`;
 	const via = r.aggregator ? ` via ${r.aggregator}` : '';
-	const notional = r.notionalUsd ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
-	const cost = r.allInCostBps ? ` · ${Number(r.allInCostBps).toFixed(1)} bps all-in` : '';
+	const notional = r.notionalUsd != null ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
+	const cost = r.allInCostBps != null ? ` · ${Number(r.allInCostBps).toFixed(1)} bps all-in` : '';
 	// DEFAULT_CHAIN rather than the row's own chain: ReceiptSummary is structural
 	// and carries no chainId, and this message only ever fires for a receipt the
 	// API just analyzed — which SUPPORTED_CHAIN_IDS constrains to Base.
