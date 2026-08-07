@@ -18,17 +18,14 @@
  *
  * Baseline at 2026-07-30 (62 receipts): LP fee 76.6%, price impact 83.5%,
  * 13 receipts with no leg priced, 7 partially priced (silently wrong), 42 clean.
+ * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+ * (docs/qa/corpus.json); the old figures describe a 62-row set that is NOT this one.
  *
  *   node scripts/analysis/attributionCoverage.mjs
  */
-import { connect, costedLegs, priceImpactCoverage, num } from './_env.mjs';
+import { loadCorpus, costedLegs, priceImpactCoverage, num } from './_env.mjs';
 
-const sql = await connect();
-const rows = await sql`
-  select id, tx_hash, tier, aggregator, notional_usd, slippage_bps,
-         recon_residual_bps, decomp_confidence, route_legs
-  from receipts where route_legs is not null order by id`;
-await sql.end();
+const rows = loadCorpus().filter((r) => r.route_legs != null);
 
 const pct = (v) => `${(100 * v).toFixed(0).padStart(3)}%`;
 const out = [];

@@ -15,7 +15,7 @@
  *
  *   node scripts/analysis/referencePoolInRoute.mjs [--limit=40]
  */
-import { connect, core, env, num } from './_env.mjs';
+import { loadCorpus, core, env, num } from './_env.mjs';
 
 const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? '--limit=40').slice(8));
 
@@ -26,13 +26,7 @@ const { getPairMidAtBlock, makeRpcDecimalsCache } = await core('tokenPricing.js'
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 const decimals = makeRpcDecimalsCache(client);
 
-const sql = await connect();
-const rows = await sql`
-  select tx_hash, block_number, input_token, output_token, tier, route_shape,
-         hop_count, notional_usd, slippage_bps, route_legs
-  from receipts where route_legs is not null and block_number is not null
-  order by id desc limit ${limit}`;
-await sql.end();
+const rows = loadCorpus().filter((r) => r.route_legs != null && r.block_number != null);
 
 let n = 0, hit = 0, multi = 0;
 const byShape = {};

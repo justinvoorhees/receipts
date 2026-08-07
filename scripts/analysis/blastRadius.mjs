@@ -16,10 +16,12 @@
  * projection as an order of magnitude, never a figure.
  *
  * Baseline 2026-07-30: 4 receipts / $2,913 can move, ~6.7 bps summed at median.
+ * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
+ * (docs/qa/corpus.json); the old figures describe a 62-row set that is NOT this one.
  *
  *   node scripts/analysis/blastRadius.mjs
  */
-import { connect, costedLegs, num, quantile } from './_env.mjs';
+import { loadCorpus, costedLegs, num, quantile } from './_env.mjs';
 
 const V4_POOLMANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
 const TWINS = new Set([
@@ -27,11 +29,7 @@ const TWINS = new Set([
 	'0xef05e733970c37b6a2f863de0db9378ea49447cc',
 ]);
 
-const sql = await connect();
-const rows = await sql`
-  select id, tier, notional_usd, slippage_bps, normalize_flags, route_legs
-  from receipts where route_legs is not null order by id`;
-await sql.end();
+const rows = loadCorpus().filter((r) => r.route_legs != null);
 
 // 1. Empirical prior: raw per-leg impact, recovered from the weighted values.
 const raws = [];

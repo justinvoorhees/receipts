@@ -18,7 +18,7 @@
  *
  *   node scripts/analysis/preTxRulerError.mjs [--limit=40]
  */
-import { connect, core, env, median } from './_env.mjs';
+import { loadCorpus, core, env, median } from './_env.mjs';
 
 const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? '--limit=40').slice(8));
 
@@ -33,11 +33,7 @@ const { base } = await import('viem/chains');
 const { readSlot0 } = await core('poolDiscovery.js');
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 
-const sql = await connect();
-const rows = await sql`
-  select tx_hash, block_number, slippage_bps from receipts
-  where route_legs is not null and block_number is not null order by id desc limit ${limit}`;
-await sql.end();
+const rows = loadCorpus();
 
 const rulerErrs = [], footprints = [], flagged = [];
 let examined = 0, withNeighbours = 0;

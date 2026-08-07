@@ -21,7 +21,7 @@
  *   node scripts/analysis/rpcProviderAB.mjs --control [--limit=N]
  *   node scripts/analysis/rpcProviderAB.mjs [--limit=N] [--ids=56,134]
  */
-import { env, connect, core } from './_env.mjs';
+import { env, loadCorpus, core } from './_env.mjs';
 
 const { analyzeTransaction } = await core('analyzeTransaction.js');
 
@@ -70,9 +70,7 @@ function diffReceipts(x, y) {
 	return diffs;
 }
 
-const sql = await connect();
-let rows = await sql`select id, tx_hash, chain_id, input_symbol, output_symbol
-                     from receipts order by id asc`;
+let rows = loadCorpus();
 if (IDS) rows = rows.filter((r) => IDS.has(r.id));
 if (LIMIT) rows = rows.slice(0, LIMIT);
 
@@ -123,5 +121,4 @@ if (!differing && !failed) {
 		? '\nNo noise: this corpus is deterministic, so any A/B difference is real.'
 		: '\nThe two providers produce byte-identical receipts across the corpus.');
 }
-await sql.end();
 process.exit(0);

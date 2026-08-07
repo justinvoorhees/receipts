@@ -20,14 +20,9 @@
  *
  *   node scripts/analysis/reconResidual.mjs
  */
-import { connect, num, quantile } from './_env.mjs';
+import { loadCorpus, num, quantile } from './_env.mjs';
 
-const sql = await connect();
-const rows = await sql`
-  select id, tx_hash, tier, route_shape, notional_usd, all_in_cost_bps,
-         slippage_bps, recon_residual_bps, decomp_confidence
-  from receipts where route_legs is not null order by id`;
-await sql.end();
+const rows = loadCorpus().filter((r) => r.route_legs != null);
 
 const withRecon = rows.filter((r) => r.recon_residual_bps != null);
 console.log(`receipts with legs: ${rows.length}`);
