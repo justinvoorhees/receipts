@@ -1361,7 +1361,7 @@ export default async function QaPage({
 	if (!resolved) notFound();
 
 	// Validated before anything is spent — a malformed list costs one regex each.
-	const hashes = decodeURIComponent(hashesParam).split(',').map((h) => h.trim()).filter(Boolean);
+	const hashes = safeDecode(hashesParam).split(',').map((h) => h.trim()).filter(Boolean);
 	if (hashes.length === 0 || !hashes.every((h) => HASH_RE.test(h))) notFound();
 
 	// Sequential, not Promise.all: ten hashes in parallel is ~400 simultaneous
@@ -1418,6 +1418,24 @@ export default async function QaPage({
 ```
 
 `overflow-x-auto` on the wrapper is required — a wide table must scroll inside its own container rather than the page body.
+
+**The decode is load-bearing and must be guarded, not deleted.** Measured
+against a live dev server: a literal comma in the path arrives at this route as
+`%2C`, not as `,` — ordinary `%XX` sequences are decoded by the App Router, but
+the segment separator is not. So dropping `decodeURIComponent` breaks the
+comma-separated URL shape, which is the whole page. But calling it bare throws
+`URIError` on a malformed sequence like `/qa/tx/base/%`, producing a 500 before
+any validation runs. Wrap it:
+
+```ts
+/** A malformed percent-sequence is a bad URL, not a server error. */
+function safeDecode(s: string): string {
+	try { return decodeURIComponent(s); } catch { notFound(); }
+}
+```
+
+Pin both halves with tests: `%2C` resolves to two hashes, and `%` 404s without
+calling `loadReceipt`.
 
 - [ ] **Step 4: Run to verify they pass**
 
