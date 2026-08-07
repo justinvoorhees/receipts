@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server';
 import { analyzeTransaction, enrichFeeSinkNames, type Receipt } from '@fabric-tca/core';
-import {
-	enrichLegRouters,
-	getReceiptByHash,
-	insertReceipt,
-	type NewReceipt,
-} from '../../../lib/queries.js';
+import { getReceiptByHash, insertReceipt, type NewReceipt } from '../../../lib/queries.js';
+import { enrichLegRouters } from '../../../lib/legRouterEnrichment.js';
 import { clientKeyFromHeaders, createMemoryStore, createRateLimiter } from '../../../lib/rateLimit';
 import {
 	baseUrlFrom,
@@ -242,9 +238,13 @@ export async function POST(req: Request): Promise<Response> {
 	}
 
 	// 3. Persist and return the stored row (so it also shows up in History).
-	// Enrich here too, same as the cache-hit path above — otherwise the two
-	// responses for the same hash have different shapes (legs missing `router`
-	// on a fresh analysis, present on a cache hit).
+	// Enrich here so a fresh analysis's legs carry `router`, same as they did
+	// when queries.ts applied this internally. NOTE: as of the enrichLegRouters
+	// move (Task 4 of the DB-removal plan), the cache-hit branch above no
+	// longer enriches — getReceiptByHash returns the row as read. The two
+	// response shapes diverge until enrichment is centralized in loadReceipt
+	// (Task 6); this route is deleted outright in Task 9. Flagged, not fixed
+	// here — see task-4-report.md.
 	//
 	// The cache check above is check-then-act: two concurrent requests for the
 	// same unseen hash both miss and both analyze. The unique constraint now
@@ -257,7 +257,14 @@ export async function POST(req: Request): Promise<Response> {
 		// Only here. A cache hit is a VIEW, not a generation, and the conflict
 		// path below belongs to a request whose twin already notified.
 		void activityNotify('receipt_created', receiptCreatedMessage(inserted, baseUrlFrom(req)));
-		return NextResponse.json(enrichLegRouters(inserted), { status: 200 });
+		// routeLegs is jsonb (typed `unknown` by drizzle); enrichLegRouters itself
+		// guards with Array.isArray before trusting the shape.
+		const routeLegs = enrichLegRouters(
+			inserted.routeLegs as unknown[] | null,
+			inserted.routerAddress,
+			inserted.aggregator,
+		);
+		return NextResponse.json({ ...inserted, routeLegs }, { status: 200 });
 	} catch (err) {
 		const winner = await getReceiptByHash(hash);
 		if (winner) return NextResponse.json(winner, { status: 200 });

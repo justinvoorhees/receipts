@@ -25,7 +25,9 @@ vi.mock('@fabric-tca/core', () => ({
 vi.mock('../../../lib/queries.js', () => ({
 	getReceiptByHash: vi.fn(),
 	insertReceipt: vi.fn(),
-	enrichLegRouters: vi.fn((row: unknown) => row),
+}));
+vi.mock('../../../lib/legRouterEnrichment.js', () => ({
+	enrichLegRouters: vi.fn((legs: unknown) => legs),
 }));
 
 const { analyzeTransaction } = await import('@fabric-tca/core');

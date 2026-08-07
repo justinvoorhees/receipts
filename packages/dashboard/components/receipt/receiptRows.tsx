@@ -6,7 +6,8 @@
  * 'use client' to match the receipt/ leaf convention.
  */
 import { providerColor, formatProvider } from '../../lib/formatters';
-import type { ReceiptRow, RouteLeg } from '../../lib/queries';
+import type { ReceiptRow } from '../../lib/queries';
+import type { RouteLeg } from '../../lib/legRouterEnrichment';
 import { DEFAULT_CHAIN, explorerAddress } from '../../lib/chains';
 import {
 	getVenueLabel,

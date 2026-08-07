@@ -8,13 +8,16 @@ vi.mock('@fabric-tca/core', () => ({
 vi.mock('../../../lib/queries.js', () => ({
 	getReceiptByHash: vi.fn(),
 	insertReceipt: vi.fn(),
+}));
+vi.mock('../../../lib/legRouterEnrichment.js', () => ({
 	// Identity here: the route only needs to see it's applied, not what it does —
 	// enrichLegRouters itself is covered by legRouterEnrichment.test.ts.
-	enrichLegRouters: vi.fn((row: unknown) => row),
+	enrichLegRouters: vi.fn((legs: unknown) => legs),
 }));
 
 import { analyzeTransaction } from '@fabric-tca/core';
-import { enrichLegRouters, getReceiptByHash, insertReceipt } from '../../../lib/queries.js';
+import { getReceiptByHash, insertReceipt } from '../../../lib/queries.js';
+import { enrichLegRouters } from '../../../lib/legRouterEnrichment.js';
 import { POST } from './route.js';
 
 const mockAnalyze = vi.mocked(analyzeTransaction);
@@ -136,18 +139,31 @@ describe('POST /api/receipts', () => {
 	it('200s computing and inserting when not previously stored', async () => {
 		mockGet.mockResolvedValue(null);
 		mockAnalyze.mockResolvedValue(sampleReceipt);
-		const inserted = { id: 42, txHash: VALID_HASH } as never;
+		const insertedData = {
+			id: 42,
+			txHash: VALID_HASH,
+			routeLegs: [{ venue: '0xpool' }],
+			routerAddress: '0xagg',
+			aggregator: 'Relay',
+		};
+		const inserted = insertedData as never;
 		mockInsert.mockResolvedValue(inserted);
 
 		const res = await POST(post({ hash: VALID_HASH }));
 
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual(inserted);
+		expect(await res.json()).toEqual(insertedData);
 		expect(mockAnalyze).toHaveBeenCalledOnce();
 		expect(mockInsert).toHaveBeenCalledOnce();
-		// Finding 3: the fresh-analysis path must enrich too, so it returns the
-		// same shape as the cache-hit path (getReceiptByHash is enriched by queries.ts).
-		expect(mockEnrich).toHaveBeenCalledWith(inserted);
+		// Finding 3: the fresh-analysis path must enrich its legs. (Historically
+		// this matched the cache-hit path, which enriched inside queries.ts; since
+		// the Task 4 move that parity is broken until Task 6 centralizes
+		// enrichment in loadReceipt — see task-4-report.md.)
+		expect(mockEnrich).toHaveBeenCalledWith(
+			insertedData.routeLegs,
+			insertedData.routerAddress,
+			insertedData.aggregator,
+		);
 
 		// numeric columns must be strings for Drizzle numeric inserts
 		const arg = mockInsert.mock.calls[0]![0] as Record<string, unknown>;
