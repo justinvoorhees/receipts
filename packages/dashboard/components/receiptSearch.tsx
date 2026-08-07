@@ -1,6 +1,6 @@
 'use client';
 import type { Route } from 'next';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
@@ -44,7 +44,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	const [value, setValue] = useState(hash);
 	const [inputHovered, setInputHovered] = useState(false);
 	const [inputFocused, setInputFocused] = useState(false);
-	const [submitting, setSubmitting] = useState(false);
+	const [isPending, startTransition] = useTransition();
 	const [loaderWord, setLoaderWord] = useState<string>(LOADER_WORDS[0]);
 	const lastLoaderWord = useRef<string | null>(null);
 	// Client-side-only failure (a bad paste never reaches the server). Distinct
@@ -61,12 +61,12 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 		setValue(hash);
 	}, [hash]);
 
-	// Compute + persist the receipt on the server (idempotent — a hash already
-	// stored is returned without recompute), then navigate to render it. The
-	// server page reads the now-persisted row; a miss is diagnosed and surfaces
-	// as a FailureNotice via the `failure` prop.
-	const go = async (raw: string) => {
-		if (submitting) return;
+	// Navigate; the /tx route computes the receipt during its server render. The
+	// button's loading state is the route transition itself, which is honest
+	// about what is happening — the previous version reported "Analyzing" while
+	// awaiting a POST whose only purpose was to write a row.
+	const go = (raw: string) => {
+		if (isPending) return;
 		const submission = resolveSearchSubmission(raw);
 		if (submission.kind === 'empty') return;
 		if (submission.kind === 'invalid') {
@@ -74,28 +74,16 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 			return;
 		}
 		setLocalFailure(undefined);
-		const trimmed = raw.trim();
 		const word = nextLoaderWord(lastLoaderWord.current);
 		lastLoaderWord.current = word;
 		setLoaderWord(word);
-		setSubmitting(true);
-		try {
-			await fetch('/api/receipts', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ hash: trimmed }),
-			});
-		} catch {
-			// Network/compute failure still navigates; the server render shows the
-			// not-found state rather than leaving the UI hung.
-		} finally {
-			setSubmitting(false);
+		startTransition(() => {
 			router.push(submission.to as Route);
-		}
+		});
 	};
 
 	const submit = () => {
-		void go(value);
+		go(value);
 	};
 
 	// Local failure wins: it reflects what the user just did, while the prop
@@ -106,9 +94,8 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	const textColor = hasError ? 'var(--color-red)' : 'var(--color-primary)';
 
 	return (
-		// gap-[10px]: Figma 628:234. Was 20px, which put this bar's error line at a
-		// different distance from the one on /trades — the two are the same control
-		// and must not disagree.
+		// gap-[10px]: Figma 628:234 — spacing between the search bar and its error
+		// line below it.
 		<div className="flex flex-col gap-[10px] w-full">
 			<div
 				className="relative flex h-[40px] w-full items-stretch overflow-hidden rounded-[2px] border transition-colors"
@@ -136,7 +123,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 						const pasted = e.clipboardData.getData('text').trim();
 						if (pasted) {
 							suppressNextClear.current = true;
-							void go(pasted);
+							go(pasted);
 						}
 					}}
 					onMouseEnter={() => setInputHovered(true)}
@@ -153,7 +140,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 				<button
 					type="button"
 					onClick={submit}
-					disabled={submitting}
+					disabled={isPending}
 					aria-label="Create receipt"
 					className="flex h-full shrink-0 cursor-pointer items-center justify-center whitespace-nowrap px-[12px] font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-surface-base)] hover:opacity-80 active:opacity-60 disabled:cursor-default disabled:opacity-70 transition-opacity"
 					style={{
@@ -161,7 +148,7 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 						fontFeatureSettings: '"calt" 0',
 					}}
 				>
-					{submitting ? `${loaderWord}…` : 'Create Receipt'}
+					{isPending ? `${loaderWord}…` : 'Create Receipt'}
 				</button>
 			</div>
 			{effectiveFailure && <FailureNotice failure={effectiveFailure} />}
