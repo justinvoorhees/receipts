@@ -1,9 +1,9 @@
 // USD magnitude formatting, in a leaf module that imports nothing.
 //
 // A pure function with no React/client dependency. It lives here rather than in
-// TradesTable so the quarantined receipt/qualityNotionals (and any future
-// server-side consumer) can import it without dragging in TradesTable's
-// 'use client' → ReceiptView chain.
+// ReceiptView so the quarantined receipt/qualityNotionals (and any future
+// server-side consumer) can import it without dragging in ReceiptView's
+// 'use client' chain.
 
 // USD magnitude without the leading '$'. Sub-cent values (0 < |v| < 0.01) get
 // 3 significant figures so memecoin unit prices and dust notionals don't round

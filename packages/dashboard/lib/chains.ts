@@ -6,7 +6,7 @@
  * names both debts that come due at that point.
  *
  * Kept free of imports on purpose: 'use client' components import this module,
- * so it must never reach for the database, next/headers, or a node builtin.
+ * so it must never reach for next/headers or a node builtin.
  */
 export interface Chain {
 	readonly id: number;

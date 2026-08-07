@@ -1,6 +1,6 @@
 import { resolveAggregator, resolveLegRouter, type ResolvedLegRouter } from '@fabric-tca/core';
 
-/** Per-leg shape persisted in receipts.route_legs jsonb. */
+/** Per-leg shape produced by core (analyzeTransaction) on every /tx render — computed fresh, never persisted. */
 export interface RouteLeg {
 	venue: string;
 	type: string;
@@ -10,26 +10,26 @@ export interface RouteLeg {
 	notionalUsdc: number;
 	lpFeeBps: number | null;
 	priceImpactBps: number | null;
-	// Display symbols resolved + stored by core (analyzeTransaction). Optional:
-	// absent on rows persisted before this was added, and on a leg token whose
-	// on-chain symbol() read failed — both fall back to address-based resolution.
+	// Display symbols resolved by core (analyzeTransaction). Optional: absent
+	// when a leg token's on-chain symbol() read failed — falls back to
+	// address-based resolution.
 	tokenInSymbol?: string;
 	tokenOutSymbol?: string;
 	// Enclosing CALL frame addresses (outermost→innermost) for this leg's venue,
 	// captured by core from the trace. Raw addresses — names are resolved on read
-	// by resolveLegRouter so registry growth applies retroactively. Absent on
-	// rows persisted before 2026-07-27 and on legs whose chain was ambiguous.
+	// by resolveLegRouter so registry growth applies retroactively. Absent when
+	// the leg's chain was ambiguous.
 	frameChain?: string[];
 	// False when core could not READ this pool's fee tier (the reader fell back
-	// to 0). Omitted when the tier resolved, and absent on rows persisted before
-	// 2026-07-30 — so only an explicit `false` suppresses the fee cell. Without
-	// it a 0 bps fee would render as a confident "0.00bps", asserting the pool
-	// was free rather than admitting we could not read it.
+	// to 0). Omitted when the tier resolved — so only an explicit `false`
+	// suppresses the fee cell. Without it a 0 bps fee would render as a
+	// confident "0.00bps", asserting the pool was free rather than admitting we
+	// could not read it.
 	feeResolved?: boolean;
 	// The V4 singleton that emitted this leg's Swap. Present only on synthesized
 	// per-pool legs, whose `venue` is `v4:<poolId>` rather than an address — link
-	// to this, not to `venue`, or the Basescan URL is dead. Absent on rows
-	// persisted before 2026-07-30 and on every non-V4 leg.
+	// to this, not to `venue`, or the Basescan URL is dead. Absent on every
+	// non-V4 leg.
 	v4Emitter?: string;
 	// Resolved from `frameChain` on read (never persisted) — see
 	// enrichLegRouters. Present only when another curated aggregator executed

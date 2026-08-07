@@ -96,17 +96,19 @@ export function toDisplayPrice(price: number | null, baseIsOutput: boolean): num
  * address). Pure over the resolver so it's unit-testable without RPC.
  */
 /**
- * Flatten one decomposed leg into the shape persisted in `receipts.route_legs`.
+ * Flatten one decomposed leg into the RouteLeg shape the dashboard renders
+ * (packages/dashboard/lib/legRouterEnrichment.ts's `RouteLeg`). Computed fresh
+ * on every /tx render, never persisted — the name predates database removal.
  *
- * Two fields are OMITTED rather than nulled when absent, so a row written before
- * they existed reads identically to a row where they legitimately do not apply:
+ * Two fields are OMITTED rather than nulled when absent, so a leg missing them
+ * for a legitimate reason (below) reads identically either way:
  *   - `frameChain` — absent means "no router attribution"
  *   - `feeResolved` — absent means "the fee tier resolved"; only an explicit
  *     `false` marks a tier we could not read. Without it a 0 bps fee is
  *     indistinguishable from a genuinely free pool and the receipt renders a
  *     confident "0.00bps" (see routeReaders' `unresolvedFee`).
  *
- * Pure over its inputs so the persist contract is unit-testable without RPC.
+ * Pure over its inputs so this output contract is unit-testable without RPC.
  */
 export function toPersistedLeg(
 	l: {

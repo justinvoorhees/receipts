@@ -1,14 +1,15 @@
 'use client';
 /**
- * receiptDisplay — pure formatting + route/venue/fee display helpers shared by the
- * History table (TradesTable) and the Receipt (ReceiptView).
+ * receiptDisplay — pure formatting + route/venue/fee display helpers used by
+ * the Receipt (ReceiptView).
  *
- * These lived in TradesTable, which forced ReceiptView to import from it while
- * TradesTable imported <Receipt> back — a circular dependency that made `.next`
- * builds cascade (see the single-ruler memory). Extracting the shared surface into
- * this leaf breaks the cycle: both components now depend on this module, and it
- * depends on neither. ShareButton (a small client component) rides along, so the
- * module is marked 'use client'.
+ * These originally lived in the now-deleted TradesTable (the /trades history
+ * table), which forced ReceiptView to import from it while TradesTable
+ * imported <Receipt> back — a circular dependency that made `.next` builds
+ * cascade (see the single-ruler memory). Extracting the shared surface into
+ * this leaf broke the cycle at the time; TradesTable is gone now (database
+ * removal, 2026-08-06), but the leaf module remains the right shape. ShareButton
+ * (a small client component) rides along, so the module is marked 'use client'.
  */
 import { useState } from 'react';
 import { costedLegs, isFullyPriced, priceImpactCoverage } from '@fabric-tca/core/pure';
@@ -24,8 +25,8 @@ export function formatSubvalueUsd(value: number): string {
 	return mag == null ? '–' : `$${mag}`;
 }
 
-// Re-exported from receipt/usdFormat.ts (a leaf module) so existing external
-// consumers of TradesTable's formatUsdMagnitude keep working unchanged.
+// Re-exported from receipt/usdFormat.ts (a leaf module) for callers that
+// already import formatting helpers from this module.
 export { formatUsdMagnitude };
 
 export function ShareButton({ path, large = false }: { path?: string; large?: boolean } = {}) {
@@ -38,9 +39,11 @@ export function ShareButton({ path, large = false }: { path?: string; large?: bo
 		setTimeout(() => setCopied(false), 1500);
 	};
 
-	// `large` is the standalone receipt page's 69px bar (Figma 547-1011). The
-	// History dialog keeps the original 40px button — it is deliberately out of
-	// scope for the v3 pass.
+	// `large` is the standalone receipt page's 69px bar (Figma 547-1011); the
+	// only current caller always passes it. The smaller, non-`large` sizing
+	// below is retained for a non-standalone rendering context (there is none
+	// today — the receipt-in-a-dialog mode this originally served was removed
+	// with the database, see docs/superpowers/specs/2026-08-06-database-removal-design.md).
 	const sizing = large
 		? 'h-[69px] text-[40px] leading-[40px] px-[20px]'
 		: 'h-[40px] text-[20px] leading-[20px] px-[8px]';
@@ -538,8 +541,11 @@ export function getFlagLabel(row: Partial<Pick<ReceiptModel, 'normalizeFlags' | 
 	return flags.length > 0 ? flags.join('; ') : 'None';
 }
 
-// Generalized token display: reads the input/output symbol + amount fields that
-// exist on both `ReceiptModel` (ReceiptView) and the History dialog's adapter.
+// Generalized token display: reads the input/output symbol + amount fields
+// that exist on `ReceiptModel`. Kept structurally typed (not `ReceiptModel`
+// directly) rather than narrowed to it now that ReceiptView is the sole caller
+// — a structural type here costs nothing and avoids re-coupling this leaf to
+// ReceiptModel's shape.
 export function formatTokenIn(row: { inputSymbol: string; inputAmount: string | number }): string {
 	return `${formatTokenAmount(row.inputAmount, row.inputSymbol)} ${row.inputSymbol}`;
 }
@@ -648,8 +654,8 @@ export function tokenUnitPriceUsd(
 	return notional / amt;
 }
 
-// Re-exported from receipt/symbols.ts (a leaf module) so existing external
-// consumers of TradesTable's STABLE_SYMBOLS / ETH_SYMBOLS keep working unchanged.
+// Re-exported from receipt/symbols.ts (a leaf module) for callers that
+// already import from this module.
 export { STABLE_SYMBOLS, ETH_SYMBOLS };
 
 // The whole part is always shown in full — never rounded away — only the

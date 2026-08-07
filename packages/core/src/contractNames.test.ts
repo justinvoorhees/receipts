@@ -52,13 +52,24 @@ describe('resolveContractName', () => {
 		const name = await resolveContractName('0x3', { fetchImpl: spy as unknown as typeof fetch, cache: {} });
 		expect(name).toBe('EnvKeyed');
 		expect(spy).toHaveBeenCalledTimes(1);
-		expect(spy).toHaveBeenCalledWith(expect.stringContaining('apikey=env-key'));
+		expect(spy).toHaveBeenCalledWith(expect.stringContaining('apikey=env-key'), expect.anything());
 	});
 
 	it('returns null (no throw) when fetch rejects', async () => {
 		const fetchImpl = vi.fn().mockRejectedValue(new Error('network')) as unknown as typeof fetch;
 		const name = await resolveContractName('0x2', { fetchImpl, apiKey: 'k', cache: {} });
 		expect(name).toBeNull();
+	});
+
+	// This call now runs on the /tx render path: a hung socket must not hang
+	// the page indefinitely, so every request carries an abort signal.
+	it('passes an AbortSignal so a hung socket cannot hang the caller forever', async () => {
+		const fetchImpl = vi.fn().mockResolvedValue(okResp('Vault')) as unknown as typeof fetch;
+		await resolveContractName('0x4', { fetchImpl, apiKey: 'k', cache: {} });
+		expect(fetchImpl).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({ signal: expect.any(AbortSignal) }),
+		);
 	});
 });
 

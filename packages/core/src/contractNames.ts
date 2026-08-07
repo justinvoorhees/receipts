@@ -3,8 +3,8 @@
  * ContractName via the FREE Etherscan V2 getsourcecode API (chainid 8453).
  *
  * NEVER called inside analyzeTransaction/decomposeRoute (core analysis stays
- * RPC-pure). Invoked only in the persist path (dashboard API route +
- * repopulation script). Fails closed: no key / network / parse error → null.
+ * RPC-pure). Invoked only from the dashboard's enrichment step (loadReceipt,
+ * on the /tx render path). Fails closed: no key / network / parse error → null.
  *
  * A committed JSON cache (configs/contractNames.json) seeds an in-process
  * cache and is written through best-effort so repeated addresses are not
@@ -48,7 +48,7 @@ const MANUAL_OVERRIDES: Record<string, string> = {
 	// Basescan name tag "Relay: Solver". Unverified contract, so the free
 	// getsourcecode API returns no ContractName and the cache holds null.
 	// It is also the corpus's only `vault_map` fee sink — a registry hit, not a
-	// guess. Receipt id 328.
+	// guess. Seen in docs/qa/corpus.json's frozen id 328.
 	'0xf70da97812cb96acdf810712aa562db8dfa3dbef': 'Relay: Solver',
 };
 
@@ -71,8 +71,10 @@ function loadCacheSeed(): Record<string, string | null> {
  *
  * Atomic because this fires on a user-triggered request path: a plain
  * writeFileSync lets two concurrent resolutions interleave and corrupt the
- * file. A failed write is fine — read-only FS (e.g. serverless) → the DB
- * remains the durable store.
+ * file. A failed write is fine — this is a best-effort, per-instance cache
+ * with no durable store behind it; a read-only FS (e.g. serverless) just
+ * means every request re-resolves names for the process's lifetime instead
+ * of persisting them.
  */
 function persistCache(): void {
 	atomicWriteJson(CACHE_PATH, processCache);
@@ -80,6 +82,10 @@ function persistCache(): void {
 
 const ETHERSCAN_V2 = 'https://api.etherscan.io/v2/api';
 const BASE_CHAIN_ID = 8453;
+// Node's fetch has no default timeout. This call now runs on the /tx render
+// path (via enrichFeeSinkNames), one sequential await per fee sink — a hung
+// socket would otherwise hang the product page render indefinitely.
+const TIMEOUT_MS = 3_000;
 
 export async function resolveContractName(address: string, deps: NameResolverDeps = {}): Promise<string | null> {
 	const key = address.toLowerCase();
@@ -99,7 +105,7 @@ export async function resolveContractName(address: string, deps: NameResolverDep
 
 	try {
 		const url = `${ETHERSCAN_V2}?chainid=${BASE_CHAIN_ID}&module=contract&action=getsourcecode&address=${key}&apikey=${apiKey}`;
-		const resp = await fetchImpl(url);
+		const resp = await fetchImpl(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
 		if (!resp.ok) {
 			cache[key] = null;
 			if (!injected) persistCache();

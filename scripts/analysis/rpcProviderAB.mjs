@@ -1,14 +1,18 @@
 /**
  * rpcProviderAB.mjs — do two RPC providers produce identical receipts?
  *
- * Written for the 2026-08-03 Alchemy → QuickNode migration. Re-analyzes every
- * persisted receipt TWICE on the SAME code — once per provider — and diffs the
- * two computed Receipts field by field.
+ * Written for the 2026-08-03 Alchemy → QuickNode migration, before the database
+ * was removed. Re-analyzes every row in the frozen corpus (docs/qa/corpus.json)
+ * TWICE on the SAME code — once per provider — and diffs the two computed
+ * Receipts field by field.
  *
- * Why not just diff the persisted rows against a recompute? Because the stored
- * rows also carry whatever core changes have landed since the last
- * repopulation, so that diff conflates code drift with provider behaviour. Only
- * an A/B on identical code isolates the provider.
+ * Why not just diff the frozen rows against a recompute? Because the frozen
+ * corpus was dumped once and never updates, so that diff conflates every bit of
+ * code drift since the freeze with provider behaviour. Only an A/B on identical
+ * code, run twice back-to-back, isolates the provider. (See the README's
+ * "Risks and accepted costs" note: this is now the ONLY corpus-wide regression
+ * check left — it can A/B two providers, but it can no longer answer "does
+ * today's code disagree with last month's.")
  *
  * ⚠️ A raw A/B still over-reports: anything genuinely non-deterministic (a read
  * at head rather than at the trade's block, an upstream name lookup) shows up as
@@ -16,7 +20,7 @@
  * it A/As ONE provider against itself, so any field it flags is noise and is
  * then excluded from the A/B verdict.
  *
- * Read-only. Never writes to the database.
+ * Read-only. Writes nothing, anywhere.
  *
  *   node scripts/analysis/rpcProviderAB.mjs --control [--limit=N]
  *   node scripts/analysis/rpcProviderAB.mjs [--limit=N] [--ids=56,134]

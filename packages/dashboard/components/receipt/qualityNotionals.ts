@@ -7,8 +7,8 @@
  * notional (`notionalUsd`) + one `marketMid`, no second (oracle-derived) ruler.
  *
  * This module imports only leaf modules (receipt/symbols) and a type-only
- * import from lib/receiptModel — never TradesTable or ReceiptView — so it
- * stays genuinely importable in isolation from the client component tree.
+ * import from lib/receiptModel — never ReceiptView — so it stays genuinely
+ * importable in isolation from the client component tree.
  */
 import type { ReceiptModel } from '../../lib/receiptModel';
 import { STABLE_SYMBOLS, ETH_SYMBOLS } from './symbols';

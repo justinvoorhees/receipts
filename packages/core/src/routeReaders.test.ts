@@ -1,10 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
+
+// log.ts resolves its threshold ONCE at module load from the ambient
+// LOG_LEVEL env var. The 'warns, naming the consequence' tests below spy on
+// process.stderr.write and assert on warn-level output — a developer with
+// LOG_LEVEL=error exported (a legitimate local setting) would silently
+// suppress those warn() calls and see unrelated, confusing failures. This has
+// to be set BEFORE routeReaders.js (which imports log.js) is loaded — a
+// static import at the top of this file would hoist above any assignment
+// below it, so the module under test is loaded dynamically instead.
+process.env.LOG_LEVEL = 'warn';
+
+const {
   makeV4PoolKeyReader,
   createDefaultV4PoolKeyReader,
   createDefaultFeeReader,
   findInitializeLogByBisect,
-} from './routeReaders.js';
+} = await import('./routeReaders.js');
 
 describe('makeV4PoolKeyReader', () => {
   const POOL = '0xAbC123';

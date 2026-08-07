@@ -17,7 +17,8 @@
  * nulls it so the loss vanishes into the residual.
  *
  * ⚠️ Do NOT raise PI_IMPLAUSIBLE_CAP_BPS to "see the impact" — those values are
- * wrong, which is why the clamp fired. Fix the reader, then repopulate.
+ * wrong, which is why the clamp fired. Fix the reader, then re-run this script
+ * against the frozen corpus (there is no live table to repopulate anymore).
  *
  *   node scripts/analysis/unpricedCauses.mjs
  */
