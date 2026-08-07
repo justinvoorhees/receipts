@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Receipt } from '@fabric-tca/core';
 
 vi.mock('@fabric-tca/core', () => ({
@@ -8,22 +8,19 @@ vi.mock('@fabric-tca/core', () => ({
 vi.mock('../../../lib/queries.js', () => ({
 	getReceiptByHash: vi.fn(),
 	insertReceipt: vi.fn(),
-	deleteReceipt: vi.fn(),
 	// Identity here: the route only needs to see it's applied, not what it does —
 	// enrichLegRouters itself is covered by legRouterEnrichment.test.ts.
 	enrichLegRouters: vi.fn((row: unknown) => row),
 }));
 
 import { analyzeTransaction } from '@fabric-tca/core';
-import { deleteReceipt, enrichLegRouters, getReceiptByHash, insertReceipt } from '../../../lib/queries.js';
-import { DELETE, POST } from './route.js';
-import { SESSION_COOKIE, signSession } from '../../../lib/auth';
+import { enrichLegRouters, getReceiptByHash, insertReceipt } from '../../../lib/queries.js';
+import { POST } from './route.js';
 
 const mockAnalyze = vi.mocked(analyzeTransaction);
 const mockGet = vi.mocked(getReceiptByHash);
 const mockInsert = vi.mocked(insertReceipt);
 const mockEnrich = vi.mocked(enrichLegRouters);
-const mockDelete = vi.mocked(deleteReceipt);
 
 // Must satisfy the route's hash-syntax guard (0x + 64 hex chars) — anything
 // shorter is rejected before it ever reaches these mocks.
@@ -295,59 +292,6 @@ describe('POST /api/receipts — rate limiting', () => {
 		const codes: number[] = [];
 		for (let i = 0; i < 400; i++) codes.push((await POST(postFrom(ip, { hash: VALID_HASH }))).status);
 		expect(codes).toContain(429);
-	});
-});
-
-// DELETE is the one destructive endpoint: it was reachable by anyone, with no
-// auth, no ownership check and no logging, so a trivial loop over ids wiped the
-// corpus. Middleware now gates it, but middleware is one regex away from not
-// matching — the handler re-checks rather than trusting the perimeter.
-describe('DELETE /api/receipts — defence in depth', () => {
-	const SECRET = 'session-secret-at-least-32-characters';
-
-	beforeEach(() => {
-		vi.clearAllMocks();
-		process.env.APP_SESSION_SECRET = SECRET;
-		process.env.APP_ACCESS_PASSWORD = 'pw';
-	});
-	afterEach(() => {
-		delete process.env.APP_SESSION_SECRET;
-		delete process.env.APP_ACCESS_PASSWORD;
-	});
-
-	const del = (url: string, cookie?: string) =>
-		new Request(url, {
-			method: 'DELETE',
-			headers: {
-				'x-forwarded-for': nextIp(),
-				...(cookie ? { cookie } : {}),
-			},
-		});
-
-	it('refuses to delete without a session', async () => {
-		const res = await DELETE(del('http://x/api/receipts?id=1'));
-		expect(res.status).toBe(401);
-		expect(mockDelete).not.toHaveBeenCalled();
-	});
-
-	it('refuses a forged session cookie', async () => {
-		const res = await DELETE(del('http://x/api/receipts?id=1', `${SESSION_COOKIE}=999999999999.forged`));
-		expect(res.status).toBe(401);
-		expect(mockDelete).not.toHaveBeenCalled();
-	});
-
-	it('deletes when a valid session is present', async () => {
-		const token = await signSession(SECRET, Date.now() + 60_000);
-		const res = await DELETE(del('http://x/api/receipts?id=5', `${SESSION_COOKIE}=${token}`));
-		expect(res.status).toBe(204);
-		expect(mockDelete).toHaveBeenCalledWith(5);
-	});
-
-	it('still validates the id for an authenticated caller', async () => {
-		const token = await signSession(SECRET, Date.now() + 60_000);
-		const res = await DELETE(del('http://x/api/receipts?id=abc', `${SESSION_COOKIE}=${token}`));
-		expect(res.status).toBe(400);
-		expect(mockDelete).not.toHaveBeenCalled();
 	});
 });
 

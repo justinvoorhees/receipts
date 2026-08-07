@@ -1,14 +1,12 @@
 import { NextResponse } from 'next/server';
 import { analyzeTransaction, enrichFeeSinkNames, type Receipt } from '@fabric-tca/core';
 import {
-	deleteReceipt,
 	enrichLegRouters,
 	getReceiptByHash,
 	insertReceipt,
 	type NewReceipt,
 } from '../../../lib/queries.js';
 import { clientKeyFromHeaders, createMemoryStore, createRateLimiter } from '../../../lib/rateLimit';
-import { SESSION_COOKIE, verifySession } from '../../../lib/auth';
 import {
 	baseUrlFrom,
 	budgetWarningMessage,
@@ -266,40 +264,4 @@ export async function POST(req: Request): Promise<Response> {
 		console.error('[api/receipts] insert failed', err);
 		return NextResponse.json({ error: 'Could not store the receipt.' }, { status: 500 });
 	}
-}
-
-/** Read the session cookie straight off the request header. */
-function sessionTokenFrom(req: Request): string | undefined {
-	const raw = req.headers.get('cookie');
-	if (!raw) return undefined;
-	for (const part of raw.split(';')) {
-		const [name, ...rest] = part.trim().split('=');
-		if (name === SESSION_COOKIE) return decodeURIComponent(rest.join('='));
-	}
-	return undefined;
-}
-
-/**
- * DELETE /api/receipts?id=<n> — removes a single receipt by its numeric id.
- * Used by the History table's per-row delete control. Returns 400 on a
- * missing/non-numeric id, 204 on success.
- *
- * Re-checks the session rather than trusting middleware. This is the only
- * destructive endpoint in the app, it takes no ownership check, and it was
- * previously reachable by anyone — a loop over ids emptied the table. Middleware
- * is one matcher regex away from silently not covering this path, so the
- * consequence of that mistake is worth a second check here.
- */
-export async function DELETE(req: Request): Promise<Response> {
-	const secret = process.env.APP_SESSION_SECRET;
-	if (!secret || !(await verifySession(sessionTokenFrom(req), secret))) {
-		return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
-	}
-
-	const id = Number(new URL(req.url).searchParams.get('id'));
-	if (!Number.isInteger(id) || id <= 0) {
-		return NextResponse.json({ error: 'Missing or invalid receipt id.' }, { status: 400 });
-	}
-	await deleteReceipt(id);
-	return new NextResponse(null, { status: 204 });
 }

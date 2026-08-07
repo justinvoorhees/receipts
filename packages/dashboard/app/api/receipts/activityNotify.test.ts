@@ -26,7 +26,6 @@ vi.mock('@fabric-tca/core', () => ({
 vi.mock('../../../lib/queries.js', () => ({
 	getReceiptByHash: vi.fn(),
 	insertReceipt: vi.fn(),
-	deleteReceipt: vi.fn(),
 	enrichLegRouters: vi.fn((row: unknown) => row),
 }));
 
