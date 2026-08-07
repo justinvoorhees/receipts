@@ -45,7 +45,9 @@ describe('/qa/tx/[chain]/[hashes]', () => {
 		expect(loadReceipt).toHaveBeenCalledTimes(2);
 	});
 
-	// One unanalyzable hash in a list of ten must not cost the other nine.
+	// One unanalyzable hash in a list of ten must not cost the other nine. This
+	// covers the case where loadReceipt resolves null (a decodable-but-not-a-swap
+	// transaction) — see the next test for the case where it throws.
 	it('isolates a failing hash to its own row', async () => {
 		loadReceipt.mockImplementation(async (_c: unknown, h: string) =>
 			h === A ? { txHash: A, inputSymbol: 'USDC', outputSymbol: 'WETH', allInCostBps: 12 } : null,
@@ -55,8 +57,41 @@ describe('/qa/tx/[chain]/[hashes]', () => {
 		expect(html).toContain('no receipt');
 	});
 
+	// The try/catch around loadReceipt is the mechanism, not just the null branch:
+	// loadReceipt genuinely throws (missing TCA_RPC_URL, or anything
+	// analyzeTransaction raises), and one throw must not sink the other rows.
+	it('isolates a hash whose analysis throws to its own row, without losing the rest', async () => {
+		loadReceipt.mockImplementation(async (_c: unknown, h: string) => {
+			if (h === A) return { txHash: A, inputSymbol: 'USDC', outputSymbol: 'WETH', allInCostBps: 12 };
+			throw new Error('RPC exploded');
+		});
+		const html = renderToString(await QaPage({ params: paramsFor(`${A},${B}`) }));
+		expect(html).toContain('USDC');
+		expect(html).toContain('no receipt');
+	});
+
 	it('rejects a malformed hash without spending an analysis', async () => {
 		await expect(QaPage({ params: paramsFor('0xnope') })).rejects.toThrow('NEXT_NOT_FOUND');
+		expect(loadReceipt).not.toHaveBeenCalled();
+	});
+
+	// Verified against a live dev server: Next 15's App Router re-encodes a
+	// literal ',' in this dynamic segment into the literal string '%2C' by the
+	// time it reaches the page (ordinary %XX sequences decode fine — only the
+	// separator itself doesn't survive as a raw comma). Without decoding, this
+	// never splits and the whole thing fails HASH_RE as one blob — the primary
+	// two-hash-comparison URL shape wouldn't work at all.
+	it('decodes a %2C-separated hash list back into two hashes (Next hands the page an encoded separator, not a raw comma)', async () => {
+		loadReceipt.mockResolvedValue({ txHash: A, inputSymbol: 'USDC', outputSymbol: 'WETH', allInCostBps: 12 });
+		await QaPage({ params: paramsFor(`${A}%2C${B}`) });
+		expect(loadReceipt).toHaveBeenCalledTimes(2);
+	});
+
+	// decodeURIComponent throws URIError on a malformed sequence (a bare '%').
+	// That must resolve to notFound(), not an unhandled throw past this
+	// function — decoding is necessary (see the test above) but has to be safe.
+	it('rejects a percent-malformed hash param without throwing past notFound', async () => {
+		await expect(QaPage({ params: paramsFor('%') })).rejects.toThrow('NEXT_NOT_FOUND');
 		expect(loadReceipt).not.toHaveBeenCalled();
 	});
 

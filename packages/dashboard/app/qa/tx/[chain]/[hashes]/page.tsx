@@ -6,6 +6,29 @@ import { loadReceipt } from '../../../../../lib/loadReceipt';
 export const dynamic = 'force-dynamic';
 
 /**
+ * This table exists to be read at a glance and compared across rows — full
+ * float precision (e.g. `408.33041588254656`) defeats that. Two decimals for
+ * bps and dollar figures, consistent with the rest of the app; '–' for null.
+ */
+function fmt2(value: number | null): string {
+	return value == null ? '–' : value.toFixed(2);
+}
+
+/**
+ * decodeURIComponent throws URIError on a malformed sequence (e.g. a lone
+ * '%'). That must become the same notFound() a bad hash gets, not an
+ * unhandled 500 — a malformed URL should cost one regex-equivalent, not a
+ * crash.
+ */
+function safeDecode(value: string): string {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return notFound();
+	}
+}
+
+/**
  * Side-by-side receipt comparison for QA. Replaces the /trades history table.
  *
  * DEV ONLY. The App Router cannot conditionally register a route file, so the
@@ -29,7 +52,14 @@ export default async function QaPage({
 	if (!resolved) notFound();
 
 	// Validated before anything is spent — a malformed list costs one regex each.
-	const hashes = decodeURIComponent(hashesParam).split(',').map((h) => h.trim()).filter(Boolean);
+	// decodeURIComponent is necessary, not redundant: verified against a live dev
+	// server that Next 15's App Router re-encodes a literal ',' in this dynamic
+	// segment into the literal string '%2C' by the time it reaches the page
+	// (ordinary %XX sequences decode fine; the separator specifically does not),
+	// so this is what recovers real commas to split the list on. Wrapped, not
+	// bare: a malformed sequence like a lone '%' throws URIError, and that must
+	// resolve to notFound(), not an unhandled 500.
+	const hashes = safeDecode(hashesParam).split(',').map((h) => h.trim()).filter(Boolean);
 	if (hashes.length === 0 || !hashes.every((h) => HASH_RE.test(h))) notFound();
 
 	// Sequential, not Promise.all: ten hashes in parallel is ~400 simultaneous
@@ -60,17 +90,20 @@ export default async function QaPage({
 					</tr>
 				</thead>
 				<tbody>
-					{rows.map(({ hash, receipt }) => (
-						<tr key={hash}>
+					{rows.map(({ hash, receipt }, i) => (
+						// hash + index, not hash alone: pasting the same hash twice (a
+						// plausible mistake in a tool built for pasting lists) would
+						// otherwise collide and trigger React's duplicate-key warning.
+						<tr key={`${hash}-${i}`}>
 							<td className="pr-[16px]">{`${hash.slice(0, 10)}…`}</td>
 							{receipt ? (
 								<>
 									<td className="pr-[16px]">{`${receipt.inputSymbol} → ${receipt.outputSymbol}`}</td>
 									<td className="pr-[16px]">{receipt.aggregator}</td>
-									<td className="pr-[16px]">{receipt.notionalUsd ?? '–'}</td>
-									<td className="pr-[16px]">{receipt.allInCostBps ?? '–'}</td>
-									<td className="pr-[16px]">{receipt.lpFeeBps ?? '–'}</td>
-									<td className="pr-[16px]">{receipt.slippageBps ?? '–'}</td>
+									<td className="pr-[16px]">{fmt2(receipt.notionalUsd)}</td>
+									<td className="pr-[16px]">{fmt2(receipt.allInCostBps)}</td>
+									<td className="pr-[16px]">{fmt2(receipt.lpFeeBps)}</td>
+									<td className="pr-[16px]">{fmt2(receipt.slippageBps)}</td>
 									<td className="pr-[16px]">{receipt.tier ?? '–'}</td>
 								</>
 							) : (
