@@ -130,19 +130,29 @@ describe('shouldClearFailure', () => {
 		expect(shouldClearFailure('nonsense', 'nonsense')).toBe(false);
 	});
 
-	it('does not clear when the paste landed inside existing text', () => {
-		expect(shouldClearFailure('0xdeadnonsense', 'nonsense')).toBe(false);
+	// onPaste trims before storing, so the raw field value would not match.
+	// Copying a hash with a trailing newline is the ordinary case.
+	it('does not clear when the field carries whitespace around the paste', () => {
+		expect(shouldClearFailure('  nonsense\n', 'nonsense')).toBe(false);
 	});
 
-	// The regression that a boolean latch could not express: a paste the browser
-	// never inserts leaves the latch armed forever, and the user's next real
-	// keystroke silently loses its clear. Keyed on the pasted TEXT, that
-	// keystroke is self-describing — it does not contain the paste, so it clears.
-	it('still clears a later keystroke when the paste was never inserted', () => {
-		expect(shouldClearFailure('a', 'nonsense')).toBe(true);
+	// THE regression a boolean latch could not express. React fires no change
+	// event when a paste sets the field to the value it already held, so
+	// re-pasting the same bad hash left the latch armed with nothing to disarm
+	// it — and the user's next keystroke silently lost its clear. That keystroke
+	// produces `pendingPaste + 'x'`, which is exactly why this compares equal
+	// rather than `includes`: `includes` would suppress here too.
+	it('clears the keystroke after a same-value re-paste fired no change event', () => {
+		expect(shouldClearFailure('nonsensex', 'nonsense')).toBe(true);
 	});
 
 	it('clears once the user edits the pasted text away', () => {
 		expect(shouldClearFailure('nonsens', 'nonsense')).toBe(true);
+	});
+
+	// go() validated only the pasted fragment, not the whole field, so there is
+	// no failure about this value worth preserving.
+	it('treats a paste dropped into existing text as ordinary typing', () => {
+		expect(shouldClearFailure('0xdeadnonsense', 'nonsense')).toBe(true);
 	});
 });
