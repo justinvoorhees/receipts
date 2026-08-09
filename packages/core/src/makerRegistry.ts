@@ -13,6 +13,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { log } from './log.js';
 
 export interface MakerEntry {
 	address: string;
@@ -30,9 +31,20 @@ try {
 	const raw = await readFile(MAKERS_CONFIG_PATH, 'utf8');
 	const parsed = JSON.parse(raw) as { makers?: MakerEntry[] };
 	curatedMakers = new Set((parsed.makers ?? []).map((m) => m.address.toLowerCase()));
-} catch {
+} catch (err) {
 	// Config unreadable (path moved, running outside the checkout) → no curated
 	// makers rather than throwing. isCuratedMaker must never throw.
+	//
+	// Warned rather than swallowed, matching the other registry loaders: every
+	// entry here is a human attestation, so an empty set silently un-does
+	// curation work and sends legs back to `unknown` with no trace of why.
+	// The likeliest cause is MAKERS_CONFIG_PATH itself — see the note on the
+	// router registry in tagging.ts.
+	log.warn('could not load maker registry, curated RFQ makers will not be recognized', {
+		module: 'makerRegistry',
+		path: MAKERS_CONFIG_PATH,
+		error: err instanceof Error ? err.message : String(err),
+	});
 	curatedMakers = new Set();
 }
 

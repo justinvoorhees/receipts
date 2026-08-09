@@ -29,13 +29,23 @@ describe('the frozen QA corpus', () => {
 	});
 
 	// This is not a normal fixture count that will need bumping as the corpus
-	// grows — the corpus cannot grow. The database this was read from is gone
-	// by design (see scripts/freezeCorpus.mjs), so docs/qa/corpus.json is a
-	// frozen, unrepeatable snapshot: 62 rows in, 62 rows forever. A count that
-	// drifts from 62 doesn't mean the fixture is stale, it means the file was
-	// truncated or corrupted — the other three checks above would all still
-	// pass on a file missing 40 rows, or cut down to just the first one. This
-	// number is a checksum, not a snapshot to keep in sync.
+	// grows — the corpus cannot grow. It was dumped from the `receipts` table by
+	// scripts/freezeCorpus.mjs, and BOTH are gone: the Postgres instance was
+	// deleted 2026-08-09, and the script with it (it was a bare `select * from
+	// receipts` with no other data source, so it could not run again). That
+	// makes docs/qa/corpus.json a frozen, unrepeatable snapshot: 62 rows in, 62
+	// rows forever.
+	//
+	// Do NOT re-add a freeze script — there is no table to freeze. If this
+	// corpus ever genuinely needs to grow, the only path is to recompute rows
+	// from chain via analyzeTransaction() and append them in this same raw
+	// snake_case shape, which is a different tool than the one that was
+	// deleted. Bump the count here in the same commit if you do.
+	//
+	// A count that drifts from 62 doesn't mean the fixture is stale, it means
+	// the file was truncated or corrupted — the other three checks above would
+	// all still pass on a file missing 40 rows, or cut down to just the first
+	// one. This number is a checksum, not a snapshot to keep in sync.
 	it('has exactly the 62 rows frozen on 2026-08-06', () => {
 		expect(corpus.length).toBe(62);
 	});

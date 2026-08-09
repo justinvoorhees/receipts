@@ -17,6 +17,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { loadRouterRegistry, type RouterRegistry } from './routerRegistry.js';
+import { log } from './log.js';
 
 export type AddressKind = 'pool' | 'fee-sink' | 'router' | 'unknown';
 
@@ -53,10 +54,24 @@ const ROUTERS_CONFIG_PATH = path.resolve(__dirname, '../../../configs/routers.js
 let routerRegistry: RouterRegistry;
 try {
 	routerRegistry = await loadRouterRegistry(ROUTERS_CONFIG_PATH);
-} catch {
+} catch (err) {
 	// If the config can't be loaded (e.g. path moved, running outside the
 	// repo checkout), degrade gracefully to "no known routers" rather than
 	// throwing — labelAddress must never throw.
+	//
+	// But warn, for the same reason resolveAggregator.ts warns about the
+	// settler registry: this is the registry that NAMES THE AGGREGATOR, via
+	// resolveAggregator → labelAddress → here, and it is the only load site for
+	// routers.json. Degrading quietly means every trade renders with no
+	// attribution and nothing anywhere says why — a wrong receipt rather than a
+	// missing one. ROUTERS_CONFIG_PATH is included because the likeliest cause
+	// is the path itself: it is derived from import.meta.url, which webpack
+	// bakes as a build-time absolute path (see README, Architecture notes).
+	log.warn('could not load router registry, trades will not resolve to an aggregator', {
+		module: 'tagging',
+		path: ROUTERS_CONFIG_PATH,
+		error: err instanceof Error ? err.message : String(err),
+	});
 	routerRegistry = { byAddressLower: new Map(), all: [] };
 }
 

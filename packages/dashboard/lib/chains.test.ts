@@ -35,8 +35,9 @@ describe('chain registry', () => {
 		expect(resolveChainParam('')).toBeNull();
 	});
 
-	// A hex chain id would be a second spelling of the same thing, and the API
-	// contract at app/api/receipts/route.ts takes a JSON number. Decimal only.
+	// A hex chain id would be a second spelling of the same thing, and one
+	// canonical spelling per chain is what keeps resolveReceiptUrl's redirect
+	// single-hop. Decimal only.
 	it('rejects a hex-spelled chain id', () => {
 		expect(resolveChainParam('0x2105')).toBeNull();
 	});

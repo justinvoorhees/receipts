@@ -1,0 +1,16 @@
+# A cost control, not a privacy measure. Receipts are public and shareable by
+# design — but with nothing cached, every /tx hit is a fresh ~40-call RPC
+# analysis charged against the global hourly ceiling (see the rate limits in
+# app/tx/[chain]/[hash]/page.tsx). A crawler that discovers a few shared receipt
+# links and walks them exhausts that budget, and real visitors get the ceiling
+# notice instead of a receipt.
+#
+# Disallow is the half that saves the RPC call, by stopping the fetch. The
+# matching X-Robots-Tag: noindex is set in next.config.mjs for crawlers that
+# arrive from an external link rather than by crawling.
+#
+# /qa is dev-only and 404s in production, but is listed for the same reason.
+# The index and /methodology are deliberately left crawlable.
+User-agent: *
+Disallow: /tx/
+Disallow: /qa/

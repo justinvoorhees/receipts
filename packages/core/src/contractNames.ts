@@ -12,7 +12,7 @@
  * starts empty; add an entry only when the free API can't produce an
  * acceptable name.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicWriteJson } from './atomicWrite.js';
@@ -52,13 +52,67 @@ const MANUAL_OVERRIDES: Record<string, string> = {
 	'0xf70da97812cb96acdf810712aa562db8dfa3dbef': 'Relay: Solver',
 };
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CACHE_PATH = path.resolve(__dirname, '../../../configs/contractNames.json');
+/**
+ * Locate the committed name cache, preferring a runtime search over the
+ * build-time module path. Returns null when neither finds a file.
+ *
+ * The obvious implementation is `path.resolve(dirname(fileURLToPath(
+ * import.meta.url)), '../../../configs/...')`, and it carries a hazard worth
+ * writing down. Next bundles @fabric-tca/core from source (transpilePackages in
+ * next.config.mjs), and webpack replaces `import.meta.url` with a STRING
+ * LITERAL of the absolute path on the machine that ran the build — verified by
+ * grepping .next/server/chunks after a production build, which contained a
+ * literal `file:///Users/<builder>/.../packages/core/src/contractNames.ts`.
+ *
+ * That is fine on Railway TODAY: with no Dockerfile or railway.json in the
+ * repo, Nixpacks builds inside the deployment container, so the baked path is
+ * the container's own /app/... and still resolves at runtime. It breaks the
+ * moment build and run stop sharing a filesystem — a local build shipped as an
+ * artifact, a multi-stage Docker build, CI producing the bundle, or
+ * `output: 'standalone'` relocating files. And it breaks SILENTLY, because "no
+ * cache file" and "cache file somewhere I cannot see" land in the same catch.
+ *
+ * So: try process.cwd() first, which has no build-time footprint to bake and
+ * covers everywhere this module runs (the Next server, cwd packages/dashboard;
+ * vitest, the analysis scripts and tsc-built dist, cwd the repo root — the
+ * upward walk spans those depths). Fall back to the module-relative path, which
+ * is genuine under plain Node and correct-by-accident under Nixpacks. Neither
+ * alone covers every case; together they do.
+ *
+ * The same import.meta.url pattern still resolves routers.json, settlers.json,
+ * makers.json, reactors.json and entrypoints.json in this package. Those are
+ * NOT broken today for the reason above, and are deliberately left alone here
+ * rather than swept in on a render-path fix — but they share this hazard, and
+ * a change to how this app is built is what would surface it in all six at once.
+ */
+const MODULE_RELATIVE_CACHE_PATH = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	'../../../configs/contractNames.json',
+);
+
+export function resolveCachePath(
+	startDir: string = process.cwd(),
+	fallback: string | null = MODULE_RELATIVE_CACHE_PATH,
+): string | null {
+	let dir = path.resolve(startDir);
+	// Enough to climb packages/<pkg>/<subdir> and stop well short of '/'.
+	for (let up = 0; up < 6; up += 1) {
+		const candidate = path.join(dir, 'configs', 'contractNames.json');
+		if (existsSync(candidate)) return candidate;
+		const parent = path.dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return fallback !== null && existsSync(fallback) ? fallback : null;
+}
+
+const CACHE_PATH = resolveCachePath();
 
 // Process-lifetime cache, seeded from the committed JSON (fail → empty).
 const processCache: Record<string, string | null> = loadCacheSeed();
 
 function loadCacheSeed(): Record<string, string | null> {
+	if (CACHE_PATH === null) return {};
 	try {
 		return JSON.parse(readFileSync(CACHE_PATH, 'utf8')) as Record<string, string | null>;
 	} catch {
@@ -75,8 +129,13 @@ function loadCacheSeed(): Record<string, string | null> {
  * with no durable store behind it; a read-only FS (e.g. serverless) just
  * means every request re-resolves names for the process's lifetime instead
  * of persisting them.
+ *
+ * Skipped entirely when no cache file was found: this writes THROUGH to a file
+ * that is committed and curated, so it updates one that exists rather than
+ * creating one at a guessed location.
  */
 function persistCache(): void {
+	if (CACHE_PATH === null) return;
 	atomicWriteJson(CACHE_PATH, processCache);
 }
 
@@ -106,11 +165,12 @@ export async function resolveContractName(address: string, deps: NameResolverDep
 	try {
 		const url = `${ETHERSCAN_V2}?chainid=${BASE_CHAIN_ID}&module=contract&action=getsourcecode&address=${key}&apikey=${apiKey}`;
 		const resp = await fetchImpl(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-		if (!resp.ok) {
-			cache[key] = null;
-			if (!injected) persistCache();
-			return null;
-		}
+		// Deliberately NOT cached — same reasoning as the catch below. A non-2xx
+		// (429, 502, 403) is a statement about Etherscan, not about the contract,
+		// and `cache[key] = null` here would record "no verified name" for it
+		// permanently: the write is persisted, and the cache is consulted ahead of
+		// every later fetch, so one rate-limited minute costs the name forever.
+		if (!resp.ok) return null;
 		const json = (await resp.json()) as { result?: Array<{ ContractName?: string }> };
 		const raw = json?.result?.[0]?.ContractName ?? '';
 		const name = raw.trim() === '' ? null : raw.trim();
@@ -122,11 +182,23 @@ export async function resolveContractName(address: string, deps: NameResolverDep
 	}
 }
 
+/**
+ * Concurrent, not sequential: this runs on the /tx render path, and each cache
+ * miss is a network round trip capped at TIMEOUT_MS. Awaited one at a time, N
+ * cold sinks add up to N x TIMEOUT_MS of latency to a page render that is
+ * already ~40 RPC calls deep. The lookups are independent, and a receipt never
+ * has more than a handful of sinks, so there is nothing to pace here.
+ *
+ * Promise.all preserves input order in its result, so the returned array still
+ * lines up with `sinks` positionally — which the receipt UI relies on.
+ */
 export async function enrichFeeSinkNames(sinks: FeeSinkOut[], deps: NameResolverDeps = {}): Promise<FeeSinkNamed[]> {
-	const out: FeeSinkNamed[] = [];
-	for (const s of sinks) {
-		const name = await resolveContractName(s.address, deps);
-		out.push({ address: s.address, feeBps: s.feeBps, source: s.source, name });
-	}
-	return out;
+	return Promise.all(
+		sinks.map(async (s) => ({
+			address: s.address,
+			feeBps: s.feeBps,
+			source: s.source,
+			name: await resolveContractName(s.address, deps),
+		})),
+	);
 }

@@ -514,6 +514,13 @@ could have gotten (spot)."** So:
 
 ## 7. File-level checklist
 
+> ⚠️ **Historical — every path below is gone.** This checklist was written
+> against the v2.0 layout. `packages/ingest`, `packages/db` and the dashboard's
+> `queries.ts` / `TradesTable.tsx` were all deleted (the database itself on
+> 2026-08-09), and receipts are now computed on demand in
+> `packages/dashboard/lib/loadReceipt.ts`. Kept for the *decomposition* intent
+> it records, not as a to-do list — do not try to follow it by path.
+
 - `packages/ingest/src/decoder.ts` — add trader-EOA identification + net-delta
   helper; expose `traderAddress`, `traderUsdcDelta`, `traderWethDelta`. Add the
   router/settlement denylist. Detect single-hop (count DEX Swap events).

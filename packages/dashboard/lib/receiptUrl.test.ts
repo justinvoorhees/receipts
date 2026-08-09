@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHAIN } from './chains';
-import { legacyReceiptRedirect, receiptPath, resolveReceiptUrl, resolveSearchSubmission } from './receiptUrl';
+import {
+	legacyReceiptRedirect,
+	receiptPath,
+	resolveReceiptUrl,
+	resolveSearchSubmission,
+	shouldClearFailure,
+} from './receiptUrl';
 
 const HASH = '0x' + 'a'.repeat(64);
 const MIXED = '0x' + 'A'.repeat(64);
@@ -110,5 +116,43 @@ describe('resolveSearchSubmission', () => {
 		['a full Basescan URL', `https://basescan.org/tx/${HASH}`],
 	])('flags %s as invalid', (_label, bad) => {
 		expect(resolveSearchSubmission(bad)).toEqual({ kind: 'invalid' });
+	});
+});
+
+describe('shouldClearFailure', () => {
+	it('clears on ordinary typing, when no paste is pending', () => {
+		expect(shouldClearFailure('0xab', null)).toBe(true);
+	});
+
+	// The 'input' event the browser fires as it applies a paste we already
+	// validated. Clearing here would erase the failure that paste just set.
+	it('does not clear the input event that echoes the pending paste', () => {
+		expect(shouldClearFailure('nonsense', 'nonsense')).toBe(false);
+	});
+
+	// onPaste trims before storing, so the raw field value would not match.
+	// Copying a hash with a trailing newline is the ordinary case.
+	it('does not clear when the field carries whitespace around the paste', () => {
+		expect(shouldClearFailure('  nonsense\n', 'nonsense')).toBe(false);
+	});
+
+	// THE regression a boolean latch could not express. React fires no change
+	// event when a paste sets the field to the value it already held, so
+	// re-pasting the same bad hash left the latch armed with nothing to disarm
+	// it — and the user's next keystroke silently lost its clear. That keystroke
+	// produces `pendingPaste + 'x'`, which is exactly why this compares equal
+	// rather than `includes`: `includes` would suppress here too.
+	it('clears the keystroke after a same-value re-paste fired no change event', () => {
+		expect(shouldClearFailure('nonsensex', 'nonsense')).toBe(true);
+	});
+
+	it('clears once the user edits the pasted text away', () => {
+		expect(shouldClearFailure('nonsens', 'nonsense')).toBe(true);
+	});
+
+	// go() validated only the pasted fragment, not the whole field, so there is
+	// no failure about this value worth preserving.
+	it('treats a paste dropped into existing text as ordinary typing', () => {
+		expect(shouldClearFailure('0xdeadnonsense', 'nonsense')).toBe(true);
 	});
 });

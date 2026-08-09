@@ -39,7 +39,8 @@ export function resolveChainParam(param: string): { chain: Chain; canonical: boo
 	if (bySlug) return { chain: bySlug, canonical: param === bySlug.slug };
 
 	// Decimal only: a hex id would be a second spelling of the same value, and
-	// the API contract takes a JSON number.
+	// one canonical spelling per chain is what keeps the redirect in
+	// resolveReceiptUrl single-hop.
 	if (/^\d+$/.test(param)) {
 		const byId = chainById(Number(param));
 		if (byId) return { chain: byId, canonical: false };

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
-import { resolveSearchSubmission } from '../lib/receiptUrl';
+import { resolveSearchSubmission, shouldClearFailure } from '../lib/receiptUrl';
 
 // Shown as greyed placeholder text in the empty search field.
 const PLACEHOLDER_HASH = 'Transaction hash';
@@ -51,11 +51,13 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 	// from the `failure` prop, which the server computes for a hash it already
 	// tried to analyze — that one must keep working exactly as it does today.
 	const [localFailure, setLocalFailure] = useState<AnalyzeFailure | undefined>(undefined);
-	// A paste fires 'paste' (our onPaste → go()) and then, as the browser applies
-	// the default insertion, 'input' (our onChange) — both from the SAME user
-	// action. Without this flag, onChange's unconditional clear would erase the
-	// invalid-paste failure that go() just set, moments after setting it.
-	const suppressNextClear = useRef(false);
+	// The text of the paste currently being applied, or null. A paste fires
+	// 'paste' (our onPaste → go()) and then, as the browser applies the default
+	// insertion, 'input' (our onChange) — both from the SAME user action, and
+	// onChange's clear would otherwise erase the invalid-paste failure that go()
+	// just set. The decision, and why this holds the text rather than a boolean,
+	// is in shouldClearFailure.
+	const pendingPaste = useRef<string | null>(null);
 
 	useEffect(() => {
 		setValue(hash);
@@ -110,19 +112,20 @@ export function ReceiptSearch({ hash, failure }: { hash: string; failure?: Analy
 					placeholder={PLACEHOLDER_HASH}
 					autoFocus
 					onChange={(e) => {
-						setValue(e.target.value);
-						if (suppressNextClear.current) {
-							suppressNextClear.current = false;
-						} else {
-							setLocalFailure(undefined);
-						}
+						const next = e.target.value;
+						setValue(next);
+						// Read and reset together: the ref must not outlive the
+						// input event it describes, or it goes stale.
+						const paste = pendingPaste.current;
+						pendingPaste.current = null;
+						if (shouldClearFailure(next, paste)) setLocalFailure(undefined);
 					}}
 					onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
 					onClick={(e) => (e.currentTarget as HTMLInputElement).select()}
 					onPaste={(e) => {
 						const pasted = e.clipboardData.getData('text').trim();
 						if (pasted) {
-							suppressNextClear.current = true;
+							pendingPaste.current = pasted;
 							go(pasted);
 						}
 					}}

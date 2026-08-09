@@ -81,3 +81,35 @@ export function resolveSearchSubmission(raw: string): SearchSubmission {
 	if (!HASH_RE.test(trimmed)) return { kind: 'invalid' };
 	return { kind: 'navigate', to: receiptPath(DEFAULT_CHAIN, trimmed) };
 }
+
+/**
+ * Whether an `input` event on the search box should clear the inline failure.
+ *
+ * A paste fires 'paste' (which validates immediately, and may set a failure)
+ * and then 'input' as the browser applies the default insertion — both from the
+ * SAME user action. The 'input' that merely echoes that paste must not erase
+ * the failure the paste just set, moments after setting it.
+ *
+ * `pendingPaste` is the pasted TEXT rather than a boolean latch, and that is the
+ * whole point. A latch armed in the paste handler is only correct if an 'input'
+ * event always arrives to disarm it — and one specifically does not when the
+ * pasted text EQUALS what the field already holds, because React fires no
+ * change for a value that did not change. Re-pasting the same bad hash left the
+ * latch armed, and the user's next keystroke silently lost its clear. Keyed on
+ * the text, every 'input' is self-describing: it either carries the paste
+ * (suppress) or it doesn't (clear), so there is nothing left to get stuck.
+ *
+ * Compared trimmed, because onPaste trims before storing: copying a hash with a
+ * trailing newline is the ordinary case, and the raw field value would not match.
+ *
+ * Equality rather than `includes`: after that same-value re-paste, the next
+ * keystroke produces `pendingPaste + 'x'`, which CONTAINS the paste and would
+ * suppress one more time under `includes` — reintroducing the stuck keystroke
+ * this function exists to remove. A paste dropped into the middle of existing
+ * text therefore reads as ordinary typing and clears; that is the right answer
+ * anyway, since go() validated only the pasted fragment, not the field.
+ */
+export function shouldClearFailure(nextValue: string, pendingPaste: string | null): boolean {
+	if (pendingPaste === null) return true;
+	return nextValue.trim() !== pendingPaste;
+}
