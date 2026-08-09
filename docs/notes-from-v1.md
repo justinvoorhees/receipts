@@ -30,7 +30,9 @@ The other v2 spec routers (Odos, 0x, KyberSwap, 1inch, Velora) were not exercise
 
 ## What lives in the v1 Postgres DB
 
-If preserved, the v1 DB contains 30+ experiments with ~thousands of executed swaps including raw spanDEX quote payloads, gas costs, and realized amounts. Schema is in `packages/db/src/schema.ts`. Not directly useful to v2 (which observes third-party trades) but available as a reference for future "what does my own controlled trade look like through provider X" analysis.
+⚠️ **Probably not preserved — verify before relying on it.** `V1_DATABASE_URL` and `TCA_DATABASE_URL` were the *same* connection string (same Supabase project), and that database was deleted on 2026-08-09. If the whole project was dropped rather than just the `receipts` table, the v1 data went with it. `packages/db/src/schema.ts`, which this section used to point at for the schema, is gone either way.
+
+What it held: 30+ experiments with ~thousands of executed swaps, including raw spanDEX quote payloads, gas costs and realized amounts. Not directly useful to v2 (which observes third-party trades), but it was the only source for a future "what does my own controlled trade look like through provider X" analysis. The empirical findings elsewhere in this file were transcribed out of it and remain valid regardless.
 
 ## Commit anchor
 

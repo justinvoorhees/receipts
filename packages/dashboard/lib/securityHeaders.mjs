@@ -50,3 +50,25 @@ export function securityHeaders(isProduction) {
 		{ key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
 	];
 }
+
+/**
+ * Keep-out headers for the routes that spend RPC, applied per-path from
+ * next.config.mjs. Deliberately NOT part of securityHeaders() above, which goes
+ * on every path — '/' and '/methodology' are the pages we want found.
+ *
+ * This is a cost control, not a privacy measure. Receipts are public and
+ * shareable by design; the problem is that with nothing cached, every /tx hit
+ * is a fresh ~40-call analysis charged against the global hourly ceiling. A
+ * crawler that discovers a handful of shared receipt links and walks them can
+ * exhaust that budget, at which point real visitors get the ceiling notice.
+ *
+ * Paired with public/robots.txt, which does the load-bearing work: a Disallow
+ * stops the well-behaved crawler from FETCHING, which is what actually saves
+ * the RPC call. This header only stops indexing, and the crawler has already
+ * spent our budget by the time it reads it — but it is the half that still
+ * works when a URL is discovered from an external link rather than by crawling,
+ * and when a crawler ignores robots.txt but honors this.
+ */
+export function noIndexHeaders() {
+	return [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }];
+}

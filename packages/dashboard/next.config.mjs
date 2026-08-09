@@ -5,7 +5,7 @@
 import { config as loadEnv } from 'dotenv';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { securityHeaders } from './lib/securityHeaders.mjs';
+import { noIndexHeaders, securityHeaders } from './lib/securityHeaders.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 loadEnv({ path: resolve(here, '..', '..', '.env') });
@@ -23,7 +23,13 @@ const config = {
 	// is not found in the React Client Manifest, crashing the webpack module system.
 	devIndicators: false,
 	async headers() {
-		return [{ source: '/:path*', headers: securityHeaders(process.env.NODE_ENV === 'production') }];
+		return [
+			{ source: '/:path*', headers: securityHeaders(process.env.NODE_ENV === 'production') },
+			// Scoped to the RPC-spending routes only, so the index and
+			// /methodology stay indexable. See noIndexHeaders' docblock.
+			{ source: '/tx/:path*', headers: noIndexHeaders() },
+			{ source: '/qa/:path*', headers: noIndexHeaders() },
+		];
 	},
 	// @fabric-tca/core is consumed as TypeScript source (see transpilePackages) and
 	// uses ESM `.js` import specifiers that actually resolve to `.ts` files (e.g.

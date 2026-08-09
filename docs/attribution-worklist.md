@@ -96,8 +96,9 @@ both dated 2026-07-30.
 dev server mutates it). Not part of this change.
 
 **Receipts 75 and 78 are already repopulated.** Every other row still predates
-the flag. Pre-repopulation backup of those two rows is checked in beside this
-file: `docs/receipts-75-78-prerepop-backup.json`.
+the flag. A pre-repopulation backup of those two rows used to sit beside this
+file; it was deleted 2026-08-09 along with the database, since there is no
+longer a table to restore it into.
 
 ---
 
@@ -370,8 +371,8 @@ Receipts 55, 59, 207, 211 and 249 repopulated. Every per-pool `feeTierBps` now
 reproduces its raw Swap-event fee exactly — id 211's six pools read
 10.02/10.06/10.00/10.04/5.00/10.03 against raw 1002/1006/1000/1004/500/1003.
 The averaged tier was materially wrong: id 211's LP fee drops 10.019→5.747 and
-id 59's slippage corrects −183.68→−37.21. Backup at
-`docs/receipts-v4-multipool-prerepop-backup.json` (true pre-repop state).
+id 59's slippage corrects −183.68→−37.21. The true pre-repop backup of those
+rows was deleted 2026-08-09 with the database — nothing to restore it into.
 
 ⚠️ Still open, and deliberately not touched here: `decomposeTrade.ts:342-358`
 still averages V4 fees for the route-level rollup, and ids 329/330/402/403
@@ -486,7 +487,8 @@ already repopulated; the fix is visible now.
 `SINGLETON_DEX_CUSTODIANS` (`tradeDecoders.ts`) replaces the hardcoded
 `venueAddresses.add(UNISWAP_V4_POOL_MANAGER)`; the Vault is now infrastructure
 and never probed. id 408: aggFee 3.997 → 1.188, slippage −3.209 → −0.400, allIn
-unchanged, identity still closes. Backup: `docs/receipt-408-prerepop-backup.json`.
+unchanged, identity still closes. (Its pre-repop backup was deleted 2026-08-09
+with the database.)
 
 ⚡ **The mechanism is flash accounting, not a failed probe.** The root-cause
 text below is half right — the probe genuinely cannot see a custodian, but that

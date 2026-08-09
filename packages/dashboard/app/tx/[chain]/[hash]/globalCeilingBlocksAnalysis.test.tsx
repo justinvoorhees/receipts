@@ -5,8 +5,8 @@ globalThis.React = React;
 
 // Its own file, because the global analysis limiter is a module-scope
 // singleton: a sibling test that shares this ceiling would make this one fail
-// for the wrong reason (same pattern as
-// app/api/receipts/ceilingCacheHits.test.ts). The env var must be set BEFORE
+// for the wrong reason — hence the one-assertion-per-file split across the
+// four ceiling tests in this directory. The env var must be set BEFORE
 // the page module is imported — it is read once, at module-load time, to size
 // the limiter, so setting it inside an `it` block would be too late.
 process.env.RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR = '1';

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHAIN } from './chains';
-import { legacyReceiptRedirect, receiptPath, resolveReceiptUrl, resolveSearchSubmission } from './receiptUrl';
+import {
+	legacyReceiptRedirect,
+	receiptPath,
+	resolveReceiptUrl,
+	resolveSearchSubmission,
+	shouldClearFailure,
+} from './receiptUrl';
 
 const HASH = '0x' + 'a'.repeat(64);
 const MIXED = '0x' + 'A'.repeat(64);
@@ -110,5 +116,33 @@ describe('resolveSearchSubmission', () => {
 		['a full Basescan URL', `https://basescan.org/tx/${HASH}`],
 	])('flags %s as invalid', (_label, bad) => {
 		expect(resolveSearchSubmission(bad)).toEqual({ kind: 'invalid' });
+	});
+});
+
+describe('shouldClearFailure', () => {
+	it('clears on ordinary typing, when no paste is pending', () => {
+		expect(shouldClearFailure('0xab', null)).toBe(true);
+	});
+
+	// The 'input' event the browser fires as it applies a paste we already
+	// validated. Clearing here would erase the failure that paste just set.
+	it('does not clear the input event that echoes the pending paste', () => {
+		expect(shouldClearFailure('nonsense', 'nonsense')).toBe(false);
+	});
+
+	it('does not clear when the paste landed inside existing text', () => {
+		expect(shouldClearFailure('0xdeadnonsense', 'nonsense')).toBe(false);
+	});
+
+	// The regression that a boolean latch could not express: a paste the browser
+	// never inserts leaves the latch armed forever, and the user's next real
+	// keystroke silently loses its clear. Keyed on the pasted TEXT, that
+	// keystroke is self-describing — it does not contain the paste, so it clears.
+	it('still clears a later keystroke when the paste was never inserted', () => {
+		expect(shouldClearFailure('a', 'nonsense')).toBe(true);
+	});
+
+	it('clears once the user edits the pasted text away', () => {
+		expect(shouldClearFailure('nonsens', 'nonsense')).toBe(true);
 	});
 });

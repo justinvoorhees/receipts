@@ -81,3 +81,27 @@ export function resolveSearchSubmission(raw: string): SearchSubmission {
 	if (!HASH_RE.test(trimmed)) return { kind: 'invalid' };
 	return { kind: 'navigate', to: receiptPath(DEFAULT_CHAIN, trimmed) };
 }
+
+/**
+ * Whether an `input` event on the search box should clear the inline failure.
+ *
+ * A paste fires 'paste' (which validates immediately, and may set a failure)
+ * and then 'input' as the browser applies the default insertion — both from the
+ * SAME user action. The 'input' that merely echoes that paste must not erase
+ * the failure the paste just set, moments after setting it.
+ *
+ * `pendingPaste` is the pasted TEXT rather than a boolean latch, and that is the
+ * whole point. A latch armed in the paste handler is only correct if an 'input'
+ * event always arrives to disarm it; when one doesn't — a paste the browser
+ * declines to insert — it stays armed and silently swallows the clear on the
+ * user's next real keystroke, leaving a stale error on screen. Keyed on the
+ * text, every 'input' is self-describing: it either carries the paste (suppress)
+ * or it doesn't (clear). There is no state left to get stuck.
+ *
+ * `includes` rather than equality so a paste into the middle of existing text is
+ * still recognized as its own echo.
+ */
+export function shouldClearFailure(nextValue: string, pendingPaste: string | null): boolean {
+	if (pendingPaste === null) return true;
+	return !nextValue.includes(pendingPaste);
+}

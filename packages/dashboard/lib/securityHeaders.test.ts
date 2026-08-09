@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 // Plain .mjs so next.config.mjs can import it too; `allowJs` in tsconfig lets
 // this resolve without a type error, so no @ts-expect-error is needed here.
-import { securityHeaders } from './securityHeaders.mjs';
+import { securityHeaders, noIndexHeaders } from './securityHeaders.mjs';
 
 const asMap = (isProd: boolean) =>
 	Object.fromEntries(
@@ -58,5 +58,25 @@ describe('securityHeaders', () => {
 		const dev = asMap(false);
 		expect(dev['Content-Security-Policy']).not.toContain('upgrade-insecure-requests');
 		expect(dev['Strict-Transport-Security']).toBeUndefined();
+	});
+
+	// The global header set is applied to every path, including '/' and
+	// '/methodology', which we DO want indexed. noindex must never live here.
+	it('never carries X-Robots-Tag, which is path-scoped instead', () => {
+		expect(asMap(true)['X-Robots-Tag']).toBeUndefined();
+		expect(asMap(false)['X-Robots-Tag']).toBeUndefined();
+	});
+});
+
+describe('noIndexHeaders', () => {
+	// Every /tx hit is a fresh ~40-call RPC analysis with no cache behind it, so
+	// an indexed receipt link is a standing invitation for a crawler to spend the
+	// global hourly budget and take the tool down for real visitors.
+	it('tells crawlers not to index or follow', () => {
+		const value = Object.fromEntries(
+			(noIndexHeaders() as Array<{ key: string; value: string }>).map((h) => [h.key, h.value]),
+		)['X-Robots-Tag'];
+		expect(value).toContain('noindex');
+		expect(value).toContain('nofollow');
 	});
 });
