@@ -116,6 +116,20 @@ describe('fallbackMethodology', () => {
 	});
 });
 
+describe('tooltip touch support', () => {
+	it('keeps a tooltip hover-only until touched — default render is unchanged', async () => {
+		const { DetailRow } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<DetailRow label="Gas Cost" tooltip="Paid separately in ETH">
+				$0.01
+			</DetailRow>,
+		);
+		expect(html).toContain('role="tooltip"');
+		expect(html).toContain('invisible group-hover:visible');
+		expect(html).not.toContain('"visible"');
+	});
+});
+
 // A full USDC/WETH receipt, generalized ReceiptModel shape (Task 8+).
 const fullUsdcWethRow = {
 	txHash: '0x1234567890abcdef1234567890abcdef12345678',

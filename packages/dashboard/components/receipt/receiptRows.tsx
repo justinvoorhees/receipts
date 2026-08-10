@@ -5,6 +5,7 @@
  * of ReceiptView.tsx (2026-07-21). No hooks; each takes props and renders JSX. Marked
  * 'use client' to match the receipt/ leaf convention.
  */
+import { useEffect, useRef, useState } from 'react';
 import { providerColor, formatProvider } from '../../lib/formatters';
 import type { ReceiptModel } from '../../lib/receiptModel';
 import type { RouteLeg } from '../../lib/legRouterEnrichment';
@@ -27,13 +28,76 @@ import { MARKET_PRICE_BLOCK_LABELS } from './priceDispersion';
  * Rendered as a <span>: two of the call sites live inside a <span>, where the <div>
  * this markup used to duplicate was invalid HTML.
  */
-function TooltipBubble({ align, children }: { align: 'left' | 'right'; children: React.ReactNode }) {
+function TooltipBubble({
+	align,
+	forceVisible = false,
+	children,
+}: {
+	align: 'left' | 'right';
+	/** Forces the bubble visible outside of CSS :hover — set by a touch long-press. */
+	forceVisible?: boolean;
+	children: React.ReactNode;
+}) {
 	return (
 		<span
 			role="tooltip"
-			className={`pointer-events-none absolute bottom-full ${align === 'left' ? 'left-0' : 'right-0'} z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] invisible group-hover:visible`}
+			className={`pointer-events-none absolute bottom-full ${align === 'left' ? 'left-0' : 'right-0'} z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] ${forceVisible ? 'visible' : 'invisible group-hover:visible'}`}
 		>
 			{children}
+		</span>
+	);
+}
+
+/**
+ * Mirrors CSS :hover for touch devices: a touchstart on the trigger shows the
+ * tooltip instantly, and a touchstart anywhere else dismisses it. Each call gets its
+ * own instance, so touching one tooltip never affects another.
+ */
+function useTouchTooltip<T extends HTMLElement>() {
+	const ref = useRef<T>(null);
+	const [touched, setTouched] = useState(false);
+	useEffect(() => {
+		if (!touched) return;
+		const dismiss = (e: TouchEvent) => {
+			if (ref.current && !ref.current.contains(e.target as Node)) setTouched(false);
+		};
+		document.addEventListener('touchstart', dismiss);
+		return () => document.removeEventListener('touchstart', dismiss);
+	}, [touched]);
+	return { ref, touched, onTouchStart: () => setTouched(true) };
+}
+
+/**
+ * The shared trigger+bubble pair every tooltip on the receipt uses: hover shows it
+ * (CSS group-hover, untouched), and on touch devices a touchstart shows it instantly
+ * too. `className`/`style` carry the trigger's own visual styling exactly as each call
+ * site rendered it inline before this was extracted.
+ */
+function TooltipTrigger({
+	tooltip,
+	align,
+	className,
+	style,
+	children,
+}: {
+	tooltip: React.ReactNode;
+	align: 'left' | 'right';
+	className: string;
+	style?: React.CSSProperties | undefined;
+	children: React.ReactNode;
+}) {
+	const { ref, touched, onTouchStart } = useTouchTooltip<HTMLSpanElement>();
+	return (
+		<span
+			ref={ref}
+			onTouchStart={onTouchStart}
+			className={`group relative ${className}`.trim()}
+			style={style}
+		>
+			{children}
+			<TooltipBubble align={align} forceVisible={touched}>
+				{tooltip}
+			</TooltipBubble>
 		</span>
 	);
 }
@@ -143,10 +207,13 @@ export function DetailRow({
 		>
 			<div className={`shrink-0 ${labelSubValue != null ? 'flex flex-col gap-[10px]' : ''}`}>
 				{tooltip ? (
-					<span className="group relative cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+					<TooltipTrigger
+						tooltip={tooltip}
+						align="left"
+						className="cursor-default text-[var(--color-primary)] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit"
+					>
 						{label}
-						<TooltipBubble align="left">{tooltip}</TooltipBubble>
-					</span>
+					</TooltipTrigger>
 				) : (
 					<span
 						className={`text-[var(--color-primary)] ${underscored ? 'underline decoration-dotted underline-offset-[3px]' : ''}`}
@@ -161,10 +228,13 @@ export function DetailRow({
 			<div className="flex min-w-0 flex-1 flex-col gap-[10px]">
 				{valueTooltip ? (
 					<span className="min-w-0 text-right">
-						<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid">
+						<TooltipTrigger
+							tooltip={valueTooltip}
+							align="right"
+							className="cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+						>
 							{children}
-							<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
-						</span>
+						</TooltipTrigger>
 					</span>
 				) : (
 					<span className="min-w-0 text-right">{children}</span>
@@ -285,19 +355,26 @@ export function BkdHeading({
 	return (
 		<div className={`grid grid-cols-[1fr_92px] gap-x-[24px] ${standalone ? 'min-h-[34px]' : ''}`}>
 			{tooltip ? (
-				<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+				<TooltipTrigger
+					tooltip={tooltip}
+					align="left"
+					className="cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit"
+				>
 					{label}
-					<TooltipBubble align="left">{tooltip}</TooltipBubble>
-				</span>
+				</TooltipTrigger>
 			) : (
 				<span className={plain ? '' : 'underline decoration-dotted underline-offset-[3px]'}>{label}</span>
 			)}
 			{value != null && (
 				valueTooltip ? (
-					<span className="group relative text-right cursor-default" style={color ? { color } : undefined}>
+					<TooltipTrigger
+						tooltip={valueTooltip}
+						align="right"
+						className="text-right cursor-default"
+						style={color ? { color } : undefined}
+					>
 						<span className="underline decoration-dotted underline-offset-[3px] group-hover:decoration-solid">{value}</span>
-						<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
-					</span>
+					</TooltipTrigger>
 				) : (
 					<span className="text-right" style={color ? { color } : undefined}>
 						{value}
@@ -371,10 +448,13 @@ export function BkdRow({
 		<div className={`grid grid-cols-[1fr_92px] gap-x-[24px] ${standalone ? 'min-h-[34px]' : ''}`}>
 			<div className="min-w-0 flex flex-col gap-[10px] md:block">
 				{tooltip ? (
-					<span className="group relative cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit">
+					<TooltipTrigger
+						tooltip={tooltip}
+						align="left"
+						className="cursor-default underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid w-fit"
+					>
 						{label}
-						<TooltipBubble align="left">{tooltip}</TooltipBubble>
-					</span>
+					</TooltipTrigger>
 				) : (
 					labelNode
 				)}
@@ -383,10 +463,14 @@ export function BkdRow({
 				)}
 			</div>
 			{valueTooltip ? (
-				<span className="group relative text-right cursor-default" style={color ? { color } : undefined}>
+				<TooltipTrigger
+					tooltip={valueTooltip}
+					align="right"
+					className="text-right cursor-default"
+					style={color ? { color } : undefined}
+				>
 					<span className="underline decoration-dotted underline-offset-[3px] group-hover:decoration-solid">{value}</span>
-					<TooltipBubble align="right">{valueTooltip}</TooltipBubble>
-				</span>
+				</TooltipTrigger>
 			) : (
 				<span className="text-right" style={color ? { color } : undefined}>
 					{value}
@@ -421,12 +505,9 @@ function LegRouterTag({ router }: { router: NonNullable<RouteLeg['router']> }) {
 	);
 	if (router.path.length <= 2) return link;
 	return (
-		<span className="group relative">
+		<TooltipTrigger tooltip={router.path.map((slug) => formatProvider(slug, { full: true })).join(' → ')} align="left" className="">
 			{link}
-			<TooltipBubble align="left">
-				{router.path.map((slug) => formatProvider(slug, { full: true })).join(' → ')}
-			</TooltipBubble>
-		</span>
+		</TooltipTrigger>
 	);
 }
 
