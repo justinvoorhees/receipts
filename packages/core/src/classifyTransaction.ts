@@ -1,4 +1,5 @@
-import { createPublicClient, http, TransactionNotFoundError } from 'viem';
+import { createPublicClient, TransactionNotFoundError } from 'viem';
+import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import {
 	extractEndpoints,
@@ -20,7 +21,7 @@ export async function classifyTransaction(
 	void chainId;
 	if (!HASH_RE.test(hash.trim())) return { reason: 'INVALID_HASH' };
 
-	const rpc = createPublicClient({ chain: base, transport: http(opts.rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(opts.rpcUrl) });
 	const txHash = hash.trim() as `0x${string}`;
 
 	let tx;

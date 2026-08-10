@@ -11,7 +11,8 @@
  * ("BTC / USD", 8 decimals). The reader mirrors `getBenchmarkMid`'s Chainlink
  * read: N-1 block, staleness-guarded, never-throw (null on any failure).
  */
-import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
+import { createPublicClient, parseAbi, type PublicClient } from 'viem';
+import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import { MAX_CHAINLINK_STALENESS_SECS } from './benchmarkPrice.js';
 
@@ -56,7 +57,7 @@ export async function readTokenUsd(
 	const mapped = usdFeedFor(token);
 	if (mapped == null) return null;
 	try {
-		const client = clientOverride ?? (createPublicClient({ chain: base, transport: http(rpcUrl) }) as PublicClient);
+		const client = clientOverride ?? (createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) }) as PublicClient);
 		const at = blockNumber - 1n;
 		const [round, block] = await Promise.all([
 			client.readContract({ address: mapped.feed, abi: CHAINLINK_ABI, functionName: 'latestRoundData', blockNumber: at }),

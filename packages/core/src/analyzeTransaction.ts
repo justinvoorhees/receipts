@@ -20,7 +20,8 @@
  * The whole body is wrapped in try/catch → `null` on ANY failure (never throws).
  */
 
-import { createPublicClient, http } from 'viem';
+import { createPublicClient } from 'viem';
+import { runInDecodeSession, sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
@@ -236,14 +237,30 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 	}
 }
 
-export async function analyzeTransaction(
+/**
+ * One call = one decode = one RPC memo (see rpcSession.ts). The session is
+ * opened HERE, at the only function that owns a whole receipt, so every read
+ * below — pricing, pool discovery, the route readers, the benchmark — dedupes
+ * against a store that dies with this call. Opening it any lower would give each
+ * layer its own memo and dedupe nothing; opening it any higher (or once per
+ * process) would let a `latest`-tagged factory read outlive the request.
+ */
+export function analyzeTransaction(
+	hash: string,
+	chainId: number,
+	opts: { rpcUrl: string },
+): Promise<Receipt | null> {
+	return runInDecodeSession(() => analyzeTransactionInSession(hash, chainId, opts));
+}
+
+async function analyzeTransactionInSession(
 	hash: string,
 	chainId: number,
 	opts: { rpcUrl: string },
 ): Promise<Receipt | null> {
 	const { rpcUrl } = opts;
 	try {
-		const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+		const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 		const txHash = hash as `0x${string}`;
 
 		const [receipt, tx, rawTrace] = await Promise.all([

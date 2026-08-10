@@ -10,7 +10,8 @@
  * fast-path is retained pending the Phase-3 module collapse.
  */
 
-import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
+import { createPublicClient, parseAbi, type PublicClient } from 'viem';
+import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import { getBenchmarkMid, type BenchmarkResult } from './benchmarkPrice.js';
 import {
@@ -252,7 +253,7 @@ export async function defaultGetPairMid(
  * intends to override some deps in a test.
  */
 export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
-  const client = createPublicClient({ chain: base, transport: http(rpcUrl) }) as PublicClient;
+  const client = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) }) as PublicClient;
   const decCache = makeRpcDecimalsCache(client);
 
   const poolReaders: PoolMidReaders = {

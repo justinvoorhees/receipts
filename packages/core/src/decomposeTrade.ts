@@ -15,7 +15,8 @@
  * No DB writes. No dashboard. READ-ONLY spike.
  */
 
-import { createPublicClient, http, parseAbiItem } from 'viem';
+import { createPublicClient, parseAbiItem } from 'viem';
+import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import {
 	USDC,
@@ -160,7 +161,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 	for (const custodian of SINGLETON_DEX_CUSTODIANS) venueAddresses.add(custodian);
 
 	// Create an RPC client for fee() view calls
-	const rpc = createPublicClient({ chain: base, transport: http(input.rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(input.rpcUrl) });
 
 	// Collect all known vaults for this aggregator (skip probing these)
 	const knownVaults = AGG_FEE_VAULTS[input.aggregator] ?? new Set<string>();

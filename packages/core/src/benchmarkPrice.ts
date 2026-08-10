@@ -6,7 +6,8 @@
  * and cross-checks the median against the Chainlink ETH/USD oracle to flag
  * possible pre-block manipulation.
  */
-import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
+import { createPublicClient, parseAbi, type PublicClient } from 'viem';
+import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import { sqrtPriceX96ToUsdcPerWeth } from './referencePrice.js';
 import { makeDuneEthUsdOracle, type OffChainOracle } from './duneOracle.js';
@@ -172,7 +173,7 @@ export async function getBenchmarkMid(args: {
   blockNumber: bigint;
   offChainOracle?: OffChainOracle;
 }): Promise<BenchmarkResult> {
-  const client = createPublicClient({ chain: base, transport: http(args.rpcUrl) });
+  const client = createPublicClient({ chain: base, transport: sessionHttp(args.rpcUrl) });
   const at = args.blockNumber - 1n;
 
   const offChainOracle: OffChainOracle = args.offChainOracle
