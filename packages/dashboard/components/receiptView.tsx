@@ -1,4 +1,5 @@
 'use client';
+import { useTransition } from 'react';
 import { ReceiptSearch } from './receiptSearch';
 import type { ReceiptModel } from '../lib/receiptModel';
 import type { AnalyzeFailure } from '@fabric-tca/core';
@@ -71,19 +72,38 @@ export function ReceiptView({
 	hash: string;
 	diagnosis?: AnalyzeFailure;
 }) {
+	const [isPending, startTransition] = useTransition();
 	// Only surface a failure when there is no receipt to show.
 	const failure = trade === null ? diagnosis : undefined;
 
 	return (
 		<div className="flex flex-col gap-[40px]">
-			<ReceiptSearch hash={hash} {...(failure ? { failure } : {})} />
+			<ReceiptSearch
+				hash={hash}
+				isPending={isPending}
+				startTransition={startTransition}
+				{...(failure ? { failure } : {})}
+			/>
 			{/* The rule under the input renders in EVERY state, including the empty
 			    page (Figma 544-2386) — which is why it lives here and not at the top
 			    of <Receipt>. */}
 			<Divider />
-			{trade != null && <Receipt row={trade} />}
+			{trade != null && (
+				<div className={['flex flex-col gap-[40px]', pendingPulseClass(isPending)].filter(Boolean).join(' ')}>
+					<Receipt row={trade} />
+				</div>
+			)}
 		</div>
 	);
+}
+
+/**
+ * Pure so it's testable without a real transition: the class that pulses the
+ * still-mounted receipt while a next one is being analyzed (Figma 701-1986,
+ * .receipt-pending-pulse in globals.css).
+ */
+export function pendingPulseClass(isPending: boolean): string | undefined {
+	return isPending ? 'receipt-pending-pulse' : undefined;
 }
 
 export function Receipt({

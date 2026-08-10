@@ -1,6 +1,6 @@
 'use client';
 import type { Route } from 'next';
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
@@ -39,12 +39,21 @@ function nextLoaderWord(prev: string | null): string {
 	return pool[Math.floor(Math.random() * pool.length)] as string;
 }
 
-export function ReceiptSearch({ hash, failure }: { hash: string; failure?: AnalyzeFailure }) {
+export function ReceiptSearch({
+	hash,
+	isPending,
+	startTransition,
+	failure,
+}: {
+	hash: string;
+	isPending: boolean;
+	startTransition: (callback: () => void) => void;
+	failure?: AnalyzeFailure;
+}) {
 	const router = useRouter();
 	const [value, setValue] = useState(hash);
 	const [inputHovered, setInputHovered] = useState(false);
 	const [inputFocused, setInputFocused] = useState(false);
-	const [isPending, startTransition] = useTransition();
 	const [loaderWord, setLoaderWord] = useState<string>(LOADER_WORDS[0]);
 	const lastLoaderWord = useRef<string | null>(null);
 	// Client-side-only failure (a bad paste never reaches the server). Distinct
