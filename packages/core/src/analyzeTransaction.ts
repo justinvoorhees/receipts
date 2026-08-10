@@ -20,10 +20,11 @@
  * The whole body is wrapped in try/catch → `null` on ANY failure (never throws).
  */
 
-import { createPublicClient, http } from 'viem';
+import { createPublicClient } from 'viem';
+import { runInDecodeSession, sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
-import { priceReceipt, createDefaultPricingDeps } from './pricing.js';
+import { priceReceipt, createSymbolReader } from './pricing.js';
 import { decomposeRoute, type FeeSinkOut } from './decomposeRoute.js';
 import { createDefaultMidReader } from './routeReaders.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
@@ -141,6 +142,47 @@ export function toPersistedLeg(
 	};
 }
 
+/**
+ * Resolve a display symbol for every leg token — including intermediate hops
+ * (e.g. USDT) that are neither an endpoint nor in the dashboard's static map and
+ * would otherwise render as a hash.
+ *
+ * `seed` carries what is already known without RPC (native, plus the trade's two
+ * endpoints, whose symbols pricing has already resolved); everything else is
+ * read on-chain, all at once. Each distinct token is read exactly once no matter
+ * how many legs it appears on.
+ *
+ * Best-effort by contract: a token whose `symbol()` reverts is OMITTED rather
+ * than defaulted, so attachLegSymbols leaves the field unset and the UI falls
+ * back to a short address.
+ *
+ * Pure over the reader so the fan-out and the omit-on-failure rule are testable
+ * without RPC.
+ */
+export async function resolveLegSymbols(
+	legs: { tokenIn: string; tokenOut: string }[],
+	seed: ReadonlyMap<string, string>,
+	readSymbol: (token: string) => Promise<string>,
+): Promise<Map<string, string>> {
+	const resolved = new Map(seed);
+	const wanted = new Set<string>();
+	for (const leg of legs) {
+		for (const tok of [leg.tokenIn.toLowerCase(), leg.tokenOut.toLowerCase()]) {
+			if (!resolved.has(tok)) wanted.add(tok);
+		}
+	}
+
+	const tokens = [...wanted];
+	const symbols = await Promise.all(
+		tokens.map((tok) => readSymbol(tok).catch(() => null)),
+	);
+	for (const [i, tok] of tokens.entries()) {
+		const sym = symbols[i];
+		if (sym != null) resolved.set(tok, sym);
+	}
+	return resolved;
+}
+
 export function attachLegSymbols<T extends { tokenIn: string; tokenOut: string }>(
 	legs: T[],
 	symbolFor: (address: string) => string | undefined,
@@ -236,14 +278,30 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 	}
 }
 
-export async function analyzeTransaction(
+/**
+ * One call = one decode = one RPC memo (see rpcSession.ts). The session is
+ * opened HERE, at the only function that owns a whole receipt, so every read
+ * below — pricing, pool discovery, the route readers, the benchmark — dedupes
+ * against a store that dies with this call. Opening it any lower would give each
+ * layer its own memo and dedupe nothing; opening it any higher (or once per
+ * process) would let a `latest`-tagged factory read outlive the request.
+ */
+export function analyzeTransaction(
+	hash: string,
+	chainId: number,
+	opts: { rpcUrl: string },
+): Promise<Receipt | null> {
+	return runInDecodeSession(() => analyzeTransactionInSession(hash, chainId, opts));
+}
+
+async function analyzeTransactionInSession(
 	hash: string,
 	chainId: number,
 	opts: { rpcUrl: string },
 ): Promise<Receipt | null> {
 	const { rpcUrl } = opts;
 	try {
-		const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+		const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 		const txHash = hash as `0x${string}`;
 
 		const [receipt, tx, rawTrace] = await Promise.all([
@@ -427,27 +485,17 @@ export async function analyzeTransaction(
 			toPersistedLeg(l, frameChains.get(frameKey(l)), midReliable),
 		);
 
-		// Resolve a display symbol for every leg token — including intermediate hops
-		// (e.g. USDT) that are neither an endpoint nor in the dashboard's static map,
-		// which would otherwise render as a hash. Seed native + the trade endpoints
-		// (no RPC), then read symbol() on-chain for the rest, best-effort: an
-		// unresolved token is omitted so the UI falls back to a short address.
-		const symbolMap = new Map<string, string>([
-			[NATIVE, 'ETH'],
-			[endpoints.inputToken.toLowerCase(), pricing.inputSymbol],
-			[endpoints.outputToken.toLowerCase(), pricing.outputSymbol],
-		]);
-		const symbolReader = createDefaultPricingDeps(rpcUrl).readSymbol;
-		for (const leg of routeLegsBase) {
-			for (const tok of [leg.tokenIn.toLowerCase(), leg.tokenOut.toLowerCase()]) {
-				if (symbolMap.has(tok)) continue;
-				try {
-					symbolMap.set(tok, await symbolReader(tok));
-				} catch {
-					/* leave unresolved → attachLegSymbols omits it → UI short-address fallback */
-				}
-			}
-		}
+		// Seeded with what costs no RPC: native, plus the endpoints pricing already
+		// resolved. See resolveLegSymbols for the fan-out and the omit-on-failure rule.
+		const symbolMap = await resolveLegSymbols(
+			routeLegsBase,
+			new Map<string, string>([
+				[NATIVE, 'ETH'],
+				[endpoints.inputToken.toLowerCase(), pricing.inputSymbol],
+				[endpoints.outputToken.toLowerCase(), pricing.outputSymbol],
+			]),
+			createSymbolReader(rpcUrl),
+		);
 		const routeLegs = attachLegSymbols(routeLegsBase, (a) => symbolMap.get(a.toLowerCase()));
 
 		return {

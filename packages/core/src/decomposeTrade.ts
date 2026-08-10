@@ -15,7 +15,8 @@
  * No DB writes. No dashboard. READ-ONLY spike.
  */
 
-import { createPublicClient, http, parseAbiItem } from 'viem';
+import { createPublicClient, parseAbiItem } from 'viem';
+import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import {
 	USDC,
@@ -69,6 +70,9 @@ const STRUCTURAL_FEE_FLOOR_USD = 1.00;
 const STRUCTURAL_FEE_FLOOR_BPS = 1; // 1 bps of notional
 
 // ─── Types ───
+
+/** A V3-style pool's token pair, lowercased. */
+type PoolTokens = { token0: string; token1: string };
 
 export interface DecomposeTradeInput {
 	trace: TraceNode;
@@ -160,7 +164,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 	for (const custodian of SINGLETON_DEX_CUSTODIANS) venueAddresses.add(custodian);
 
 	// Create an RPC client for fee() view calls
-	const rpc = createPublicClient({ chain: base, transport: http(input.rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(input.rpcUrl) });
 
 	// Collect all known vaults for this aggregator (skip probing these)
 	const knownVaults = AGG_FEE_VAULTS[input.aggregator] ?? new Set<string>();
@@ -173,6 +177,7 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 	// fee() (with valid tier) or getReserves(), they're pools/venues, not fee
 	// sinks. Skip known fee vaults so we don't accidentally classify them as pools
 	// (some contracts have a fee() function that returns unrelated values).
+	const probeTargets: string[] = [];
 	for (const [addr, delta] of addrDeltas) {
 		if (venueAddresses.has(addr) || DENYLIST.has(addr) || addr === traderLower) continue;
 		if (addr === USDC || addr === WETH) continue;
@@ -184,38 +189,49 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		// `dustUsdc`. Only the fee-sink classification gates (the two checks in Step 3)
 		// scale with the smoke profile. Don't "unify" these — it would alter funnel.
 		if (totalRetained < DUST_USDC) continue;
+		probeTargets.push(addr);
+	}
 
-		// Try fee() — V3 pool. Only accept if fee is a plausible Uniswap tier
-		// (1 to 100_000 = 0.01 to 1000 bps). Some non-pool contracts have a
-		// fee() function returning garbage values (e.g. 6_000_000).
-		try {
-			const fee = await rpc.readContract({
-				address: addr as `0x${string}`,
-				abi: [parseAbiItem('function fee() view returns (uint24)')],
-				functionName: 'fee',
-				blockNumber: input.blockNumber,
-			});
-			const feeNum = Number(fee);
-			if (feeNum > 0 && feeNum <= 100_000) {
-				venueAddresses.add(addr);
-				continue;
+	// One address's probe never depends on another's, so they all go out at once
+	// — serially this was two round-trips per retained-balance address and the
+	// longest chain left in a decode. The two probes for a SINGLE address stay
+	// ordered: getReserves() must not be spent on an address fee() already
+	// identified as a V3 pool.
+	const probeResults = await Promise.all(
+		probeTargets.map(async (addr) => {
+			// Try fee() — V3 pool. Only accept if fee is a plausible Uniswap tier
+			// (1 to 100_000 = 0.01 to 1000 bps). Some non-pool contracts have a
+			// fee() function returning garbage values (e.g. 6_000_000).
+			try {
+				const fee = await rpc.readContract({
+					address: addr as `0x${string}`,
+					abi: [parseAbiItem('function fee() view returns (uint24)')],
+					functionName: 'fee',
+					blockNumber: input.blockNumber,
+				});
+				const feeNum = Number(fee);
+				if (feeNum > 0 && feeNum <= 100_000) return true;
+			} catch {
+				// Not a V3 pool
 			}
-		} catch {
-			// Not a V3 pool
-		}
 
-		// Try getReserves() — V2/Aerodrome pool
-		try {
-			await rpc.readContract({
-				address: addr as `0x${string}`,
-				abi: [parseAbiItem('function getReserves() view returns (uint112, uint112, uint32)')],
-				functionName: 'getReserves',
-				blockNumber: input.blockNumber,
-			});
-			venueAddresses.add(addr);
-		} catch {
-			// Not a V2 pool either
-		}
+			// Try getReserves() — V2/Aerodrome pool
+			try {
+				await rpc.readContract({
+					address: addr as `0x${string}`,
+					abi: [parseAbiItem('function getReserves() view returns (uint112, uint112, uint32)')],
+					functionName: 'getReserves',
+					blockNumber: input.blockNumber,
+				});
+				return true;
+			} catch {
+				// Not a V2 pool either
+			}
+			return false;
+		}),
+	);
+	for (const [i, addr] of probeTargets.entries()) {
+		if (probeResults[i]) venueAddresses.add(addr);
 	}
 
 	// Denylist addresses are infrastructure, not fee sinks
@@ -251,7 +267,51 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 
 	// Process V3 Swap events
 	// Cache pool token info to avoid redundant calls
-	const poolTokenCache = new Map<string, { token0: string; token1: string }>();
+	const poolTokenCache = new Map<string, PoolTokens>();
+
+	// Each distinct pool's fee() and token0()/token1() are read ONCE, up front,
+	// all pools at a time — on a multi-hop route these were a serial chain of
+	// ~85ms round-trips. A read that fails resolves to null here and the loop
+	// below takes exactly the branch it took when the inline call threw, so the
+	// flags and their order are unchanged.
+	const poolReads = new Map<string, { feeTierRaw: number | null; tokens: PoolTokens | null }>();
+	await Promise.all(
+		[...new Set(v3SwapEvents.map((s) => s.pool))].map(async (pool) => {
+			const [feeTierRaw, tokens] = await Promise.all([
+				// Skipped for the known static-fee pools, exactly as the loop does —
+				// prefetching them would spend a call the old code never made.
+				POOL_FEE_TIERS[pool] !== undefined
+					? Promise.resolve(null)
+					: rpc
+							.readContract({
+								address: pool as `0x${string}`,
+								abi: [parseAbiItem('function fee() view returns (uint24)')],
+								functionName: 'fee',
+								blockNumber: input.blockNumber,
+							})
+							.then((fee) => Number(fee))
+							.catch(() => null),
+				Promise.all([
+					rpc.readContract({
+						address: pool as `0x${string}`,
+						abi: [parseAbiItem('function token0() view returns (address)')],
+						functionName: 'token0',
+					}),
+					rpc.readContract({
+						address: pool as `0x${string}`,
+						abi: [parseAbiItem('function token1() view returns (address)')],
+						functionName: 'token1',
+					}),
+				])
+					.then(([t0, t1]) => ({
+						token0: (t0 as string).toLowerCase(),
+						token1: (t1 as string).toLowerCase(),
+					}))
+					.catch(() => null),
+			]);
+			poolReads.set(pool, { feeTierRaw, tokens });
+		}),
+	);
 
 	for (const swap of v3SwapEvents) {
 		const pool = swap.pool;
@@ -261,18 +321,13 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		let feeTierRaw = POOL_FEE_TIERS[pool];
 
 		if (feeTierRaw === undefined) {
-			// Try on-chain fee() view call at the trade block
-			try {
-				const fee = await rpc.readContract({
-					address: pool as `0x${string}`,
-					abi: [parseAbiItem('function fee() view returns (uint24)')],
-					functionName: 'fee',
-					blockNumber: input.blockNumber,
-				});
-				feeTierRaw = Number(fee);
-				// Do NOT cache in POOL_FEE_TIERS — dynamic-fee pools change
-				// between blocks, and caching across txns gives wrong values
-			} catch {
+			// Read on-chain at the trade block by the prefetch above.
+			// Do NOT cache in POOL_FEE_TIERS — dynamic-fee pools change between
+			// blocks, and caching across txns gives wrong values.
+			const prefetched = poolReads.get(pool)?.feeTierRaw ?? null;
+			if (prefetched !== null) {
+				feeTierRaw = prefetched;
+			} else {
 				flags.push(`NEEDS REVIEW: could not read fee() for V3 pool ${pool}`);
 				feeTierRaw = 0;
 			}
@@ -284,25 +339,11 @@ export async function decomposeTrade(input: DecomposeTradeInput): Promise<Decomp
 		// is token0 vs token1 so we can decode amounts with correct decimals.
 		let poolTokens = poolTokenCache.get(pool);
 		if (!poolTokens) {
-			try {
-				const [t0, t1] = await Promise.all([
-					rpc.readContract({
-						address: pool as `0x${string}`,
-						abi: [parseAbiItem('function token0() view returns (address)')],
-						functionName: 'token0',
-					}),
-					rpc.readContract({
-						address: pool as `0x${string}`,
-						abi: [parseAbiItem('function token1() view returns (address)')],
-						functionName: 'token1',
-					}),
-				]);
-				poolTokens = {
-					token0: (t0 as string).toLowerCase(),
-					token1: (t1 as string).toLowerCase(),
-				};
+			const prefetched = poolReads.get(pool)?.tokens ?? null;
+			if (prefetched) {
+				poolTokens = prefetched;
 				poolTokenCache.set(pool, poolTokens);
-			} catch {
+			} else {
 				// Fallback: try heuristic based on amount magnitudes
 				poolTokens = { token0: 'unknown', token1: 'unknown' };
 			}

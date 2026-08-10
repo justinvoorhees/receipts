@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scanVenues } from './routeVenueScan.js';
+import { scanVenues, refineV3VenueTypes, addKnownFactoryVenuesFromTransfers } from './routeVenueScan.js';
 import { INFINITY_SWAP_TOPIC } from './infinityLegs.js';
 import { PANCAKE_INFINITY_VAULT } from './tradeDecoders.js';
 
@@ -60,5 +60,61 @@ describe('scanVenues — PancakeSwap Infinity pool identity', () => {
 		expect(vault?.type).toBe('pancake_infinity');
 		expect(vault?.infinityPoolId).toBe(POOL_A);
 		expect(vault?.infinityFeeRaw).toBeCloseTo(47.001, 2);
+	});
+});
+
+/** Peak-concurrency probe for the factory() reads these two passes issue. */
+function factoryProbe(map: Record<string, string | null> = {}) {
+	let inFlight = 0;
+	let peak = 0;
+	const reader = async (addr: string) => {
+		inFlight += 1;
+		peak = Math.max(peak, inFlight);
+		await new Promise((r) => setTimeout(r, 5));
+		inFlight -= 1;
+		return map[addr.toLowerCase()] ?? null;
+	};
+	return { reader, peak: () => peak };
+}
+
+describe('venue factory() passes run concurrently', () => {
+	it('refineV3VenueTypes reads every candidate venue at once', async () => {
+		const probe = factoryProbe();
+		const venues = new Map(
+			['0xa', '0xb', '0xc', '0xd'].map((a) => [a, { type: 'univ3' as const }]),
+		);
+
+		await refineV3VenueTypes(venues as never, probe.reader);
+
+		expect(probe.peak()).toBeGreaterThan(1);
+	});
+
+	it('addKnownFactoryVenuesFromTransfers reads every counterparty at once', async () => {
+		// The long pole in a real decode: one factory() per distinct transfer
+		// counterparty, and a busy route has ~17 of them.
+		const probe = factoryProbe();
+		const venues = new Map();
+		const transfers = [
+			{ from: '0xa', to: '0xb' },
+			{ from: '0xc', to: '0xd' },
+			{ from: '0xe', to: '0xf' },
+		];
+
+		await addKnownFactoryVenuesFromTransfers(venues as never, transfers, probe.reader);
+
+		expect(probe.peak()).toBeGreaterThan(1);
+	});
+
+	it('refineV3VenueTypes still refines only univ3 venues, and leaves others untouched', async () => {
+		const probe = factoryProbe({ '0xa': '0x5e7bb104d84c7cb9b682aac2f3d509f5f406809a' });
+		const venues = new Map<string, { type: string }>([
+			['0xa', { type: 'univ3' }],
+			['0xb', { type: 'aerodrome' }],
+		]);
+
+		await refineV3VenueTypes(venues as never, probe.reader);
+
+		expect(venues.get('0xb')!.type).toBe('aerodrome');
+		expect(venues.get('0xa')!.type).not.toBe('univ3');
 	});
 });

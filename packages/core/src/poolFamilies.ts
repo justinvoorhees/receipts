@@ -73,20 +73,29 @@ async function scanGetPool<T>(
 	b: string,
 	params: readonly T[],
 ): Promise<`0x${string}`[]> {
-	const out: `0x${string}`[] = [];
 	const la = a.toLowerCase() as `0x${string}`;
 	const lb = b.toLowerCase() as `0x${string}`;
-	for (const p of params) {
-		try {
-			const pool = await client.readContract({
-				address: factory, abi, functionName: 'getPool', args: [la, lb, p],
-			} as never);
-			if (pool && pool !== ZERO_ADDRESS) out.push(pool as `0x${string}`);
-		} catch {
-			// factory reverts for a missing tier/variant — skip
-		}
-	}
-	return out;
+
+	// Every tier/spacing is an independent lookup, so they go out together. One
+	// pair costs 14 of these across the four families, and they were serial.
+	const found = await Promise.all(
+		params.map(async (p) => {
+			try {
+				return (await client.readContract({
+					address: factory, abi, functionName: 'getPool', args: [la, lb, p],
+				} as never)) as `0x${string}`;
+			} catch {
+				// factory reverts for a missing tier/variant — skip
+				return null;
+			}
+		}),
+	);
+
+	// Filtered in DECLARED parameter order, not completion order:
+	// rankCandidatesByDepth breaks a depth tie by position, so returning these in
+	// whatever order the RPC happened to answer would make pool selection depend
+	// on network timing.
+	return found.filter((pool): pool is `0x${string}` => pool != null && pool !== ZERO_ADDRESS);
 }
 
 export const POOL_FAMILIES: PoolFamily[] = [

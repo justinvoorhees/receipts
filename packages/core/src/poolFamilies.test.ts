@@ -43,3 +43,77 @@ describe('POOL_FAMILIES', () => {
 		for (const f of POOL_FAMILIES) expect(f.mechanism).toBe(mechanismForKind(f.kind));
 	});
 });
+
+/** A client stand-in that records peak concurrent readContract calls. */
+function probingClient(result: string = '0x00000000000000000000000000000000000000ab') {
+	let inFlight = 0;
+	let peak = 0;
+	let calls = 0;
+	const client = {
+		readContract: async () => {
+			calls += 1;
+			inFlight += 1;
+			peak = Math.max(peak, inFlight);
+			await new Promise((r) => setTimeout(r, 5));
+			inFlight -= 1;
+			return result;
+		},
+	};
+	return { client, peak: () => peak, calls: () => calls };
+}
+
+describe('factory scans', () => {
+	const univ3Family = POOL_FAMILIES.find((f) => f.kind === 'univ3')!;
+	it('scans a family’s fee tiers / tick spacings concurrently, not one at a time', async () => {
+		const probe = probingClient();
+
+		await univ3Family.discover(probe.client as never, '0xa', '0xb');
+
+		expect(probe.calls()).toBeGreaterThan(1);
+		expect(probe.peak()).toBeGreaterThan(1);
+	});
+
+	it('returns candidates in the family’s declared parameter order', async () => {
+		// Order is load-bearing: rankCandidatesByDepth breaks a depth tie by
+		// position, so a scan that returns tiers in completion order would make
+		// pool selection depend on RPC timing.
+		let n = 0;
+		const client = {
+			readContract: async () => {
+				const i = n++;
+				// Later tiers resolve first. 1-based so tier 0 is not the zero
+				// address, which discovery legitimately drops.
+				await new Promise((r) => setTimeout(r, 20 - i * 4));
+				return `0x${String(i + 1).repeat(40).slice(0, 40)}`;
+			},
+		};
+
+		const addrs = await univ3Family.discover(client as never, '0xa', '0xb');
+
+		expect(addrs).toEqual([
+			'0x1111111111111111111111111111111111111111',
+			'0x2222222222222222222222222222222222222222',
+			'0x3333333333333333333333333333333333333333',
+			'0x4444444444444444444444444444444444444444',
+		]);
+	});
+
+	it('still drops the zero address and a reverting tier', async () => {
+		let n = 0;
+		const client = {
+			readContract: async () => {
+				const i = n++;
+				if (i === 0) return '0x0000000000000000000000000000000000000000';
+				if (i === 1) throw new Error('no such tier');
+				return `0x${String(i + 1).repeat(40).slice(0, 40)}`;
+			},
+		};
+
+		const addrs = await univ3Family.discover(client as never, '0xa', '0xb');
+
+		expect(addrs).toEqual([
+			'0x3333333333333333333333333333333333333333',
+			'0x4444444444444444444444444444444444444444',
+		]);
+	});
+});

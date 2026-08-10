@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
-import { analyzeTransaction, toDisplayPrice, splitFabricFee, attachLegSymbols, deriveFillerAddress, toPersistedLeg } from './analyzeTransaction.js';
+import { analyzeTransaction, toDisplayPrice, splitFabricFee, attachLegSymbols, deriveFillerAddress, toPersistedLeg, resolveLegSymbols } from './analyzeTransaction.js';
 import { baseIsOutputLeg } from './receiptPure.js';
 
 const RPC = process.env.TCA_RPC_URL;
@@ -410,4 +410,69 @@ describe('analyzeTransaction — 0x Settler identity (e2e)', () => {
 		expect(r!.settlementEventSeen).toBe(false);
 		expect(r!.settlementEventTopic0).toBeNull();
 	}, 60_000);
+});
+
+describe('resolveLegSymbols', () => {
+  const legs = [
+    { tokenIn: '0xAAA', tokenOut: '0xBBB' },
+    { tokenIn: '0xBBB', tokenOut: '0xCCC' },
+    { tokenIn: '0xCCC', tokenOut: '0xDDD' },
+  ];
+
+  it('reads the unseeded tokens concurrently rather than one at a time', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const read = async (token: string) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return `SYM${token.slice(-1)}`;
+    };
+
+    await resolveLegSymbols(legs, new Map(), read);
+
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it('never reads a seeded token, so endpoints and native cost no RPC', async () => {
+    const asked: string[] = [];
+    const seed = new Map([
+      ['0xaaa', 'IN'],
+      ['0xddd', 'OUT'],
+    ]);
+
+    const map = await resolveLegSymbols(legs, seed, async (t) => {
+      asked.push(t);
+      return 'X';
+    });
+
+    expect(asked.sort()).toEqual(['0xbbb', '0xccc']);
+    expect(map.get('0xaaa')).toBe('IN');
+    expect(map.get('0xddd')).toBe('OUT');
+  });
+
+  it('asks once for a token that appears on several legs', async () => {
+    const asked: string[] = [];
+    await resolveLegSymbols(legs, new Map(), async (t) => {
+      asked.push(t);
+      return 'X';
+    });
+    expect(asked).toHaveLength(new Set(asked).size);
+  });
+
+  it('omits a token whose symbol() reverts, leaving the UI its short-address fallback', async () => {
+    const map = await resolveLegSymbols(legs, new Map(), async (t) => {
+      if (t === '0xccc') throw new Error('no symbol()');
+      return 'OK';
+    });
+
+    expect(map.has('0xccc')).toBe(false);
+    expect(map.get('0xbbb')).toBe('OK');
+  });
+
+  it('lower-cases its keys so lookups are address-case insensitive', async () => {
+    const map = await resolveLegSymbols([{ tokenIn: '0xAbCd', tokenOut: '0xAbCd' }], new Map(), async () => 'S');
+    expect(map.get('0xabcd')).toBe('S');
+  });
 });

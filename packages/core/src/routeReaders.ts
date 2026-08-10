@@ -7,7 +7,8 @@
  * module. getLegMidAtBlock lives here too — createDefaultMidReader is its only
  * production caller, so co-locating them keeps the graph acyclic.
  */
-import { createPublicClient, encodeAbiParameters, http, keccak256, parseAbiItem, type PublicClient } from 'viem';
+import { createPublicClient, encodeAbiParameters, keccak256, parseAbiItem, type PublicClient } from 'viem';
+import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import type { VenueType, Leg } from './routeGraph.js';
 import { getPairMidAtBlock, makeRpcDecimalsCache, type PairMidResult } from './tokenPricing.js';
@@ -193,7 +194,7 @@ function unresolvedFee(addr: string, type: VenueType, cause: string): { bps: num
 }
 
 export function createDefaultFeeReader(rpcUrl: string, blockNumber: bigint): (addr: string, type: VenueType, feeRawPips?: number) => Promise<{ bps: number; defaulted: boolean }> {
-	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 
 	return async (addr: string, type: VenueType, feeRawPips?: number): Promise<{ bps: number; defaulted: boolean }> => {
 		switch (type) {
@@ -341,7 +342,7 @@ export function createDefaultV3FactoryReader(rpcUrl: string, blockNumber: bigint
 	if (rpcUrl === 'unused') {
 		return async () => null;
 	}
-	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 
 	return async (addr: string): Promise<string | null> => {
 		try {
@@ -367,7 +368,7 @@ export function createDefaultPoolFeesReader(rpcUrl: string, blockNumber: bigint)
 	if (rpcUrl === 'unused') {
 		return async () => null;
 	}
-	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 
 	return async (addr: string): Promise<string | null> => {
 		try {
@@ -388,7 +389,7 @@ export function createDefaultRfqProbe(rpcUrl: string, blockNumber: bigint): (add
 	if (rpcUrl === 'unused' || rpcUrl === 'http://invalid') {
 		return async () => 'contract';
 	}
-	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 	return async (addr: string): Promise<'eoa' | 'proxy1967' | 'contract'> => {
 		try {
 			const code = await rpc.getBytecode({ address: addr as `0x${string}`, blockNumber });
@@ -413,7 +414,7 @@ export function createDefaultMidReader(
 	midReader: (leg: Leg, atBlock: bigint) => Promise<PairMidResult | null>;
 	decimalsReader: (token: string) => Promise<number>;
 } {
-	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 	const decCache = makeRpcDecimalsCache(rpc as never);
 
 	return {
@@ -544,7 +545,7 @@ const SQRT_PRICE_X96_MASK = (1n << 160n) - 1n;
  */
 export function createDefaultV4PoolKeyReader(rpcUrl: string, toBlock: bigint): V4PoolKeyReader {
 	if (!rpcUrl || rpcUrl === 'unused' || rpcUrl === 'http://invalid') return async () => null;
-	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 	return makeV4PoolKeyReader(async (poolId: string) => {
 		const slot0Key = keccak256(
 			encodeAbiParameters(
@@ -617,7 +618,7 @@ export function makeInfinityPoolKeyReader(
  */
 export function createDefaultInfinityPoolKeyReader(rpcUrl: string, blockNumber: bigint): V4PoolKeyReader {
 	if (!rpcUrl || rpcUrl === 'unused' || rpcUrl === 'http://invalid') return async () => null;
-	const rpc = createPublicClient({ chain: base, transport: http(rpcUrl) });
+	const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 	return makeInfinityPoolKeyReader((poolId) =>
 		readInfinityPoolKey(rpc as never, poolId as `0x${string}`, blockNumber),
 	);

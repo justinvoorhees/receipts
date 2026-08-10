@@ -241,3 +241,113 @@ describe('computeAggFee singleton custodians', () => {
     expect(fixed.aggFeeBps).toBe(0);
   });
 });
+
+// ── RPC-path coverage ────────────────────────────────────────────────────────
+// decomposeTrade's RPC work had no coverage at all: every test above exercises
+// a pure helper. These drive the real function against a local JSON-RPC server,
+// which is the only way to observe how its per-address probes are issued.
+
+import { createServer, type Server } from 'node:http';
+import { decomposeTrade, type DecomposeTradeInput } from './decomposeTrade.js';
+import { runInDecodeSession } from './rpcSession.js';
+
+/** A JSON-RPC endpoint that answers every eth_call and records concurrency. */
+async function fakeRpc(): Promise<{ url: string; peak: () => number; calls: () => number; close: () => Promise<void> }> {
+	let inFlight = 0;
+	let peak = 0;
+	let calls = 0;
+	const server: Server = createServer((req, res) => {
+		const chunks: Buffer[] = [];
+		req.on('data', (d: Buffer) => chunks.push(d));
+		req.on('end', () => {
+			const body = JSON.parse(Buffer.concat(chunks).toString());
+			calls += 1;
+			inFlight += 1;
+			peak = Math.max(peak, inFlight);
+			setTimeout(() => {
+				inFlight -= 1;
+				res.writeHead(200, { 'content-type': 'application/json' });
+				// A plausible uint24 fee / address / reserves word for any call.
+				res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: `0x${'0'.repeat(63)}1` }));
+			}, 10);
+		});
+	});
+	await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+	const port = (server.address() as { port: number }).port;
+	return {
+		url: `http://127.0.0.1:${port}`,
+		peak: () => peak,
+		calls: () => calls,
+		close: () => new Promise<void>((r) => server.close(() => r())),
+	};
+}
+
+describe('decomposeTrade RPC probes', () => {
+	const TRADER = '0x00000000000000000000000000000000000000a1';
+	const POOL = '0x00000000000000000000000000000000000000b1';
+	const XFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+	const USDC_ADDR = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+	const WETH_ADDR = '0x4200000000000000000000000000000000000006';
+	const pad = (a: string) => `0x${a.slice(2).padStart(64, '0')}`;
+	const word = (v: bigint) => `0x${v.toString(16).padStart(64, '0')}`;
+
+	/** Five unclassified addresses each retaining USDC, so each gets probed. */
+	const holders = ['0xc1', '0xc2', '0xc3', '0xc4', '0xc5'].map(
+		(s) => `0x${s.slice(2).padEnd(40, '0')}`,
+	);
+
+	const trace = {
+		type: 'CALL',
+		from: TRADER,
+		to: POOL,
+		input: '0x',
+		logs: [
+			{ address: USDC_ADDR, data: word(1_000_000000n), topics: [XFER, pad(TRADER), pad(POOL)] },
+			{ address: WETH_ADDR, data: word(500_000000000000000n), topics: [XFER, pad(POOL), pad(TRADER)] },
+			...holders.map((h) => ({
+				address: USDC_ADDR,
+				data: word(50_000000n),
+				topics: [XFER, pad(POOL), pad(h)],
+			})),
+		],
+	};
+
+	const input = (rpcUrl: string): DecomposeTradeInput => ({
+		trace: trace as never,
+		txHash: '0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+		trader: TRADER,
+		allInCostBps: 10,
+		notionalUsdc: 1000,
+		realizedPrice: 2000,
+		gasCostUsd: 0,
+		aggregator: 'Fabric',
+		blockNumber: 47379575n,
+		rpcUrl,
+	});
+
+	it('probes every unclassified address concurrently', async () => {
+		const rpc = await fakeRpc();
+		try {
+			await runInDecodeSession(() => decomposeTrade(input(rpc.url)));
+			expect(rpc.calls()).toBeGreaterThan(1);
+			expect(rpc.peak()).toBeGreaterThan(1);
+		} finally {
+			await rpc.close();
+		}
+	});
+
+	it('stops at fee() for an address that answers it, without also asking getReserves()', async () => {
+		// The fee() probe short-circuits: spending a second call on an address
+		// already identified as a V3 pool would undo the saving.
+		const rpc = await fakeRpc();
+		try {
+			const before = rpc.calls();
+			await runInDecodeSession(() => decomposeTrade(input(rpc.url)));
+			// 5 holders, one fee() each — a getReserves() for any of them would
+			// push this past 5 probe calls.
+			expect(rpc.calls() - before).toBeLessThanOrEqual(10);
+		} finally {
+			await rpc.close();
+		}
+	});
+});

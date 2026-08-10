@@ -213,10 +213,15 @@ export async function addKnownFactoryVenuesFromTransfers(
 		candidates.add(transfer.from.toLowerCase());
 		candidates.add(transfer.to.toLowerCase());
 	}
-	for (const addr of candidates) {
-		if (venues.has(addr)) continue;
-		const factory = await factoryReader(addr);
-		const venueType = classifyV3Factory(factory);
+
+	// One factory() read per distinct counterparty, and a busy route has ~17 of
+	// them — serially the longest single chain in a decode. They are independent,
+	// so they go out together; the Map is then written in candidate order, since
+	// venue insertion order flows through to leg order.
+	const unresolved = [...candidates].filter((addr) => !venues.has(addr));
+	const factories = await Promise.all(unresolved.map((addr) => factoryReader(addr)));
+	for (const [i, addr] of unresolved.entries()) {
+		const venueType = classifyV3Factory(factories[i]);
 		if (venueType !== 'univ3') {
 			venues.set(addr, { type: venueType });
 		}
@@ -227,10 +232,13 @@ export async function refineV3VenueTypes(
 	venues: Map<string, VenueInfo>,
 	factoryReader: (addr: string) => Promise<string | null> | string | null,
 ): Promise<void> {
-	for (const [addr, info] of venues) {
-		if (info.type !== 'univ3') continue;
-		const factory = await factoryReader(addr);
-		const refinedType = classifyV3Factory(factory);
+	// Same fan-out as above. Snapshot the univ3 entries first: the loop below
+	// writes back into `venues`, and iterating a Map while mutating it is only
+	// safe because the keys already exist — the snapshot makes that explicit.
+	const univ3 = [...venues].filter(([, info]) => info.type === 'univ3');
+	const factories = await Promise.all(univ3.map(([addr]) => factoryReader(addr)));
+	for (const [i, [addr, info]] of univ3.entries()) {
+		const refinedType = classifyV3Factory(factories[i]);
 		if (refinedType !== info.type) {
 			venues.set(addr, { ...info, type: refinedType });
 		}
