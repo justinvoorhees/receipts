@@ -39,6 +39,7 @@ import {
   type EstimatorClass,
 } from './marketPrice.js';
 import { readTokenUsd } from './tokenOracle.js';
+import { pinnedPoolResolver } from './pinnedPool.js';
 
 // ── Anchor token allowlist (Base) — the ONE definition lives in receiptPure. ──
 import {
@@ -252,12 +253,37 @@ export async function defaultGetPairMid(
  * readers are actually invoked, so it's cheap to create even when a caller
  * intends to override some deps in a test.
  */
-export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
+export function createDefaultPricingDeps(rpcUrl: string, pinPoolsAtBlock?: bigint): PricingDeps {
   const client = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) }) as PublicClient;
   const decCache = makeRpcDecimalsCache(client);
 
+  // Pool SELECTION is resolved once per pair and reused across the three sampled
+  // blocks; the mid is still READ at each block. See pinnedPool.ts — without
+  // this the before/mid/after triple can rank a different pool per block and
+  // report the gap between two pools as movement over time. Omitting the pin
+  // (tests, one-off callers) restores the per-block behaviour exactly.
+  const pin = <T>(resolve: (a: string, b: string, block: bigint) => Promise<T>) =>
+    pinPoolsAtBlock === undefined ? resolve : pinnedPoolResolver(resolve, pinPoolsAtBlock);
+
+  const resolveDeepest = pin((token0: string, token1: string, blockNumber: bigint) =>
+    getDeepestPoolForPair(client, token0, token1, blockNumber),
+  );
+  // One resolver shared by both bridged paths below, which previously carried
+  // byte-identical copies of this closure and so could not share a cache.
+  const resolveDeepestWithDepth = pin(async (a: string, b: string, block: bigint) => {
+    const best = await getDeepestPoolWithDepth(client, a, b, block);
+    return best ? { address: best.pool.address, depth: best.depth, kind: best.pool.kind } : null;
+  });
+
+  const bridgeReaders = {
+    getDeepestPoolWithDepth: resolveDeepestWithDepth,
+    readSlot0: (pool: string, block: bigint) => readSlot0(client, pool as `0x${string}`, block),
+    readV2Reserves: (pool: string, block: bigint) => readV2Reserves(client, pool as `0x${string}`, block),
+    readDecimals: decCache,
+  };
+
   const poolReaders: PoolMidReaders = {
-    getDeepestPool: (token0, token1, blockNumber) => getDeepestPoolForPair(client, token0, token1, blockNumber),
+    getDeepestPool: resolveDeepest,
     readSlot0: (poolAddress, blockNumber) => readSlot0(client, poolAddress as `0x${string}`, blockNumber),
     readLiquidity: (poolAddress, blockNumber) => readLiquidity(client, poolAddress as `0x${string}`, blockNumber),
     readV2Reserves: (poolAddress, blockNumber) => readV2Reserves(client, poolAddress as `0x${string}`, blockNumber),
@@ -283,37 +309,16 @@ export function createDefaultPricingDeps(rpcUrl: string): PricingDeps {
     benchmark: getBenchmarkMid,
     getPairMid: (tokenIn, tokenOut, blockNumber) => defaultGetPairMid(poolReaders, tokenIn, tokenOut, blockNumber),
     getEstimatedMid: (inputToken, outputToken, blockNumber) =>
-      getEstimatedMidAtBlock(
-        {
-          getDeepestPoolWithDepth: async (a, b, block) => {
-            const best = await getDeepestPoolWithDepth(client, a, b, block);
-            return best ? { address: best.pool.address, depth: best.depth, kind: best.pool.kind } : null;
-          },
-          readSlot0: (pool, block) => readSlot0(client, pool as `0x${string}`, block),
-          readV2Reserves: (pool, block) => readV2Reserves(client, pool as `0x${string}`, block),
-          readDecimals: decCache,
-        },
-        inputToken,
-        outputToken,
-        blockNumber,
-        ESTIMATED_MID_MIN_LIQUIDITY,
-      ),
+      getEstimatedMidAtBlock(bridgeReaders, inputToken, outputToken, blockNumber, ESTIMATED_MID_MIN_LIQUIDITY),
     getMarketPrice: (inputToken, outputToken, blockNumber) =>
       getMarketPriceForPair(
         {
           getDirectMid: async (i, o, blk) => (await defaultGetPairMid(poolReaders, i, o, blk))?.price ?? null,
           getBridgedMid: async (i, o, blk) => {
             if (!bridgedIsIndependent(i, o)) return null; // duplicates direct for WETH pairs
-            return (await getEstimatedMidAtBlock(
-              {
-                getDeepestPoolWithDepth: async (a, b, b2) => {
-                  const best = await getDeepestPoolWithDepth(client, a, b, b2);
-                  return best ? { address: best.pool.address, depth: best.depth, kind: best.pool.kind } : null;
-                },
-                readSlot0: (pool, b2) => readSlot0(client, pool as `0x${string}`, b2),
-                readV2Reserves: (pool, b2) => readV2Reserves(client, pool as `0x${string}`, b2),
-                readDecimals: decCache,
-              }, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null;
+            return (
+              (await getEstimatedMidAtBlock(bridgeReaders, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null
+            );
           },
           getOracleImpliedMid: async (i, o, blk) => {
             // Independent per-side USD: stable=$1, WETH/native via the WETH/USD
@@ -465,7 +470,9 @@ export async function priceReceipt(
     // Deps construction happens INSIDE the try: NEVER-THROW is a hard contract,
     // so a failure here (e.g. an unparsable rpcUrl) must also degrade to
     // `partial`, not throw past this function.
-    const deps: PricingDeps = { ...createDefaultPricingDeps(args.rpcUrl), ...depsOverride };
+    // refBlock is the pin: pool SELECTION is resolved there once and reused by
+    // both wings, so the triple below measures time rather than pool choice.
+    const deps: PricingDeps = { ...createDefaultPricingDeps(args.rpcUrl, refBlock), ...depsOverride };
 
     // Metadata is best-effort and shared by every return path.
     [inputSymbol, outputSymbol, inputDecimals, outputDecimals] = await Promise.all([
