@@ -41,3 +41,28 @@ body {
 .tx-row-enter {
 	animation: row-fade-in 1s ease-out backwards;
 }
+
+/*
+ * Pulses the still-mounted receipt while a next one is being analyzed (Figma
+ * 701-1986). Navigating between receipts is wrapped in startTransition, so
+ * Next.js keeps the OLD receipt on screen instead of showing loading.tsx — this
+ * pulse is the only feedback during that window.
+ */
+@keyframes receipt-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.5;
+	}
+}
+.receipt-pending-pulse {
+	animation: receipt-pulse 800ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.receipt-pending-pulse {
+		animation: none;
+		opacity: 0.5;
+	}
+}

@@ -130,6 +130,14 @@ describe('tooltip touch support', () => {
 	});
 });
 
+describe('pendingPulseClass', () => {
+	it('returns the pulse class while pending, and nothing otherwise', async () => {
+		const { pendingPulseClass } = await import('./receiptView');
+		expect(pendingPulseClass(true)).toBe('receipt-pending-pulse');
+		expect(pendingPulseClass(false)).toBeUndefined();
+	});
+});
+
 // A full USDC/WETH receipt, generalized ReceiptModel shape (Task 8+).
 const fullUsdcWethRow = {
 	txHash: '0x1234567890abcdef1234567890abcdef12345678',
