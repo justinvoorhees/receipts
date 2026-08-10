@@ -29,14 +29,19 @@ function Body({ children }: { children: React.ReactNode }) {
 }
 
 export default function MethodologyPage() {
+	// Sohne Mono is the page's base family (Figma 662-4353): the disclaimer, the
+	// version tag, every Label and every Body is Söhne Mono. Only the headings
+	// break out of it, and each sets Sohne Breit explicitly.
 	return (
-		<div className="mt-[40px] flex flex-col gap-[40px] font-['Sohne']">
+		<div className="mt-[40px] flex flex-col gap-[40px] font-['Sohne_Mono']">
 			<Divider />
 
 			<div className="flex flex-col gap-[20px]">
 				<div className="flex flex-col gap-[12px]">
+					{/* Halbfett (600), a step heavier than the Kräftig (500) section
+					    headings below — Figma 662-4358. */}
 					<h1
-						className="font-['Sohne_Breit'] font-medium text-[28px] leading-[28px]"
+						className="font-['Sohne_Breit'] font-semibold text-[28px] leading-[28px]"
 						style={{ fontFeatureSettings: '"calt" 0' }}
 					>
 						Methodology

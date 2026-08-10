@@ -10,7 +10,7 @@ const LINKS: { label: string; href: string }[] = [
 
 export function Footer() {
 	return (
-		<footer className="max-w-[720px] mx-auto mt-[40px] px-5 md:px-0 pb-[40px] flex items-start md:items-center justify-between font-['Sohne_Breit'] text-[12px] leading-[12px]">
+		<footer className="max-w-[680px] mx-auto mt-[40px] px-5 md:px-0 pb-[40px] flex items-start md:items-center justify-between font-['Sohne_Breit'] text-[12px] leading-[12px]">
 			<p>
 				Built by{' '}
 				<a href="https://withfabric.xyz" className="underline">

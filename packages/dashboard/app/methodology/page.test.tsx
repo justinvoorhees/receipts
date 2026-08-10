@@ -21,6 +21,36 @@ describe('Methodology page', () => {
 		expect(html.indexOf('>Market Price<')).toBeLessThan(html.indexOf('>Per-Leg Price<'));
 	});
 
+	// Figma 662-4353: the disclaimer, v0.1, every Label and every Body are Söhne
+	// Mono; only the two headings are Söhne Breit. The page previously set plain
+	// `Sohne` as its base, so all the mono text rendered in the sans face.
+	//
+	// The families are asserted in their ESCAPED form: renderToStaticMarkup
+	// serializes the `'` inside a class attribute as `&#x27;`, so a literal
+	// "font-['Sohne_Mono']" matches nothing and every assertion built from it
+	// passes or fails for the wrong reason.
+	const family = (name: string) => `font-[&#x27;${name}&#x27;]`;
+
+	it('sets Sohne Mono as the page base family, with Breit only on the headings', async () => {
+		const { default: Page } = await import('./page');
+		const html = renderToStaticMarkup(<Page />);
+		expect(html).toContain(family('Sohne_Mono'));
+		// The sans face must be gone. `font-[&#x27;Sohne&#x27;]` is NOT a prefix
+		// of the Mono/Breit classes — the closing escaped quote disambiguates —
+		// so this cannot pass vacuously.
+		expect(html).not.toContain(family('Sohne'));
+		// h1 + the two section headings. Counted by split, not RegExp: the class
+		// contains `[` and `]`, which are regex metacharacters.
+		expect(html.split(family('Sohne_Breit')).length - 1).toBe(3);
+	});
+
+	it('renders the title in Halbfett (600), heavier than the Kräftig (500) headings', async () => {
+		const { default: Page } = await import('./page');
+		const html = renderToStaticMarkup(<Page />);
+		expect(html).toContain(`${family('Sohne_Breit')} font-semibold text-[28px]`);
+		expect(html).toContain(`${family('Sohne_Breit')} font-medium text-[20px]`);
+	});
+
 	it('renders labels uppercase (CSS transform) at 12px/12px, matching Figma 662-4349', async () => {
 		const { default: Page } = await import('./page');
 		const html = renderToStaticMarkup(<Page />);
