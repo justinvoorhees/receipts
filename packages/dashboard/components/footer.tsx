@@ -23,6 +23,8 @@ export function Footer() {
 					<a
 						key={link.href}
 						href={link.href}
+						target="_blank"
+						rel="noreferrer"
 						className="text-[var(--color-secondary)] underline underline-offset-[3px] [text-decoration-skip-ink:none] hover:text-[var(--color-primary)]"
 					>
 						{link.label}

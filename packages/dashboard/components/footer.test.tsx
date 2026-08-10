@@ -30,4 +30,13 @@ describe('Footer', () => {
 		const html = renderToStaticMarkup(<Footer />);
 		expect(html).not.toContain('border-t');
 	});
+
+	it('opens every footer link in a new tab', async () => {
+		const { Footer } = await import('./footer');
+		const html = renderToStaticMarkup(<Footer />);
+		const targets = html.match(/target="_blank"/g) ?? [];
+		expect(targets.length).toBe(4);
+		const rels = html.match(/rel="noreferrer"/g) ?? [];
+		expect(rels.length).toBe(4);
+	});
 });
