@@ -79,7 +79,7 @@ describe('Methodology page', () => {
 		const { default: Page } = await import('./page');
 		const html = renderToStaticMarkup(<Page />);
 		expect(html).toContain(
-			"The midpoint price from the leg&#x27;s executing liquidity pool. When unavailable, the deepest qualifying liquidity pool for the same token pair is used as a fallback. Market maker legs remain unpriced by nature.",
+			"The midpoint price from the leg’s executing liquidity pool. When unavailable, the deepest qualifying liquidity pool for the same token pair is used as a fallback. Market maker legs remain unpriced by nature.",
 		);
 	});
 });

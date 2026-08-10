@@ -97,7 +97,7 @@ export default function MethodologyPage() {
 			<div className="flex flex-col gap-[20px]">
 				<Heading>Per-Leg Price</Heading>
 				<Body>
-					The midpoint price from the leg's executing liquidity pool. When unavailable, the deepest
+					The midpoint price from the leg’s executing liquidity pool. When unavailable, the deepest
 					qualifying liquidity pool for the same token pair is used as a fallback. Market maker legs
 					remain unpriced by nature.
 				</Body>
