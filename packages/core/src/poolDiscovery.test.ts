@@ -35,3 +35,81 @@ describe('rankCandidatesByDepth', () => {
     expect(best).toBeNull();
   });
 });
+
+/** Records the highest number of reader calls that were ever in flight at once. */
+function concurrencyProbe() {
+  let inFlight = 0;
+  let peak = 0;
+  const gate = async <T>(value: T): Promise<T> => {
+    inFlight += 1;
+    peak = Math.max(peak, inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    inFlight -= 1;
+    return value;
+  };
+  return { gate, peak: () => peak };
+}
+
+describe('rankCandidatesByDepth concurrency', () => {
+  it('reads every candidate concurrently instead of one round-trip at a time', async () => {
+    // Ranking is the hot loop of pool discovery: two RPC reads per candidate,
+    // ~17 candidates per pair, against an endpoint where a serial call costs
+    // ~85ms but 20 concurrent calls cost ~5ms each.
+    const probe = concurrencyProbe();
+    const candidates = ['0xa', '0xb', '0xc', '0xd', '0xe'].map((a) => mk(a, 'univ3'));
+
+    await rankCandidatesByDepth(candidates, {
+      isInitialized: () => probe.gate(true),
+      readDepth: () => probe.gate(1n),
+    });
+
+    expect(probe.peak()).toBeGreaterThan(1);
+  });
+
+  it('keeps the earliest candidate on a depth tie, so selection stays order-deterministic', async () => {
+    // Guards the `depth > best.depth` comparison: pool choice must not depend on
+    // which read happens to resolve first once these run in parallel.
+    const candidates = ['0xfirst', '0xsecond', '0xthird'].map((a) => mk(a, 'univ3'));
+    const best = await rankCandidatesByDepth(candidates, {
+      isInitialized: async () => true,
+      // Deliberately resolve in reverse order of the candidate list.
+      readDepth: async (c) => {
+        await new Promise((r) => setTimeout(r, c.address === '0xfirst' ? 15 : 1));
+        return 100n;
+      },
+    });
+    expect(best?.pool.address).toBe('0xfirst');
+  });
+
+  it('still skips uninitialized candidates when reads are interleaved', async () => {
+    const best = await rankCandidatesByDepth(['0xa', '0xb'].map((a) => mk(a, 'univ3')), {
+      isInitialized: async (c) => c.address === '0xa',
+      readDepth: async (c) => (c.address === '0xa' ? 1n : 999n),
+    });
+    expect(best?.pool.address).toBe('0xa');
+  });
+});
+
+describe('getDeepestPoolWithDepth family fan-out', () => {
+  it('scans all four pool families concurrently rather than family after family', async () => {
+    const { getDeepestPoolWithDepth } = await import('./poolDiscovery.js');
+    let inFlight = 0;
+    let peak = 0;
+    const client = {
+      readContract: async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 3));
+        inFlight -= 1;
+        // Every factory lookup misses, so the test measures discovery fan-out
+        // alone and never reaches the ranking stage.
+        return '0x0000000000000000000000000000000000000000';
+      },
+    };
+
+    await getDeepestPoolWithDepth(client as never, '0xa', '0xb', 100n);
+
+    // 4 families x 4/4/4/2 params = 14 lookups; serial would peak at 1.
+    expect(peak).toBeGreaterThan(4);
+  });
+});

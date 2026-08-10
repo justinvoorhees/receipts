@@ -319,13 +319,26 @@ export async function rankCandidatesByDepth(
   candidates: PoolCandidate[],
   readers: RankReaders,
 ): Promise<{ pool: DiscoveredPool; depth: bigint } | null> {
+  // Candidates are scored in parallel — this is the hot loop of discovery (two
+  // reads each, ~17 candidates per pair), and against the production endpoint a
+  // serial read costs ~85ms where twenty concurrent ones cost ~5ms each.
+  //
+  // The two reads for ONE candidate stay ordered: `readDepth` is only meaningful
+  // for an initialized pool, and firing it speculatively would spend an extra
+  // RPC call on every dead fee tier.
+  const scored = await Promise.all(
+    candidates.map(async (cand) => {
+      if (!(await readers.isInitialized(cand))) return null;
+      return { pool: { address: cand.address, kind: cand.kind }, depth: await readers.readDepth(cand) };
+    }),
+  );
+
+  // Reduced in the ORIGINAL candidate order with a strict `>`, so a depth tie is
+  // still won by the earlier candidate. Picking the winner as results arrive
+  // would make pool selection depend on which read resolved first.
   let best: { pool: DiscoveredPool; depth: bigint } | null = null;
-  for (const cand of candidates) {
-    if (!(await readers.isInitialized(cand))) continue;
-    const depth = await readers.readDepth(cand);
-    if (best === null || depth > best.depth) {
-      best = { pool: { address: cand.address, kind: cand.kind }, depth };
-    }
+  for (const cand of scored) {
+    if (cand !== null && (best === null || cand.depth > best.depth)) best = cand;
   }
   return best;
 }
@@ -379,12 +392,15 @@ export async function getDeepestPoolWithDepth(
   const b = tokenB.toLowerCase();
   const refToken = pickReferenceToken(a, b);
 
-  // Gather candidates from every family.
-  const candidates: PoolCandidate[] = [];
-  for (const fam of POOL_FAMILIES) {
-    const addrs = await fam.discover(client, a, b, blockNumber);
-    for (const addr of addrs) candidates.push({ address: addr, kind: fam.kind });
-  }
+  // Gather candidates from every family. The families are independent, so their
+  // factory scans go out together; flattened in POOL_FAMILIES order afterwards,
+  // because candidate position is the tie-break in rankCandidatesByDepth below.
+  const perFamily = await Promise.all(
+    POOL_FAMILIES.map(async (fam) =>
+      (await fam.discover(client, a, b, blockNumber)).map((addr) => ({ address: addr, kind: fam.kind })),
+    ),
+  );
+  const candidates: PoolCandidate[] = perFamily.flat();
 
   return rankCandidatesByDepth(candidates, {
     isInitialized: async (c) => {
