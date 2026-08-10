@@ -31,7 +31,8 @@ vi.mock('../../../../lib/loadReceipt', () => ({ loadReceipt: vi.fn(async () => n
 vi.mock('@fabric-tca/core', () => ({ classifyTransaction: vi.fn(async () => ({ reason: 'NOT_A_SWAP' })) }));
 
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
-const { default: ReceiptPage } = await import('./page');
+const { ReceiptBody } = await import('./receiptBody');
+const { DEFAULT_CHAIN } = await import('../../../../lib/chains');
 
 const mockLoad = vi.mocked(loadReceipt);
 
@@ -54,7 +55,6 @@ const RECEIPT = {
 	reconResidualBps: null, manipulationFlag: false,
 } as never;
 
-const paramsFor = (hash: string) => Promise.resolve({ chain: 'base', hash });
 
 beforeEach(() => {
 	mockLoad.mockClear();
@@ -67,8 +67,8 @@ beforeEach(() => {
 it('refuses politely rather than rendering a false negative', async () => {
 	mockLoad.mockResolvedValue(RECEIPT);
 
-	await ReceiptPage({ params: paramsFor(HASH_A) });
-	const html = renderToStaticMarkup(await ReceiptPage({ params: paramsFor(HASH_B) }));
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_A });
+	const html = renderToStaticMarkup(await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_B }));
 
 	expect(html).toContain('temporarily unavailable');
 	expect(html).not.toContain('Not a swap');

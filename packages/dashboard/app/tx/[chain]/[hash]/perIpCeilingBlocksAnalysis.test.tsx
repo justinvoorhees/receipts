@@ -46,14 +46,14 @@ vi.mock('../../../../lib/loadReceipt', () => ({ loadReceipt: vi.fn(async () => n
 vi.mock('@fabric-tca/core', () => ({ classifyTransaction: vi.fn(async () => ({ reason: 'NOT_A_SWAP' })) }));
 
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
-const { default: ReceiptPage } = await import('./page');
+const { ReceiptBody } = await import('./receiptBody');
+const { DEFAULT_CHAIN } = await import('../../../../lib/chains');
 
 const mockLoad = vi.mocked(loadReceipt);
 
 const HASH_A = '0x' + 'a'.repeat(64);
 const HASH_B = '0x' + 'b'.repeat(64);
 
-const paramsFor = (hash: string) => Promise.resolve({ chain: 'base', hash });
 
 beforeEach(() => {
 	mockLoad.mockClear();
@@ -67,10 +67,10 @@ beforeEach(() => {
 it('does not analyze once the per-IP limiter is exhausted', async () => {
 	mockLoad.mockResolvedValue(null);
 
-	await ReceiptPage({ params: paramsFor(HASH_A) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_A });
 	expect(mockLoad).toHaveBeenCalledTimes(1);
 
-	await ReceiptPage({ params: paramsFor(HASH_B) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_B });
 	expect(mockLoad).toHaveBeenCalledTimes(1); // still 1 — the second was throttled
 });
 
@@ -93,14 +93,14 @@ it('does not charge the shared global budget for a per-IP refusal', async () => 
 	mockLoad.mockResolvedValue(null);
 
 	setClientIp('1.1.1.1');
-	await ReceiptPage({ params: paramsFor(HASH_A) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_A });
 	expect(mockLoad).toHaveBeenCalledTimes(1); // admitted — 2nd global slot used
 
-	await ReceiptPage({ params: paramsFor(HASH_B) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_B });
 	expect(mockLoad).toHaveBeenCalledTimes(1); // refused per-IP — global untouched
 
 	setClientIp('2.2.2.2');
-	await ReceiptPage({ params: paramsFor(HASH_A) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_A });
 	// A different IP, never throttled before, admitted on its first request —
 	// and the global budget still has room for it only if the refusal above
 	// truly spent nothing from the shared pool.

@@ -42,7 +42,8 @@ vi.mock('../../../../lib/alerts.js', async (importOriginal) => {
 });
 
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
-const { default: ReceiptPage } = await import('./page');
+const { ReceiptBody } = await import('./receiptBody');
+const { DEFAULT_CHAIN } = await import('../../../../lib/chains');
 
 const mockLoad = vi.mocked(loadReceipt);
 
@@ -63,7 +64,6 @@ const RECEIPT = {
 	reconResidualBps: null, manipulationFlag: false,
 } as never;
 
-const paramsFor = (hash: string) => Promise.resolve({ chain: 'base', hash });
 
 beforeEach(() => {
 	mockLoad.mockClear();
@@ -76,7 +76,7 @@ beforeEach(() => {
 it('notifies once when loadReceipt resolves a receipt', async () => {
 	mockLoad.mockResolvedValue(RECEIPT);
 
-	await ReceiptPage({ params: paramsFor(HASH) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH });
 
 	expect(activityNotifySpy).toHaveBeenCalledTimes(1);
 	expect(activityNotifySpy).toHaveBeenCalledWith('receipt_created', expect.stringContaining(HASH));
@@ -88,7 +88,7 @@ it('notifies once when loadReceipt resolves a receipt', async () => {
 it('does not notify when loadReceipt returns null', async () => {
 	mockLoad.mockResolvedValue(null);
 
-	await ReceiptPage({ params: paramsFor(HASH) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH });
 
 	expect(activityNotifySpy).not.toHaveBeenCalled();
 });

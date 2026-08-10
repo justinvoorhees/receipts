@@ -42,7 +42,8 @@ vi.mock('../../../../lib/alerts.js', async (importOriginal) => {
 });
 
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
-const { default: ReceiptPage } = await import('./page');
+const { ReceiptBody } = await import('./receiptBody');
+const { DEFAULT_CHAIN } = await import('../../../../lib/chains');
 
 const mockLoad = vi.mocked(loadReceipt);
 
@@ -61,7 +62,6 @@ const RECEIPT = {
 	reconResidualBps: null, manipulationFlag: false,
 } as never;
 
-const paramsFor = (hash: string) => Promise.resolve({ chain: 'base', hash });
 
 beforeEach(() => {
 	mockLoad.mockClear();
@@ -77,9 +77,9 @@ beforeEach(() => {
 it('does not notify for a request throttled by the per-IP limiter', async () => {
 	mockLoad.mockResolvedValue(RECEIPT);
 
-	await ReceiptPage({ params: paramsFor(HASH_A) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_A });
 	expect(activityNotifySpy).toHaveBeenCalledTimes(1); // the admitted view
 
-	await ReceiptPage({ params: paramsFor(HASH_B) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_B });
 	expect(activityNotifySpy).toHaveBeenCalledTimes(1); // still 1 — throttled, no second report
 });

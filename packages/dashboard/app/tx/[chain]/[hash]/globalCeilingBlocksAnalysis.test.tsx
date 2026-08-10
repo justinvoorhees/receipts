@@ -38,7 +38,8 @@ vi.mock('../../../../lib/loadReceipt', () => ({ loadReceipt: vi.fn(async () => n
 vi.mock('@fabric-tca/core', () => ({ classifyTransaction: vi.fn(async () => ({ reason: 'NOT_A_SWAP' })) }));
 
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
-const { default: ReceiptPage } = await import('./page');
+const { ReceiptBody } = await import('./receiptBody');
+const { DEFAULT_CHAIN } = await import('../../../../lib/chains');
 
 const mockLoad = vi.mocked(loadReceipt);
 
@@ -61,7 +62,6 @@ const RECEIPT = {
 	reconResidualBps: null, manipulationFlag: false,
 } as never;
 
-const paramsFor = (hash: string) => Promise.resolve({ chain: 'base', hash });
 
 beforeEach(() => {
 	mockLoad.mockClear();
@@ -74,9 +74,9 @@ beforeEach(() => {
 it('does not analyze once the global hourly ceiling is exhausted', async () => {
 	mockLoad.mockResolvedValue(RECEIPT);
 
-	await ReceiptPage({ params: paramsFor(HASH_A) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_A });
 	expect(mockLoad).toHaveBeenCalledTimes(1);
 
-	await ReceiptPage({ params: paramsFor(HASH_B) });
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_B });
 	expect(mockLoad).toHaveBeenCalledTimes(1); // still 1 — the second was refused
 });

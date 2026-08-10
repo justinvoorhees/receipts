@@ -39,15 +39,25 @@ function nextLoaderWord(prev: string | null): string {
 	return pool[Math.floor(Math.random() * pool.length)] as string;
 }
 
+// The label while the SERVER is already analyzing (a hard navigation to a
+// receipt URL). Fixed, not drawn from LOADER_WORDS: this render is a
+// server-rendered Suspense fallback, and a random pick would differ between
+// the server's HTML and the client's first render — a hydration mismatch.
+// Client-side submissions still randomize, because they never SSR.
+const DECODING_LABEL = 'Analyzing…';
+
 export function ReceiptSearch({
 	hash,
 	isPending,
 	startTransition,
+	decoding = false,
 	failure,
 }: {
 	hash: string;
 	isPending: boolean;
 	startTransition: (callback: () => void) => void;
+	/** The server is analyzing this hash right now — see ReceiptView's prop doc. */
+	decoding?: boolean;
 	failure?: AnalyzeFailure;
 }) {
 	const router = useRouter();
@@ -76,8 +86,13 @@ export function ReceiptSearch({
 	// button's loading state is the route transition itself, which is honest
 	// about what is happening — the previous version reported "Analyzing" while
 	// awaiting a POST whose only purpose was to write a row.
+	// Either kind of work in flight disables submission: `isPending` is a client
+	// transition this component started, `decoding` is a server render already
+	// under way for the hash in the URL.
+	const busy = isPending || decoding;
+
 	const go = (raw: string) => {
-		if (isPending) return;
+		if (busy) return;
 		const submission = resolveSearchSubmission(raw);
 		if (submission.kind === 'empty') return;
 		if (submission.kind === 'invalid') {
@@ -152,7 +167,7 @@ export function ReceiptSearch({
 				<button
 					type="button"
 					onClick={submit}
-					disabled={isPending}
+					disabled={busy}
 					aria-label="Create receipt"
 					className="flex h-full shrink-0 cursor-pointer items-center justify-center whitespace-nowrap px-[12px] font-['Sohne_Mono'] text-[12px] leading-[12px] text-[var(--color-surface-base)] hover:opacity-80 active:opacity-60 disabled:cursor-default disabled:opacity-70 transition-opacity"
 					style={{
@@ -160,7 +175,7 @@ export function ReceiptSearch({
 						fontFeatureSettings: '"calt" 0',
 					}}
 				>
-					{isPending ? `${loaderWord}…` : 'Create Receipt'}
+					{isPending ? `${loaderWord}…` : decoding ? DECODING_LABEL : 'Create Receipt'}
 				</button>
 			</div>
 			{effectiveFailure && <FailureNotice failure={effectiveFailure} />}

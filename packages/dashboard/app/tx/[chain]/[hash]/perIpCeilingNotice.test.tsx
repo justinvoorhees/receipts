@@ -33,14 +33,14 @@ vi.mock('../../../../lib/loadReceipt', () => ({ loadReceipt: vi.fn(async () => n
 vi.mock('@fabric-tca/core', () => ({ classifyTransaction: vi.fn(async () => ({ reason: 'NOT_A_SWAP' })) }));
 
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
-const { default: ReceiptPage } = await import('./page');
+const { ReceiptBody } = await import('./receiptBody');
+const { DEFAULT_CHAIN } = await import('../../../../lib/chains');
 
 const mockLoad = vi.mocked(loadReceipt);
 
 const HASH_A = '0x' + 'a'.repeat(64);
 const HASH_B = '0x' + 'b'.repeat(64);
 
-const paramsFor = (hash: string) => Promise.resolve({ chain: 'base', hash });
 
 beforeEach(() => {
 	mockLoad.mockClear();
@@ -57,8 +57,8 @@ it('tells a per-IP-throttled visitor something brief and specific, not the globa
 	// no forwarding headers are present), so the second call is the SAME
 	// visitor tripping their own per-minute budget — not two different callers
 	// sharing a global ceiling.
-	await ReceiptPage({ params: paramsFor(HASH_A) });
-	const html = renderToStaticMarkup(await ReceiptPage({ params: paramsFor(HASH_B) }));
+	await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_A });
+	const html = renderToStaticMarkup(await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH_B }));
 
 	expect(html).toContain('faster than we allow');
 	expect(html).not.toContain('hourly analysis budget is exhausted');

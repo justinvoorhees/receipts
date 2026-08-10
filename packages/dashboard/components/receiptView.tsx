@@ -67,10 +67,19 @@ export function ReceiptView({
 	trade,
 	hash,
 	diagnosis,
+	decoding = false,
 }: {
 	trade: ReceiptModel | null;
 	hash: string;
 	diagnosis?: AnalyzeFailure;
+	/**
+	 * This render IS the receipt route's Suspense fallback — the server is
+	 * analyzing `hash` right now (see app/tx/[chain]/[hash]/page.tsx). Distinct
+	 * from `isPending` below, which is a CLIENT transition this component
+	 * started: a hard navigation runs no transition, so without this the shell
+	 * for a shared link would sit there reading "Create Receipt" while decoding.
+	 */
+	decoding?: boolean;
 }) {
 	const [isPending, startTransition] = useTransition();
 	// Only surface a failure when there is no receipt to show.
@@ -82,6 +91,7 @@ export function ReceiptView({
 				hash={hash}
 				isPending={isPending}
 				startTransition={startTransition}
+				decoding={decoding}
 				{...(failure ? { failure } : {})}
 			/>
 			{/* The rule under the input renders in EVERY state, including the empty

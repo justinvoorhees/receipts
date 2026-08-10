@@ -39,6 +39,7 @@ vi.mock('@fabric-tca/core', () => ({ classifyTransaction: vi.fn(async () => ({ r
 const { loadReceipt } = await import('../../../../lib/loadReceipt');
 const { DEFAULT_CHAIN } = await import('../../../../lib/chains');
 const { default: TxPage } = await import('./page');
+const { ReceiptBody } = await import('./receiptBody');
 
 const mockLoad = vi.mocked(loadReceipt);
 
@@ -55,14 +56,27 @@ beforeEach(() => {
 
 describe('/tx/[chain]/[hash]', () => {
 	it('renders a canonical URL without redirecting', async () => {
-		const html = renderToStaticMarkup(await render('base', HASH));
+		await render('base', HASH);
 		expect(permanentRedirect).not.toHaveBeenCalled();
 		expect(notFound).not.toHaveBeenCalled();
-		expect(html).toContain('Create Receipt');
+	});
+
+	// The shell is the Suspense fallback, so it renders WITHOUT the analysis: a
+	// shared link shows the search box prefilled with the URL's hash, reading
+	// "Analyzing…" rather than the idle "Create Receipt", while the receipt
+	// streams in behind it. Asserting on `page.tsx`'s own output — not
+	// ReceiptBody's — is what pins that the shell is reachable before the
+	// ~40 RPC calls resolve.
+	it('streams a prefilled, decoding search shell before the analysis resolves', async () => {
+		const html = renderToStaticMarkup((await render('base', HASH)) as React.ReactElement);
+		expect(html).toContain(`value="${HASH}"`);
+		expect(html).toContain('Analyzing…');
+		expect(html).not.toContain('Create Receipt');
+		expect(mockLoad).not.toHaveBeenCalled();
 	});
 
 	it('loads the receipt with the RESOLVED chain, not a hardcoded one', async () => {
-		await render('base', HASH);
+		await ReceiptBody({ chain: DEFAULT_CHAIN, hash: HASH });
 		expect(mockLoad).toHaveBeenCalledWith(DEFAULT_CHAIN, HASH);
 	});
 
