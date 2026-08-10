@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Route } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { resolveReceiptUrl } from '../../../../lib/receiptUrl';
-import { ReceiptView } from '../../../../components/receiptView';
+import { ReceiptFallback } from '../../../../components/receiptFallback';
 import { ReceiptBody } from './receiptBody';
 
 export const dynamic = 'force-dynamic';
@@ -26,9 +26,13 @@ export const dynamic = 'force-dynamic';
  *   - a hard navigation (shared link, refresh) streams this shell immediately —
  *     the search box prefilled with the URL's hash, reading "Analyzing…" — and
  *     swaps in the receipt when it lands;
- *   - a client-side navigation to another hash has no route-level fallback to
- *     show, so React's transition keeps the previous page mounted until the new
- *     one is ready, which is what lets the old receipt stay and pulse.
+ *   - a client-side navigation to another hash gets the SAME fallback, but
+ *     ReceiptFallback fills it with the receipt already on screen, pulsing.
+ *
+ * That second case is why the fallback is a component and not markup: Next
+ * commits the incoming route and renders this fallback rather than holding the
+ * previous page up, so keeping the old receipt visible means re-rendering it
+ * here, from the client-side store in components/receiptTransition.ts.
  */
 export default async function ReceiptPage({
 	params,
@@ -45,10 +49,7 @@ export default async function ReceiptPage({
 
 	return (
 		<div className="mt-[40px]">
-			{/* The fallback is the real ReceiptView in its empty state, so the
-			    decoding page and the index are the same screen — prefilled here,
-			    and nothing under the divider until the receipt lands. */}
-			<Suspense fallback={<ReceiptView trade={null} hash={hash} decoding />}>
+			<Suspense fallback={<ReceiptFallback hash={hash} />}>
 				<ReceiptBody chain={chain} hash={hash} />
 			</Suspense>
 		</div>

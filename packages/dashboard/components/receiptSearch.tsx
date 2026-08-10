@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { FailureNotice } from './failureNotice';
+import { setLoaderWord, useReceiptTransition } from './receiptTransition';
 import { resolveSearchSubmission, shouldClearFailure } from '../lib/receiptUrl';
 
 // Shown as greyed placeholder text in the empty search field.
@@ -39,11 +40,13 @@ function nextLoaderWord(prev: string | null): string {
 	return pool[Math.floor(Math.random() * pool.length)] as string;
 }
 
-// The label while the SERVER is already analyzing (a hard navigation to a
-// receipt URL). Fixed, not drawn from LOADER_WORDS: this render is a
-// server-rendered Suspense fallback, and a random pick would differ between
-// the server's HTML and the client's first render — a hydration mismatch.
-// Client-side submissions still randomize, because they never SSR.
+// The label while the SERVER is analyzing and no word was drawn for this
+// navigation — i.e. a hard navigation to a receipt URL. Fixed, not drawn from
+// LOADER_WORDS: that render is server-rendered, and a random pick would differ
+// between the server's HTML and the client's first render, a hydration
+// mismatch. A client-side submission publishes its word to the transition store
+// before navigating, so the fallback shows THAT word instead — no SSR involved
+// on that path, so randomizing there is safe.
 const DECODING_LABEL = 'Analyzing…';
 
 export function ReceiptSearch({
@@ -64,7 +67,9 @@ export function ReceiptSearch({
 	const [value, setValue] = useState(hash);
 	const [inputHovered, setInputHovered] = useState(false);
 	const [inputFocused, setInputFocused] = useState(false);
-	const [loaderWord, setLoaderWord] = useState<string>(LOADER_WORDS[0]);
+	// Local, for this component's own pending state; `setLoaderWord` (imported)
+	// is the cross-navigation copy the next page's fallback reads.
+	const [loaderWord, setWord] = useState<string>(LOADER_WORDS[0]);
 	const lastLoaderWord = useRef<string | null>(null);
 	// Client-side-only failure (a bad paste never reaches the server). Distinct
 	// from the `failure` prop, which the server computes for a hash it already
@@ -86,6 +91,10 @@ export function ReceiptSearch({
 	// button's loading state is the route transition itself, which is honest
 	// about what is happening — the previous version reported "Analyzing" while
 	// awaiting a POST whose only purpose was to write a row.
+	// The word the click that started THIS navigation drew, when there was one.
+	// Null on a hard navigation, where DECODING_LABEL stands in.
+	const { word: carriedWord } = useReceiptTransition();
+
 	// Either kind of work in flight disables submission: `isPending` is a client
 	// transition this component started, `decoding` is a server render already
 	// under way for the hash in the URL.
@@ -102,6 +111,10 @@ export function ReceiptSearch({
 		setLocalFailure(undefined);
 		const word = nextLoaderWord(lastLoaderWord.current);
 		lastLoaderWord.current = word;
+		setWord(word);
+		// Published BEFORE the transition starts: this component is about to be
+		// unmounted by the navigation, and the fallback that replaces it reads
+		// the word from here.
 		setLoaderWord(word);
 		startTransition(() => {
 			router.push(submission.to as Route);
@@ -175,7 +188,11 @@ export function ReceiptSearch({
 						fontFeatureSettings: '"calt" 0',
 					}}
 				>
-					{isPending ? `${loaderWord}…` : decoding ? DECODING_LABEL : 'Create Receipt'}
+					{isPending
+						? `${loaderWord}…`
+						: decoding
+							? `${carriedWord ?? DECODING_LABEL.replace('…', '')}…`
+							: 'Create Receipt'}
 				</button>
 			</div>
 			{effectiveFailure && <FailureNotice failure={effectiveFailure} />}

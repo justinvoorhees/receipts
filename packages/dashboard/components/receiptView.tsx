@@ -1,6 +1,7 @@
 'use client';
-import { useTransition } from 'react';
+import { useEffect, useTransition } from 'react';
 import { ReceiptSearch } from './receiptSearch';
+import { rememberReceipt } from './receiptTransition';
 import type { ReceiptModel } from '../lib/receiptModel';
 import type { AnalyzeFailure } from '@fabric-tca/core';
 import { shortTxHash, formatGasUsd } from '../lib/formatters';
@@ -85,6 +86,15 @@ export function ReceiptView({
 	// Only surface a failure when there is no receipt to show.
 	const failure = trade === null ? diagnosis : undefined;
 
+	// Outlive this component so the NEXT navigation's Suspense fallback can put
+	// this receipt back on screen (see receiptTransition.ts). In an effect, not
+	// in render: the store must never be written during SSR, where module state
+	// is shared across requests. Skipped while `decoding`, or the fallback would
+	// re-record the receipt it just read.
+	useEffect(() => {
+		if (trade != null && !decoding) rememberReceipt(trade);
+	}, [trade, decoding]);
+
 	return (
 		<div className="flex flex-col gap-[40px]">
 			<ReceiptSearch
@@ -98,8 +108,15 @@ export function ReceiptView({
 			    page (Figma 544-2386) — which is why it lives here and not at the top
 			    of <Receipt>. */}
 			<Divider />
+			{/* Pulses on either signal: `isPending` is this component's own
+			    transition, `decoding` means this render IS the fallback showing
+			    the previous receipt while the next one is analyzed. */}
 			{trade != null && (
-				<div className={['flex flex-col gap-[40px]', pendingPulseClass(isPending)].filter(Boolean).join(' ')}>
+				<div
+					className={['flex flex-col gap-[40px]', pendingPulseClass(isPending || decoding)]
+						.filter(Boolean)
+						.join(' ')}
+				>
 					<Receipt row={trade} />
 				</div>
 			)}
