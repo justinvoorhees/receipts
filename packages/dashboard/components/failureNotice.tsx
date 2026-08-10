@@ -1,3 +1,4 @@
+import { TooltipTrigger } from './receipt/receiptRows';
 import type { AnalyzeFailure, FailureReason } from '@fabric-tca/core';
 
 export const REASON_COPY: Record<FailureReason, { label: string; tooltip: string | null }> = {
@@ -37,14 +38,14 @@ export function FailureNotice({ failure }: { failure: AnalyzeFailure }) {
 	}
 
 	return (
-		<span
-			className="group relative w-fit cursor-default font-['Sohne_Breit'] text-[12px] leading-[12px] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+		<TooltipTrigger
+			tooltip={tooltip}
+			align="left"
+			className="w-fit cursor-default font-['Sohne_Breit'] text-[12px] leading-[12px] underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
 			style={{ color: 'var(--color-red)' }}
+			bubbleClassName="font-['Sohne_Mono'] no-underline"
 		>
 			{label}
-			<span className="pointer-events-none invisible absolute bottom-full left-0 z-10 mb-[8px] w-max max-w-[320px] whitespace-normal rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left font-['Sohne_Mono'] text-[12px] font-normal leading-[20px] text-[var(--color-surface-base)] no-underline group-hover:visible">
-				{tooltip}
-			</span>
-		</span>
+		</TooltipTrigger>
 	);
 }

@@ -2,8 +2,9 @@
 /**
  * receiptRows — the presentational row/layout sub-components of the receipt
  * (DetailRow, the Cost-Breakdown rows, dividers, aggregator/filler rows). Split out
- * of ReceiptView.tsx (2026-07-21). No hooks; each takes props and renders JSX. Marked
- * 'use client' to match the receipt/ leaf convention.
+ * of ReceiptView.tsx (2026-07-21). Presentational except for `TooltipTrigger`, which
+ * holds the touch-tooltip state (`useTouchTooltip`). Marked 'use client' to match the
+ * receipt/ leaf convention.
  */
 import { useEffect, useRef, useState } from 'react';
 import { providerColor, formatProvider } from '../../lib/formatters';
@@ -31,17 +32,22 @@ import { MARKET_PRICE_BLOCK_LABELS } from './priceDispersion';
 function TooltipBubble({
 	align,
 	forceVisible = false,
+	bubbleClassName,
 	children,
 }: {
 	align: 'left' | 'right';
-	/** Forces the bubble visible outside of CSS :hover — set by a touch long-press. */
+	/** Forces the bubble visible outside of CSS :hover — set by a touch on the trigger. */
 	forceVisible?: boolean;
+	/** Appended to the bubble's class string — for call sites that need extra
+	 *  styling on top of the shared dark-bubble treatment (e.g. FailureNotice's
+	 *  monospace font + no-underline). */
+	bubbleClassName?: string | undefined;
 	children: React.ReactNode;
 }) {
 	return (
 		<span
 			role="tooltip"
-			className={`pointer-events-none absolute bottom-full ${align === 'left' ? 'left-0' : 'right-0'} z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] ${forceVisible ? 'visible' : 'invisible group-hover:visible'}`}
+			className={`pointer-events-none absolute bottom-full ${align === 'left' ? 'left-0' : 'right-0'} z-10 mb-[8px] w-max max-w-[320px] rounded-[2px] bg-[var(--color-primary)] p-[10px] text-left text-[12px] leading-[20px] font-normal whitespace-normal text-[var(--color-surface-base)] ${forceVisible ? 'visible' : 'invisible group-hover:visible'} ${bubbleClassName ?? ''}`.trim()}
 		>
 			{children}
 		</span>
@@ -73,17 +79,19 @@ function useTouchTooltip<T extends HTMLElement>() {
  * too. `className`/`style` carry the trigger's own visual styling exactly as each call
  * site rendered it inline before this was extracted.
  */
-function TooltipTrigger({
+export function TooltipTrigger({
 	tooltip,
 	align,
 	className,
 	style,
+	bubbleClassName,
 	children,
 }: {
 	tooltip: React.ReactNode;
 	align: 'left' | 'right';
 	className: string;
 	style?: React.CSSProperties | undefined;
+	bubbleClassName?: string | undefined;
 	children: React.ReactNode;
 }) {
 	const { ref, touched, onTouchStart } = useTouchTooltip<HTMLSpanElement>();
@@ -95,7 +103,7 @@ function TooltipTrigger({
 			style={style}
 		>
 			{children}
-			<TooltipBubble align={align} forceVisible={touched}>
+			<TooltipBubble align={align} forceVisible={touched} bubbleClassName={bubbleClassName}>
 				{tooltip}
 			</TooltipBubble>
 		</span>

@@ -89,7 +89,7 @@ export function ReceiptView({
 			    of <Receipt>. */}
 			<Divider />
 			{trade != null && (
-				<div className={pendingPulseClass(isPending)}>
+				<div className={['flex flex-col gap-[40px]', pendingPulseClass(isPending)].filter(Boolean).join(' ')}>
 					<Receipt row={trade} />
 				</div>
 			)}

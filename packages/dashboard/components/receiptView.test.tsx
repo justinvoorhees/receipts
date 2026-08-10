@@ -138,6 +138,17 @@ describe('pendingPulseClass', () => {
 	});
 });
 
+describe('pending-pulse wrapper layout', () => {
+	it('keeps the receipt on the page-wide 40px flex rhythm inside the pending-pulse wrapper', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<ReceiptView trade={fullUsdcWethRow as never} hash={fullUsdcWethRow.txHash} />,
+		);
+		const matches = html.match(/class="flex flex-col gap-\[40px\]"/g) ?? [];
+		expect(matches.length).toBe(2);
+	});
+});
+
 // A full USDC/WETH receipt, generalized ReceiptModel shape (Task 8+).
 const fullUsdcWethRow = {
 	txHash: '0x1234567890abcdef1234567890abcdef12345678',
