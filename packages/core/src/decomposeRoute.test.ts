@@ -1883,3 +1883,111 @@ describe('feeOnTransferFlag', () => {
     }
   });
 });
+
+/**
+ * Per-leg RPC in decomposeRoute used to run one leg at a time across four
+ * separate loops. Against the production endpoint that made a 10-leg trade's
+ * decomposition ~4.9s of almost pure round-trip latency, with zero overlap.
+ */
+describe('per-leg reader fan-out', () => {
+  const P1 = '0x00000000000000000000000000000000000000f1' as `0x${string}`;
+  const P2 = '0x00000000000000000000000000000000000000f2' as `0x${string}`;
+  const P3 = '0x00000000000000000000000000000000000000f3' as `0x${string}`;
+  const TOK = '0x00000000000000000000000000000000000000e1' as `0x${string}`;
+  const OUT = '0x00000000000000000000000000000000000000e2' as `0x${string}`;
+  const TR = '0x00000000000000000000000000000000000000c1' as `0x${string}`;
+
+  /** USDC -> WETH -> TOK -> OUT across three v3 pools. */
+  const threeHopTrace = {
+    logs: [
+      transferLog(USDC as `0x${string}`, TR, P1, 1_000000n),
+      transferLog(WETH as `0x${string}`, P1, P2, 500_000000000000n),
+      transferLog(TOK, P2, P3, 700_000000000000n),
+      transferLog(OUT, P3, TR, 900_000000000000n),
+      v3SwapLog(P1), v3SwapLog(P2), v3SwapLog(P3),
+    ],
+  };
+
+  const threeHopInput = (): DecomposeTradeInput => ({
+    trace: threeHopTrace as any,
+    txHash: '0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+    trader: TR, allInCostBps: -1, notionalUsdc: 1, realizedPrice: 2000, gasCostUsd: 0,
+    aggregator: 'Fabric', blockNumber: 47379575n, rpcUrl: 'unused', dustUsdc: 1e-6,
+    structuralFloorUsd: 0, structuralFloorBps: 0.5,
+    recognizeV3Forks: true, impureOnVenueThirdToken: true,
+  });
+
+  function probe() {
+    let inFlight = 0;
+    let peak = 0;
+    const order: string[] = [];
+    const gate = async <T>(tag: string, value: T): Promise<T> => {
+      order.push(tag);
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return value;
+    };
+    return { gate, peak: () => peak, order: () => order };
+  }
+
+  it('resolves every leg’s fee tier concurrently', async () => {
+    const p = probe();
+    const result = await decomposeRoute(threeHopInput(), {
+      trace: threeHopTrace as any,
+      feeReader: async (addr) => p.gate(addr, { bps: 1, defaulted: false }),
+    });
+
+    expect(result.legs.length).toBeGreaterThan(1);
+    expect(p.peak()).toBeGreaterThan(1);
+  });
+
+  it('reads every leg’s reference mid concurrently', async () => {
+    const p = probe();
+    await decomposeRoute(threeHopInput(), {
+      trace: threeHopTrace as any,
+      feeReader: async () => ({ bps: 1, defaulted: false }),
+      midReader: async (leg) => p.gate(leg.venue, { price: 1, poolAddress: leg.venue, poolKind: 'univ3' }),
+      decimalsReader: async () => 18,
+    });
+
+    expect(p.peak()).toBeGreaterThan(1);
+  });
+
+  it('keeps legs in route order regardless of which reader resolves first', async () => {
+    // Leg order is the receipt's route order and feeds notional weighting, so it
+    // must not follow RPC completion.
+    const delays: Record<string, number> = { [P1]: 20, [P2]: 10, [P3]: 1 };
+    const result = await decomposeRoute(threeHopInput(), {
+      trace: threeHopTrace as any,
+      feeReader: async (addr) => {
+        await new Promise((r) => setTimeout(r, delays[addr.toLowerCase()] ?? 1));
+        return { bps: 1, defaulted: false };
+      },
+    });
+
+    const venues = result.legs.map((l) => l.leg.venue.toLowerCase());
+    expect(venues).toEqual([P1, P2, P3]);
+  });
+
+  it('never asks for a mid on an rfq leg, even when legs are read in parallel', async () => {
+    // RFQ fills are quoted off-chain; a null here is deliberate, not a failure.
+    const asked: string[] = [];
+    // P2 carries no v3 Swap log, so it stays `unknown` and is eligible for the
+    // rfq retype the probe below performs.
+    const trace = { logs: threeHopTrace.logs.filter((l) => !(l.address === P2 && l.topics.length === 3 && l.topics[1] === '0x' + '0'.repeat(64))) };
+    await decomposeRoute({ ...threeHopInput(), trace: trace as any }, {
+      trace: trace as any,
+      feeReader: async () => ({ bps: 1, defaulted: false }),
+      rfqProbe: async (addr) => (addr.toLowerCase() === P2 ? 'eoa' : 'contract'),
+      midReader: async (leg) => {
+        asked.push(leg.venue.toLowerCase());
+        return { price: 1, poolAddress: leg.venue, poolKind: 'univ3' };
+      },
+      decimalsReader: async () => 18,
+    });
+
+    expect(asked).not.toContain(P2);
+  });
+});

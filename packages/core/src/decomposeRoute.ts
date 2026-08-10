@@ -700,9 +700,19 @@ export async function decomposeRoute(
 		const topic0 = log.topics?.[0]?.toLowerCase();
 		if (topic0 && RFQ_FILL_TOPICS.has(topic0)) fillEmitters.add(log.address.toLowerCase());
 	}
-	for (const leg of graph.legs) {
-		if (leg.type !== 'unknown') continue;
-		const proven = fillEmitters.has(leg.venue) || (await rfqProbe(leg.venue)) !== 'contract';
+	// Probes fan out across legs; the retype + flags are then applied in leg order
+	// so routeFlags does not come out in RPC-completion order. A leg already
+	// covered by `fillEmitters` is still never probed — tier 1 is free evidence.
+	const rfqProven = await Promise.all(
+		graph.legs.map(async (leg) => {
+			if (leg.type !== 'unknown') return null;
+			if (fillEmitters.has(leg.venue)) return true;
+			return (await rfqProbe(leg.venue)) !== 'contract';
+		}),
+	);
+	for (const [i, leg] of graph.legs.entries()) {
+		const proven = rfqProven[i];
+		if (proven === null || proven === undefined) continue;
 		const curated = !proven && isCuratedMaker(leg.venue);
 		if (!proven && !curated) continue;
 		leg.type = 'rfq';
@@ -718,15 +728,20 @@ export async function decomposeRoute(
 	// A pool's fee is not a third-party fee — see `dropLpSideSinks`.
 	const poolFeesReader = deps?.poolFeesReader ?? createDefaultPoolFeesReader(input.rpcUrl, input.blockNumber);
 	const lpSideAddresses = new Set<string>();
-	for (const leg of graph.legs) {
+	// Runs AFTER the rfq retype above, which is what decides who is a pool — but
+	// the accumulator lookups within this step are independent, so they fan out.
+	// Aerodrome v2 routes each swap's fee to a dedicated accumulator rather than
+	// keeping it in reserves, so the pool address alone does not cover it.
+	const feeAccumulators = await Promise.all(
+		graph.legs.map(async (leg) =>
+			POOL_VENUE_TYPES.has(leg.type) && leg.type === 'aerodrome' ? await poolFeesReader(leg.venue) : null,
+		),
+	);
+	for (const [i, leg] of graph.legs.entries()) {
 		if (!POOL_VENUE_TYPES.has(leg.type)) continue;
 		lpSideAddresses.add(leg.venue.toLowerCase());
-		// Aerodrome v2 routes each swap's fee to a dedicated accumulator rather
-		// than keeping it in reserves, so the pool address alone does not cover it.
-		if (leg.type === 'aerodrome') {
-			const acc = await poolFeesReader(leg.venue);
-			if (acc) lpSideAddresses.add(acc.toLowerCase());
-		}
+		const acc = feeAccumulators[i];
+		if (acc) lpSideAddresses.add(acc.toLowerCase());
 	}
 	const lpSide = dropLpSideSinks(base.feeSinks, lpSideAddresses, input.notionalUsdc);
 	const aggFeeBps = lpSide.aggFeeBps;
@@ -746,14 +761,20 @@ export async function decomposeRoute(
 	const feeReader = deps?.feeReader ?? createDefaultFeeReader(input.rpcUrl, input.blockNumber);
 	let allFeesResolved = true;
 
+	// Resolve every leg's fee tier at once. Both singleton venues (V4 and
+	// Infinity) carry their fee on the Swap event rather than on-chain, which is
+	// why it arrives as a parameter here instead of being read by the reader
+	// itself. A leg is only ever one venue type, so exactly one of the two fields
+	// is set and `??` cannot pick the wrong one.
+	const feeResults = await Promise.all(
+		graph.legs.map((leg) => feeReader(leg.venue, leg.type, leg.v4FeeRaw ?? leg.infinityFeeRaw)),
+	);
+
+	// Applied in leg order: legFeeInputs order IS the receipt's route order, and
+	// both the flag list and the notional weighting below depend on it.
 	const legFeeInputs: LegFeeInput[] = [];
-	for (const leg of graph.legs) {
-		// Resolve fee tier. Both singleton venues (V4 and Infinity) carry their
-		// fee on the Swap event rather than on-chain, which is why it arrives as
-		// a parameter here instead of being read by the reader itself. A leg is
-		// only ever one venue type, so exactly one of the two fields is set and
-		// `??` cannot pick the wrong one.
-		const feeResult = await feeReader(leg.venue, leg.type, leg.v4FeeRaw ?? leg.infinityFeeRaw);
+	for (const [i, leg] of graph.legs.entries()) {
+		const feeResult = feeResults[i]!;
 		const feeTierBps = feeResult.bps;
 
 		if (feeResult.defaulted) {
@@ -809,35 +830,55 @@ export async function decomposeRoute(
 		let hasRfqLeg = false;       // rfq legs are DELIBERATELY unpriced — tracked separately
 
 		const decReader = deps?.decimalsReader ?? null;
-		for (const lwl of legsWithLp) {
-			if (!midReader) continue;
+
+		// Gather every leg's reads at once, then apply the results in leg order.
+		// The skip conditions are evaluated HERE, not just in the apply loop
+		// below, so the reads a leg does not need are still never issued: an rfq
+		// leg is deliberately unpriced and must not reach the midReader at all,
+		// and a zero-amount leg is skipped before the mid read exactly as before.
+		type LegRead =
+			| { kind: 'rfq' }
+			| { kind: 'zeroAmountIn' }
+			| { kind: 'priced'; decIn: number; decOut: number; mid: PairMidResult | null };
+		const legReads: (LegRead | null)[] = await Promise.all(
+			legsWithLp.map(async (lwl): Promise<LegRead | null> => {
+				if (!midReader) return null;
+				const leg = lwl.leg;
+				if (leg.type === 'rfq') return { kind: 'rfq' };
+				// Use RPC-backed decimals when available, else fall back to inline.
+				const decIn = decReader ? await decReader(leg.tokenIn) : decimalsOf(leg.tokenIn);
+				const decOut = decReader ? await decReader(leg.tokenOut) : decimalsOf(leg.tokenOut);
+				if (leg.amountInRaw === 0n) return { kind: 'zeroAmountIn' };
+				return { kind: 'priced', decIn, decOut, mid: await midReader(leg, input.blockNumber - 1n) };
+			}),
+		);
+
+		for (const [i, lwl] of legsWithLp.entries()) {
+			const read = legReads[i];
+			if (!read) continue;
 			const leg = lwl.leg;
 			// RFQ fills are quoted off-chain: there is no pool mid to compare to.
 			// Null is deliberate (flagged RFQ_LEG_UNPRICED at retype), NOT a
 			// pricing failure — do not set hasNullMid, do not call the midReader.
-			if (leg.type === 'rfq') {
+			if (read.kind === 'rfq') {
 				lwl.priceImpactBps = null;
 				hasRfqLeg = true;
 				continue;
 			}
-			// Use RPC-backed decimals when available, else fall back to inline
-			const decIn = decReader ? await decReader(leg.tokenIn) : decimalsOf(leg.tokenIn);
-			const decOut = decReader ? await decReader(leg.tokenOut) : decimalsOf(leg.tokenOut);
 
 			// Guard: amountInRaw === 0 → div-by-zero; skip this leg
-			if (leg.amountInRaw === 0n) {
+			if (read.kind === 'zeroAmountIn') {
 				lwl.priceImpactBps = null;
 				hasNullMid = true;
 				routeFlags.push(`AMOUNT_IN_ZERO: leg ${leg.venue.slice(0, 10)} has zero amountInRaw`);
 				continue;
 			}
 
+			const { decIn, decOut, mid: midResult } = read;
+
 			// Realized price: tokenOut per tokenIn in human units
 			const realizedPrice = (Number(leg.amountOutRaw) / 10 ** decOut) /
 				(Number(leg.amountInRaw) / 10 ** decIn);
-
-			// Reference mid at block N-1 from the leg's own pool
-			const midResult = await midReader(leg, input.blockNumber - 1n);
 
 			if (midResult === null || midResult.price <= 0) {
 				lwl.priceImpactBps = null;
