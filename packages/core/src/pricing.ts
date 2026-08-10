@@ -248,6 +248,33 @@ export async function defaultGetPairMid(
 }
 
 /**
+ * An ERC-20 `symbol()` reader with the known-symbol table pre-seeded and its own
+ * per-instance cache.
+ *
+ * Its own function because analyzeTransaction needs exactly this and nothing
+ * else from the pricing deps: it used to call `createDefaultPricingDeps` a
+ * second time — building a client, a decimals cache and five pool-resolver
+ * closures — purely to reach `readSymbol`, and then threw the rest away.
+ */
+export function createSymbolReader(rpcUrl: string, clientOverride?: PublicClient): (token: string) => Promise<string> {
+  const client = clientOverride ?? (createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) }) as PublicClient);
+  const symCache = new Map<string, string>();
+  for (const [addr, sym] of KNOWN_SYMBOLS) symCache.set(addr, sym);
+  return async (token: string): Promise<string> => {
+    const key = token.toLowerCase();
+    const hit = symCache.get(key);
+    if (hit !== undefined) return hit;
+    const sym = await client.readContract({
+      address: key as `0x${string}`,
+      abi: ERC20_SYMBOL_ABI,
+      functionName: 'symbol',
+    });
+    symCache.set(key, sym);
+    return sym;
+  };
+}
+
+/**
  * Build the live RPC-backed default dependency set (mirrors
  * `createDefaultMidReader`). Constructing this is side-effect-free until the
  * readers are actually invoked, so it's cheap to create even when a caller
@@ -290,20 +317,7 @@ export function createDefaultPricingDeps(rpcUrl: string, pinPoolsAtBlock?: bigin
     readDecimals: decCache,
   };
 
-  const symCache = new Map<string, string>();
-  for (const [addr, sym] of KNOWN_SYMBOLS) symCache.set(addr, sym);
-  const readSymbol = async (token: string): Promise<string> => {
-    const key = token.toLowerCase();
-    const hit = symCache.get(key);
-    if (hit !== undefined) return hit;
-    const sym = await client.readContract({
-      address: key as `0x${string}`,
-      abi: ERC20_SYMBOL_ABI,
-      functionName: 'symbol',
-    });
-    symCache.set(key, sym);
-    return sym;
-  };
+  const readSymbol = createSymbolReader(rpcUrl, client);
 
   return {
     benchmark: getBenchmarkMid,
