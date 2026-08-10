@@ -4,8 +4,11 @@ export const metadata = {
 	title: 'Methodology - Receipts',
 };
 
-// Transcribed verbatim from Figma 549-2447. Prose only — no data access.
-// Every block in the section is 20px apart; the page's outer rhythm is 40px.
+// Transcribed verbatim from Figma 662-4349 (desktop) / 667-4628 (mobile), except the
+// Oracle Reference tolerance figure — kept at 50bps to match the real
+// MANIPULATION_TOL_BPS constant in packages/core/src/benchmarkPrice.ts rather than
+// Figma's "10 bps", which doesn't match any real constant. Prose only — no data
+// access. Every block in a section is 20px apart; the page's outer rhythm is 40px.
 function Heading({ children }: { children: React.ReactNode }) {
 	return (
 		<h2
@@ -18,11 +21,11 @@ function Heading({ children }: { children: React.ReactNode }) {
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-	return <p className="text-[14px] leading-[20px] font-medium">{children}</p>;
+	return <p className="text-[12px] leading-[12px] font-medium uppercase">{children}</p>;
 }
 
 function Body({ children }: { children: React.ReactNode }) {
-	return <p className="text-[14px] leading-[20px]">{children}</p>;
+	return <p className="text-[12px] leading-[20px]">{children}</p>;
 }
 
 export default function MethodologyPage() {
@@ -31,25 +34,33 @@ export default function MethodologyPage() {
 			<Divider />
 
 			<div className="flex flex-col gap-[20px]">
-				<h1
-					className="font-['Sohne_Breit'] font-medium text-[28px] leading-[28px]"
-					style={{ fontFeatureSettings: '"calt" 0' }}
-				>
-					Methodology
-				</h1>
-				<p className="text-[12px] leading-[12px] text-[var(--color-secondary)]">v0.1</p>
+				<div className="flex flex-col gap-[12px]">
+					<h1
+						className="font-['Sohne_Breit'] font-medium text-[28px] leading-[28px]"
+						style={{ fontFeatureSettings: '"calt" 0' }}
+					>
+						Methodology
+					</h1>
+					<p className="text-[12px] leading-[12px] text-[var(--color-secondary)]">v0.1</p>
+				</div>
+				<Body>
+					Important: All pricing is provided on a best-effort basis and is not guaranteed. Market
+					prices may be manipulated, skewed, stale, or unavailable. Receipts are provided for
+					informational purposes only and do not constitute financial advice.
+				</Body>
+				<Body>All prices are measured at the block immediately before the transaction.</Body>
 			</div>
+
+			<Divider />
 
 			<div className="flex flex-col gap-[20px]">
 				<Heading>Market Price</Heading>
-
-				<Body>All market prices are measured at the block immediately before the transaction.</Body>
 
 				<Label>WETH/USDC Price:</Label>
 				<Body>
 					The median price from three designated WETH/USDC liquidity pools, cross-referenced against
 					an oracle reference. Used directly for WETH/USDC transactions or as a reference when pricing
-					other token pairs.
+					other token pairs and gas cost.
 				</Body>
 
 				<Body>All other prices may use up to three methods:</Body>
@@ -78,7 +89,17 @@ export default function MethodologyPage() {
 
 				<Body>
 					When at least 2/3 methods agree, prices are Verified. When only the direct-pool method or
-					WETH-derived method are available, prices are Estimated.
+					WETH-derived method are available, prices are Estimated. When neither, prices are
+					Unavailable.
+				</Body>
+			</div>
+
+			<div className="flex flex-col gap-[20px]">
+				<Heading>Per-Leg Price</Heading>
+				<Body>
+					The midpoint price from the leg's executing liquidity pool. When unavailable, the deepest
+					qualifying liquidity pool for the same token pair is used as a fallback. Market maker legs
+					remain unpriced by nature.
 				</Body>
 			</div>
 
