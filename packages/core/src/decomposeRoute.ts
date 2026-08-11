@@ -165,6 +165,17 @@ export interface RouteDecomposeResult {
 	routeShape: RouteShape;
 	hopCount: number;
 	legs: (LegFeeInput & { lpFeeBps: number | null; priceImpactBps: number | null })[];
+	/**
+	 * Did the route graph reconstruct? This is the question "can we say anything
+	 * per-leg", and it is NOT answerable from any other field here.
+	 *
+	 * ⚠️ Do not substitute a leg count. The un-reconstructed path still emits legs
+	 * (`venuesToUncostedLegs`), so `legs.length > 0` is true for routes we cannot
+	 * cost at all — corpus id 485 has one real `aerodrome_cl` leg and no
+	 * reconstruction. `confidence: 'low'` is also not the same test; it is reached
+	 * by reconstructed routes with a large recon residual too.
+	 */
+	reconstructed: boolean;
 	reconResidualBps: number | null;
 	confidence: 'high' | 'medium' | 'low';
 	flags: string[];
@@ -973,6 +984,7 @@ export async function decomposeRoute(
 			routeShape: graph.shape,
 			hopCount,
 			legs: [...wrapEntries, ...legsWithLp, ...unwrapEntries],
+			reconstructed: true,
 			reconResidualBps,
 			confidence,
 			// decomposeTrade averages V4 fee tiers for ITS OWN route-level rollup and
@@ -1021,6 +1033,7 @@ export async function decomposeRoute(
 			...(legsWithLp.length > 0 ? legsWithLp : venuesToUncostedLegs(venues, transfers)),
 			...unwrapEntries,
 		],
+		reconstructed: false,
 		reconResidualBps: null,
 		confidence: 'low',
 		flags: [...base.flags, ...routeFlags],

@@ -156,7 +156,34 @@ export const UNATTRIBUTED_TOOLTIP =
 
 const NOT_AVAILABLE = { text: 'N/A', color: undefined };
 
-export function getExecutionBreakdown(row: { slippageBps: string | number | null; routeLegs?: unknown }): {
+/**
+ * Copy for every cell on a route we could not decompose: Third-Party Fee, L.P.
+ * Fee and Price Impact all share it.
+ *
+ * Distinct from NULL_PRICE_TOOLTIP ("No market price available"), which is the
+ * OTHER axis of failure — there we knew the route and could not price it. Here
+ * a market price usually exists (this receipt's own Price Range renders); what
+ * is missing is any per-venue structure to attribute it against.
+ *
+ * ⚠️ Third-Party Fee is included deliberately. Its bps survives a failed
+ * reconstruction arithmetically, but its ATTRIBUTION does not: dropLpSideSinks
+ * separates pool fees from third-party fees using leg types that do not exist
+ * on this path, which is what produces flags like `COUNTERPARTY: … classified
+ * as venue, not fee sink`. Publishing "0.00bps" there states a fact we did not
+ * establish.
+ */
+export const NO_ROUTE_TOOLTIP = 'No route available';
+
+export function getExecutionBreakdown(
+	row: { slippageBps: string | number | null; routeLegs?: unknown },
+	/**
+	 * The whole-trade delta, in the same positive-is-a-cost convention as
+	 * `slippageBps`. Used ONLY when nothing at all could be attributed (see
+	 * below); pass the same value the Total Execution Delta row renders so the
+	 * two rows can never disagree.
+	 */
+	wholeTradeCostBps?: number | null,
+): {
 	executionDisplay: { text: string; color: string | undefined };
 	priceImpactDisplay: { text: string; color: string | undefined };
 	/**
@@ -189,8 +216,21 @@ export function getExecutionBreakdown(row: { slippageBps: string | number | null
 	const priceImpactRaw = hasPriceImpact
 		? legs.reduce((sum, leg) => sum + (leg.priceImpactBps ?? 0), 0)
 		: null;
+	// Nothing was attributed at ALL: no residual to subtract price impact from,
+	// and no leg carried a price impact either. That is the un-reconstructed
+	// route — core nulls slippageBps there because LP and slippage are not
+	// separable — and it is exactly the case where the whole-trade delta IS the
+	// unattributed amount. Falling back to it is not an estimate; it is the
+	// definition, with every attributable term equal to zero.
+	// ⚠️ Only when BOTH are null. If some legs priced, the residual is a real
+	// (if partial) measurement and must not be overwritten by the total.
+	const nothingAttributed = executionRaw == null && priceImpactRaw == null;
 	const marketForcesRaw =
-		executionRaw != null && priceImpactRaw != null ? executionRaw - priceImpactRaw : executionRaw;
+		executionRaw != null && priceImpactRaw != null
+			? executionRaw - priceImpactRaw
+			: nothingAttributed
+				? (wholeTradeCostBps != null && Number.isFinite(wholeTradeCostBps) ? wholeTradeCostBps : null)
+				: executionRaw;
 
 	// marketForcesRaw > 0 is a cost to the user; < 0 is a benefit. Split so each
 	// row only ever carries one side, with the other pinned to 0.00bps.

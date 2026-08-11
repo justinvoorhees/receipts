@@ -21,6 +21,7 @@ import {
 	hasUnresolvedFee,
 	UNRESOLVED_FEE_TOOLTIP,
 	NULL_PRICE_TOOLTIP,
+	NO_ROUTE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
 	UNATTRIBUTED_TOOLTIP,
@@ -140,7 +141,26 @@ export function Receipt({
 }) {
 	const legs = normalizeRouteLegs(row.routeLegs);
 	const showFillerRow = isUniswapXFillerRow(row);
-	const hasCostedLeg = legs.some((l) => typeof l.lpFeeBps === 'number');
+	/**
+	 * Did core reconstruct the route? This is the ONLY switch between the two
+	 * receipts: the per-leg breakdown, and the "no route available" state where
+	 * Third-Party Fee, L.P. Fee and Price Impact are all N/A.
+	 *
+	 * ⚠️ Do not re-derive this from the legs. The un-reconstructed path still
+	 * emits legs (core's `venuesToUncostedLegs`) — corpus id 485 has a real
+	 * `aerodrome_cl` leg and no reconstruction, and this transaction has a
+	 * WETH9 wrap/unwrap pair that nets to nothing. A leg count answers "did we
+	 * see any venues", which is a different question from "can we attribute".
+	 *
+	 * Rows persisted before core carried the field fall back to `true`, which
+	 * keeps them on the breakdown they were rendered with.
+	 *
+	 * ⚠️ Deliberately NOT `&& legs.length > 0`. A reconstructed route with no
+	 * legs keeps its own "No Route Found" row below — folding the two together
+	 * reads as the same state but is not, and it silently reclassifies every
+	 * receipt whose legs we simply have not populated.
+	 */
+	const routeReconstructed = row.routeReconstructed ?? true;
 	// Partial receipts have no reference mid, so price/impact/slippage are null.
 	// Guard every numeric read against null instead of `Number(null) === 0`.
 	const isPartial = row.pricingStatus === 'partial';
@@ -156,7 +176,6 @@ export function Receipt({
 		: '';
 	const feeLines = getAggregatorFeeLines(row);
 	const hasAggFee = feeLines.length > 0;
-	const execution = getExecutionBreakdown(row);
 	const priceImpactRows = getPriceImpactRows(legs, row);
 	const pairTitle = receiptPairTitle(row);
 	const { base, quote, baseIsOutput } = pairBaseQuote(row);
@@ -179,6 +198,11 @@ export function Receipt({
 				? Number(row.allInCostBps)
 				: null;
 	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
+	// Passed `costBps` so that when NOTHING could be attributed, the Unattributed
+	// row is the same quantity Total Execution Delta prints — on a route with no
+	// attributable parts those two rows are the same number by definition, and
+	// deriving them from one source is what guarantees they never drift.
+	const execution = getExecutionBreakdown(row, costBps);
 	// Execution Delta states the gap on THIS trade; Price Delta states it per 1 base.
 	// Same sentence, same direction source — they can never disagree.
 	const executionDelta =
@@ -333,7 +357,15 @@ export function Receipt({
 
 			{/* Cost breakdown */}
 			<div className="flex flex-col gap-[20px] font-['Sohne_Mono'] text-[12px] leading-[12px]">
-				{hasAggFee ? (
+				{!routeReconstructed ? (
+					<BkdHeading
+						label="Third-Party Fee"
+						value="N/A"
+						tooltip={THIRD_PARTY_FEE_TOOLTIP}
+						valueTooltip={NO_ROUTE_TOOLTIP}
+						standalone
+					/>
+				) : hasAggFee ? (
 					<div className={GROUP_SECTION}>
 						<BkdHeading label="Third-Party Fee" tooltip={THIRD_PARTY_FEE_TOOLTIP} />
 						{feeLines.map((line, i) => {
@@ -359,12 +391,28 @@ export function Receipt({
 					/>
 				)}
 
-				{legs.length === 0 ? (
+				{!routeReconstructed ? (
+					/*
+					  No route: one honest N/A, no leg list. The legs core emitted on this
+					  path are not a route — a WETH9 wrap/unwrap pair that nets to nothing,
+					  or a lone venue we never costed — and listing them under an "L.P.
+					  Fee" heading would assert a breakdown we do not have. This replaces
+					  the old "Pools Touched" fallback, which named the same rows without
+					  claiming a fee and still implied we had followed the trade.
+					*/
+					<BkdHeading
+						label="Liquidity Provider Fee"
+						value="N/A"
+						valueTooltip={NO_ROUTE_TOOLTIP}
+						plain
+						standalone
+					/>
+				) : legs.length === 0 ? (
 					<div className={GROUP_SECTION}>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						<BkdRow label="No Route Found" value="–" secondary />
 					</div>
-				) : hasCostedLeg ? (
+				) : (
 					<div className={GROUP_SECTION}>
 						<BkdHeading label="Liquidity Provider Fee" plain />
 						{legs.map((leg, index) => {
@@ -391,110 +439,104 @@ export function Receipt({
 							);
 						})}
 					</div>
+				)}
+
+				{!routeReconstructed || isPartial ? (
+					<BkdHeading
+						label="Price Impact"
+						value="N/A"
+						// Two different failures, two different explanations: with no route
+						// there is nothing to measure impact ON; on the partial tier there
+						// is a route but no reference mid to measure it AGAINST.
+						valueTooltip={routeReconstructed ? NULL_PRICE_TOOLTIP : NO_ROUTE_TOOLTIP}
+						tooltip="Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees"
+						standalone
+					/>
 				) : (
 					<div className={GROUP_SECTION}>
-						<BkdHeading label="Pools Touched" plain />
-						{legs.map((leg, index) => (
-							<LegRow
-								key={`${leg.venue}-${index}`}
-								leg={leg}
-								index={index}
-								legsLength={legs.length}
-								row={row}
-								value="–"
-								requirePair
-							/>
-						))}
+						<BkdHeading
+							label="Price Impact"
+							tooltip="Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees"
+						/>
+						{priceImpactRows.length > 0 ? (
+							priceImpactRows.map((impact, index) => (
+								<BkdRow
+									key={`${impact.href ?? impact.label}-${index}`}
+									label={impact.label}
+									href={impact.href}
+									context={legContext(impact.context, impact.router, false)}
+									value={impact.value}
+									color={impact.color}
+									valueTooltip={impact.valueTooltip}
+									secondary
+								/>
+							))
+						) : (
+							<BkdRow label="No Route Found" value="–" secondary />
+						)}
 					</div>
 				)}
 
-				{isPartial || (legs.length > 0 && !hasCostedLeg) ? (
-					<>
-						<BkdHeading
-							label="Price Impact"
-							value="N/A"
-							valueTooltip={NULL_PRICE_TOOLTIP}
-							tooltip="Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees"
-							standalone
-						/>
-						<BkdHeading
-							label="Slippage"
-							value="N/A"
-							valueTooltip={NULL_PRICE_TOOLTIP}
-							tooltip="Residual cost after third-party fees, L.P. fees, and price impact"
-							standalone
-						/>
-					</>
-				) : (
-					<>
-						<div className={GROUP_SECTION}>
-							<BkdHeading
-								label="Price Impact"
-								tooltip="Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees"
-							/>
-							{priceImpactRows.length > 0 ? (
-								priceImpactRows.map((impact, index) => (
-									<BkdRow
-										key={`${impact.href ?? impact.label}-${index}`}
-										label={impact.label}
-										href={impact.href}
-										context={legContext(impact.context, impact.router, false)}
-										value={impact.value}
-										color={impact.color}
-										valueTooltip={impact.valueTooltip}
-										secondary
-									/>
-								))
-							) : (
-								<BkdRow label="No Route Found" value="–" secondary />
-							)}
-						</div>
-
-						<BkdHeading
-							label="Slippage"
-							value={execution.slippageDisplay.text}
-							color={execution.slippageDisplay.color}
-							tooltip="Residual cost after third-party fees, L.P. fees, and price impact"
-							valueTooltip={
-								execution.slippageUnavailableTooltip
-							}
-							standalone
-						/>
-						<BkdHeading
-							label="Positive Slippage"
-							value={execution.positiveSlippageDisplay.text}
-							color={execution.positiveSlippageDisplay.color}
-							tooltip="Residual benefit after third-party fees, L.P. fees, and price impact"
-							valueTooltip={
-								execution.slippageUnavailableTooltip
-							}
-							standalone
-						/>
-						{/*
-						  Shown ONLY when a leg went unpriced. The residual is the same number the
-						  Slippage row would have printed; what it is not is *slippage*, because we
-						  never measured every leg's price impact. One signed row — it is not split
-						  into cost/benefit halves the way Slippage is (Figma 577-1232).
-						*/}
-						{!execution.fullyPriced && execution.residualRawBps != null && (
-							<BkdHeading
-								label="Unattributed"
-								value={execution.unattributedDisplay.text}
-								color={execution.unattributedDisplay.color}
-								tooltip={UNATTRIBUTED_TOOLTIP}
-								standalone
-							/>
-						)}
-
-						<BkdRow
-							label="Total Execution Delta"
-							value={accuracy}
-							color={accuracyColor}
-							tooltip="Delta between execution price and market price; the sum of Third-Party Fee, L.P. Fee, Price Impact, and Slippage (or Unattributed)"
-							standalone
-						/>
-					</>
+				<BkdHeading
+					label="Slippage"
+					value={execution.slippageDisplay.text}
+					color={execution.slippageDisplay.color}
+					tooltip="Residual cost after third-party fees, L.P. fees, and price impact"
+					// On the partial tier the blocker is the missing reference mid, not
+					// how much of the route we priced — a coverage percentage there
+					// blames our leg readers for an absent market price.
+					valueTooltip={isPartial ? NULL_PRICE_TOOLTIP : execution.slippageUnavailableTooltip}
+					standalone
+				/>
+				{/*
+				  Slippage splits into a cost half and a benefit half ONLY when we priced
+				  every leg. The moment we could not, both halves are N/A and the signed
+				  residual moves to Unattributed below — so a second N/A row would be pure
+				  noise, restating the first row's "we could not calculate this" with a
+				  different label. The split and Unattributed are mutually exclusive by
+				  construction: both key off `fullyPriced`.
+				*/}
+				{execution.fullyPriced && (
+					<BkdHeading
+						label="Positive Slippage"
+						value={execution.positiveSlippageDisplay.text}
+						color={execution.positiveSlippageDisplay.color}
+						tooltip="Residual benefit after third-party fees, L.P. fees, and price impact"
+						valueTooltip={execution.slippageUnavailableTooltip}
+						standalone
+					/>
 				)}
+				{/*
+				  Shown ONLY when a leg went unpriced. The residual is the same number the
+				  Slippage row would have printed; what it is not is *slippage*, because we
+				  never measured every leg's price impact. One signed row — it is not split
+				  into cost/benefit halves the way Slippage is (Figma 577-1232).
+				  On a route that never reconstructed this is the WHOLE execution delta,
+				  because nothing at all was attributed — see getExecutionBreakdown.
+				*/}
+				{!execution.fullyPriced && execution.residualRawBps != null && (
+					<BkdHeading
+						label="Unattributed"
+						value={execution.unattributedDisplay.text}
+						color={execution.unattributedDisplay.color}
+						tooltip={UNATTRIBUTED_TOOLTIP}
+						standalone
+					/>
+				)}
+
+				{/*
+				  Renders on EVERY receipt that has a delta to state, including the
+				  no-route one. It is computed from the market mid and the realized
+				  price and has no per-leg dependency, so it must not sit behind a
+				  leg-shaped gate — that is what hid it on this transaction.
+				*/}
+				<BkdRow
+					label="Total Execution Delta"
+					value={accuracy}
+					color={accuracyColor}
+					tooltip="Delta between execution price and market price; the sum of Third-Party Fee, L.P. Fee, Price Impact, and Slippage (or Unattributed)"
+					standalone
+				/>
 			</div>
 
 			{/* The rule above the share bar (Figma 546-793). */}

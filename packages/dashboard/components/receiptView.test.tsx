@@ -517,26 +517,41 @@ describe('Receipt route rendering (native/fallback)', () => {
 		});
 	});
 
-	it('renders a Pools Touched section when no leg is costed', async () => {
+	it('lists an uncosted leg under L.P. Fee once the route reconstructed', async () => {
+		// Was the "Pools Touched" fallback. A leg core DID follow is still named
+		// and still linked; only its fee is unknown, which the '–' states. The
+		// heading no longer changes just because a fee read failed.
 		const { ReceiptView } = await import('./receiptView');
-		const row = { ...base, pricingStatus: 'partial', routeLegs: [
+		const row = { ...base, pricingStatus: 'partial', routeReconstructed: true, routeLegs: [
 			{ venue: '0x498581ff718922c3f8e6a244956af099b2652b2b', type: 'univ4', tokenIn: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', tokenOut: 'native', feeTierBps: 0, notionalUsdc: 0, lpFeeBps: null, priceImpactBps: null },
 		] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
-		expect(html).toContain('Pools Touched');
+		expect(html).not.toContain('Pools Touched');
+		expect(html).toContain('Liquidity Provider Fee');
 		// This venue address is the real Uniswap V4 PoolManager on Base, which
 		// KNOWN_VENUE_LABELS maps to the friendlier "Uniswap v4" label
 		// (taking priority over the generic univ4 -> "Uniswap v4" fallback).
 		expect(html).toContain('Uniswap v4');
-		expect(html).not.toContain('Liquidity Provider Fee');
 	});
 
-	it('renders "No Route Found" when there are no legs', async () => {
+	it('renders "No Route Found" when a reconstructed route has no legs', async () => {
+		// Distinct from the no-route state below: core claims it followed the
+		// trade, we just have no legs to show. Kept separate on purpose — see
+		// the routeReconstructed comment in receiptView.tsx.
 		const { ReceiptView } = await import('./receiptView');
-		const row = { ...base, pricingStatus: 'partial', routeLegs: [] };
+		const row = { ...base, pricingStatus: 'partial', routeReconstructed: true, routeLegs: [] };
 		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
 		expect(html).toContain('No Route Found');
+		expect(html).not.toContain('Pools Touched');
 		expect(html).not.toContain('>Route<');
+	});
+
+	it('renders the no-route state when core could not reconstruct', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const row = { ...base, routeReconstructed: false, routeLegs: [] };
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain('No route available');
+		expect(html).not.toContain('No Route Found');
 	});
 
 	it('labels an rfq leg "Market Maker", linked to its contract, with a null LP Fee and off-chain-quote tooltip', async () => {
@@ -1140,16 +1155,35 @@ describe('Cost Breakdown tooltip copy (Figma 288-4340)', () => {
 		],
 	};
 
+	// Positive Slippage and Unattributed can no longer appear on the SAME
+	// receipt — the cost/benefit split renders only when every leg priced, and
+	// Unattributed only when one did not. So each row of copy names the state
+	// that shows it rather than sharing one fixture.
+	const PRICED_LEG = {
+		venue: '0xd0b53d9277642d899df5c87a3966a349a798f224', type: 'univ3',
+		tokenIn: fullUsdcWethRow.inputToken, tokenOut: fullUsdcWethRow.outputToken,
+		lpFeeBps: 5, priceImpactBps: 3, feeResolved: true,
+	};
+	const fullyPriced = { ...row, routeReconstructed: true, routeLegs: [PRICED_LEG] };
+	const oneLegUnpriced = {
+		...row,
+		routeReconstructed: true,
+		routeLegs: [PRICED_LEG, { ...PRICED_LEG, priceImpactBps: null }],
+	};
+
 	it.each([
-		['Third-Party Fee', 'Value retained by third parties, not attributed to L.P. fees or price impact'],
-		['Price Impact', 'Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees'],
-		['Slippage', 'Residual cost after third-party fees, L.P. fees, and price impact'],
-		['Positive Slippage', 'Residual benefit after third-party fees, L.P. fees, and price impact'],
-		['Unattributed', 'Residual cost or benefit that could not be completely attributed to third-party fees, L.P. fees, or price impact'],
-		['Total Execution Delta', 'Delta between execution price and market price; the sum of Third-Party Fee, L.P. Fee, Price Impact, and Slippage (or Unattributed)'],
-	])('%s carries its Figma tooltip verbatim', async (_label, copy) => {
+		['Third-Party Fee', 'Value retained by third parties, not attributed to L.P. fees or price impact', fullyPriced],
+		['Price Impact', 'Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees', fullyPriced],
+		['Slippage', 'Residual cost after third-party fees, L.P. fees, and price impact', fullyPriced],
+		['Positive Slippage', 'Residual benefit after third-party fees, L.P. fees, and price impact', fullyPriced],
+		['Unattributed', 'Residual cost or benefit that could not be completely attributed to third-party fees, L.P. fees, or price impact', oneLegUnpriced],
+		['Total Execution Delta', 'Delta between execution price and market price; the sum of Third-Party Fee, L.P. Fee, Price Impact, and Slippage (or Unattributed)', fullyPriced],
+	])('%s carries its Figma tooltip verbatim', async (label, copy, fixture) => {
 		const { Receipt } = await import('./receiptView');
-		const html = renderToStaticMarkup(<Receipt row={row as never} />);
+		const html = renderToStaticMarkup(<Receipt row={fixture as never} />);
+		// Guard against a vacuous pass: the copy is only meaningful if the row
+		// that owns it actually rendered.
+		expect(html).toContain(`>${label}<`);
 		expect(html).toContain(copy);
 	});
 
@@ -1596,7 +1630,7 @@ describe('group section bottom padding (Figma 546-713)', () => {
 		expect(hasPb22Ancestor(html, label)).toBe(true);
 	});
 
-	it('adds pb-[22px] to the "Pools Touched" fallback (LP Fee section, unpriced legs)', async () => {
+	it('adds pb-[22px] to the L.P. Fee section when its legs are uncosted', async () => {
 		const { Receipt } = await import('./receiptView');
 		const row = {
 			...fullUsdcWethRow,
@@ -1610,7 +1644,7 @@ describe('group section bottom padding (Figma 546-713)', () => {
 			],
 		};
 		const html = renderToStaticMarkup(<Receipt row={row as never} />);
-		const label = html.indexOf('>Pools Touched<');
+		const label = html.indexOf('>Liquidity Provider Fee<');
 		expect(label).toBeGreaterThan(-1);
 		expect(hasPb22Ancestor(html, label)).toBe(true);
 	});
@@ -1828,7 +1862,9 @@ describe('Receipt Unattributed row', () => {
 		);
 		expect(html).toContain('>Unattributed<');
 		expect(html).toContain('>Slippage<');
-		expect(html).toContain('>Positive Slippage<');
+		// The two halves collapse to one row wherever Unattributed renders: they
+		// are mutually exclusive by construction, both keyed off `fullyPriced`.
+		expect(html).not.toContain('>Positive Slippage<');
 	});
 
 	it('names the coverage percentage in the N/A tooltip', async () => {
@@ -1862,8 +1898,11 @@ describe('Receipt Unattributed row', () => {
 			<ReceiptView trade={fullyPricedRow as never} hash={fullyPricedRow.txHash} />,
 		);
 		const count = (s: string) => s.split('N/A').length - 1;
-		// partial adds: 1 unpriced leg row + Slippage + Positive Slippage = 3.
-		expect(count(html) - count(baseline)).toBe(3);
+		// partial adds: 1 unpriced leg row + Slippage = 2. Positive Slippage no
+		// longer renders here — once a leg goes unpriced both halves are N/A and
+		// the signed residual moves to Unattributed, so the second row was a
+		// duplicate "we could not calculate this" under a different label.
+		expect(count(html) - count(baseline)).toBe(2);
 	});
 
 	it('blames market-maker inventory, not our coverage, on an RFQ-only gap', async () => {
@@ -1911,8 +1950,8 @@ describe('Receipt Unattributed row', () => {
 		// Reachable today — receipt id 219 is pricingStatus 'full' with a NULL
 		// slippage_bps. Without the residualRawBps guard the row renders a bare
 		// '–' under a tooltip promising a "residual cost or benefit", i.e. it
-		// announces a quantity that does not exist. The Slippage / Positive
-		// Slippage rows above already say N/A; a third empty row adds nothing.
+		// announces a quantity that does not exist. The Slippage row above
+		// already says N/A; a second empty row adds nothing.
 		const { ReceiptView } = await import('./receiptView');
 		const noResidualRow = { ...partialRow, slippageBps: null };
 		const html = renderToStaticMarkup(
@@ -1922,7 +1961,11 @@ describe('Receipt Unattributed row', () => {
 		// ...and the coverage gate is still what suppressed the Slippage number,
 		// so this is the no-residual case and not some unrelated early return.
 		expect(html).toContain('>Slippage<');
-		expect(html).toContain('>Positive Slippage<');
+		// ⚠️ Distinct from the no-route case: SOME legs priced here, so the
+		// whole-trade fallback deliberately does NOT fire and there is genuinely
+		// no residual to name. Guards that the fallback stays scoped to
+		// "nothing attributed at all".
+		expect(html).not.toContain('>Positive Slippage<');
 	});
 });
 
@@ -2113,5 +2156,131 @@ describe('Price Range section (Figma 647-3415)', () => {
 		expect(html).toContain('>Price Range<');
 		expect(html).toContain('Unavailable: No reliable market price could be calculated.');
 		expect(html).not.toContain('>Before Block<');
+	});
+});
+
+describe('no-route state (ROUTE_NOT_DECOMPOSED)', () => {
+	// Modelled on the real decode of 0x78ed871b…4ac18f — a Relay solver fill.
+	// The route graph never reconstructed (hopCount 0), so the ONLY legs core
+	// emitted are the WETH9 wrap/unwrap pair, both uncosted. Every per-leg
+	// number on this receipt is unknowable; the whole-trade delta is not.
+	const WETH = '0x4200000000000000000000000000000000000006';
+	const noRouteRow = {
+		...fullUsdcWethRow,
+		aggregator: 'Relay',
+		routeReconstructed: false,
+		routeShape: 'complex',
+		hopCount: 0,
+		allInCostBps: -16.305904397773496,
+		// Null by construction on the un-reconstructed path (decomposeRoute.ts):
+		// LP and slippage are not separable there.
+		slippageBps: null,
+		lpFeeBps: null,
+		aggFeeBps: 0,
+		routeLegs: [
+			{ venue: WETH, type: 'wrap', tokenIn: 'native', tokenOut: WETH, lpFeeBps: null, priceImpactBps: null, tokenInSymbol: 'ETH', tokenOutSymbol: 'WETH' },
+			{ venue: WETH, type: 'unwrap', tokenIn: WETH, tokenOut: 'native', lpFeeBps: null, priceImpactBps: null, tokenInSymbol: 'WETH', tokenOutSymbol: 'ETH' },
+		],
+	};
+
+	it('never renders the Pools Touched fallback', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={noRouteRow as never} />);
+		expect(html).not.toContain('Pools Touched');
+	});
+
+	it('lists no per-leg rows — the wrap/unwrap pair is not a route', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={noRouteRow as never} />);
+		expect(html).not.toContain('>Wrap<');
+		expect(html).not.toContain('>Unwrap<');
+	});
+
+	it('N/As Third-Party Fee, L.P. Fee and Price Impact behind one "No route available"', async () => {
+		const { Receipt } = await import('./receiptView');
+		const { NO_ROUTE_TOOLTIP } = await import('./receipt/receiptDisplay');
+		const html = renderToStaticMarkup(<Receipt row={noRouteRow as never} />);
+		expect(html).toContain('>Third-Party Fee<');
+		expect(html).toContain('>Liquidity Provider Fee<');
+		expect(html).toContain('>Price Impact<');
+		expect(html).toContain(NO_ROUTE_TOOLTIP);
+		// The clamped 0.00bps agg fee must NOT be published here: on a route we
+		// could not decompose, fee-sink classification is degraded by the same
+		// missing leg types (decomposeRoute's dropLpSideSinks).
+		// ⚠️ Anchored on the closing tag. A bare '0.00bps' is a SUBSTRING of
+		// '100.00bps', which the Unattributed row legitimately prints — asserting
+		// the bare string fails on a correct render.
+		expect(html).not.toContain('>0.00bps<');
+	});
+
+	it('states pricing coverage on Slippage, and collapses Positive Slippage away', async () => {
+		const { Receipt } = await import('./receiptView');
+		const { noSlippageTooltip } = await import('./receipt/receiptDisplay');
+		const html = renderToStaticMarkup(<Receipt row={noRouteRow as never} />);
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain(noSlippageTooltip(0));
+		expect(html).not.toContain('>Positive Slippage<');
+	});
+
+	it('still renders Unattributed and Total Execution Delta — the whole-trade gap IS known', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(<Receipt row={noRouteRow as never} />);
+		expect(html).toContain('>Unattributed<');
+		expect(html).toContain('>Total Execution Delta<');
+		// Reads each row's own value cell rather than slicing by position, so a
+		// reordering of the section cannot make this pass vacuously.
+		const valueAfter = (label: string) =>
+			html.match(new RegExp(`>${label}<[\\s\\S]*?<span class="text-right">([^<]+)</span>`))?.[1];
+		const unattributed = valueAfter('Unattributed');
+		const delta = valueAfter('Total Execution Delta');
+		// Guard against a vacuous pass if either label disappears.
+		expect(unattributed).toBeDefined();
+		expect(delta).toBeDefined();
+		// Real figures, not the '–' / 'N/A' placeholders.
+		expect(unattributed).toMatch(/^[+-]?\d+\.\d{2}bps$/);
+		expect(delta).toMatch(/^[+-]?\d+\.\d{2}bps$/);
+		// With nothing attributable, the residual IS the whole delta. Both rows
+		// derive from one source precisely so they can never disagree.
+		expect(unattributed).toBe(delta);
+	});
+});
+
+describe('Positive Slippage collapse', () => {
+	const WETH_FOR_SPLIT = '0x4200000000000000000000000000000000000006';
+
+	it('keeps the cost/benefit split on a fully-priced route', async () => {
+		const { Receipt } = await import('./receiptView');
+		const priced = {
+			...fullUsdcWethRow,
+			routeReconstructed: true,
+			slippageBps: -2,
+			routeLegs: [
+				{ venue: '0xd0b53d9277642d899df5c87a3966a349a798f224', type: 'univ3', tokenIn: fullUsdcWethRow.inputToken, tokenOut: fullUsdcWethRow.outputToken, lpFeeBps: 5, priceImpactBps: 3, feeResolved: true },
+			],
+		};
+		const html = renderToStaticMarkup(<Receipt row={priced as never} />);
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Positive Slippage<');
+		expect(html).not.toContain('>Unattributed<');
+	});
+
+	it('collapses to one Slippage row wherever Unattributed renders', async () => {
+		const { Receipt } = await import('./receiptView');
+		// Reconstructed, but one leg went unpriced → not fullyPriced → Unattributed.
+		const partlyPriced = {
+			...fullUsdcWethRow,
+			routeReconstructed: true,
+			slippageBps: -2,
+			routeLegs: [
+				{ venue: '0xd0b53d9277642d899df5c87a3966a349a798f224', type: 'univ3', tokenIn: fullUsdcWethRow.inputToken, tokenOut: WETH_FOR_SPLIT, lpFeeBps: 5, priceImpactBps: 3, feeResolved: true },
+				{ venue: '0x0000000000001ff3684f28c67538d4d072c22734', type: 'rfq', tokenIn: WETH_FOR_SPLIT, tokenOut: fullUsdcWethRow.outputToken, lpFeeBps: 0, priceImpactBps: null },
+			],
+		};
+		const html = renderToStaticMarkup(<Receipt row={partlyPriced as never} />);
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Unattributed<');
+		expect(html).not.toContain('>Positive Slippage<');
+		// The maker leg is still named — this frame keeps its per-leg rows.
+		expect(html).toContain('Market Maker');
 	});
 });

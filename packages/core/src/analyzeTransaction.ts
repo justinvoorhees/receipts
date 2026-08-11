@@ -247,6 +247,13 @@ export interface Receipt {
 	routeShape: string | null;
 	hopCount: number | null;
 	routeLegs: unknown[] | null;
+	/**
+	 * Did the route graph reconstruct? Drives which receipt the UI renders: the
+	 * per-leg breakdown, or the "no route available" state where LP Fee, Price
+	 * Impact and Third-Party Fee are all N/A. See RouteDecomposeResult.reconstructed
+	 * for why neither `routeLegs.length` nor `decompConfidence` answers this.
+	 */
+	routeReconstructed: boolean;
 	reconResidualBps: number | null;
 	decompConfidence: string | null;
 	feeRecipient: string | null;
@@ -550,6 +557,7 @@ async function analyzeTransactionInSession(
 			routeShape: route.routeShape,
 			hopCount: route.hopCount,
 			routeLegs,
+			routeReconstructed: route.reconstructed,
 			reconResidualBps: midReliable ? route.reconResidualBps : null,
 			decompConfidence: route.confidence,
 			feeRecipient: route.feeRecipient,
