@@ -19,5 +19,12 @@
 		"added": "2026-08-11",
 		"tags": ["reconstructed", "mixed-pool-and-maker", "v4-rescue", "curated-maker", "split-route", "wide-leg-coverage"],
 		"why": "The counterpart to the two no-route cases: a route that DOES reconstruct, and the widest leg coverage available in one transaction. 13 legs / 11 costed across eight venue types — univ3, aerodrome, aerodrome_cl, hydrex, three synthesized univ4, three curated rfq makers, plus wrap/unwrap. MOR->USDC via Relay, shape 'split', pricingStatus 'estimated' (SINGLE_SOURCE). Exercises the V4 multi-pool rescue (V4_MULTIPOOL_LEGS synthesized 3 legs) and the curated-maker path (RFQ_LEG_CURATED x3) in one decode. Mixed pool+maker, so isFullyPriced=false at 74.0% coverage: the Slippage row must report coverage and NOT blame market-maker inventory, and Unattributed must render while Positive Slippage collapses away. The sum identity is exact and worth regressing on: 14.89 (agg) + 37.56 (LP) + 17.97 (SigmaPI) - 34.61 (unattributed) = 35.81 = allInCostBps. NOTE, unverified: normalizeFlags carries MULTI-HOP '... LP/slippage not separable' while slippageBps IS populated (-16.64) — the flag predates the V4 rescue that made the route reconstruct, so it may simply be stale. Worth confirming before trusting that flag anywhere."
+	},
+	{
+		"hash": "0x99ed929c406191c45f58d1ca2ff3d7a5cd5ad6bd1b09aa99d5aac63a8f2801e0",
+		"chainId": 8453,
+		"added": "2026-08-11",
+		"tags": [],
+		"why": "TODO: decode and fill in shape/venues/why before relying on this case."
 	}
 ]
