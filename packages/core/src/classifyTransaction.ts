@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createPublicClient, TransactionNotFoundError } from 'viem';
 import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
@@ -7,8 +9,13 @@ import {
 	type AnalyzeFailure,
 	type TraceNode,
 } from './endpoints.js';
+import { collectTraceLogs } from './tradeEndpoints.js';
+import { hasBridgeLegMarker, loadBridges } from './settlementDecoders.js';
 
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const BRIDGES = await loadBridges(path.resolve(__dirname, '../../../configs/bridges.json'));
 
 /** Diagnose WHY analyzeTransaction could not produce a receipt for `hash`.
  *  Callers invoke this only on a known miss; a resolvable swap returns the
@@ -57,6 +64,12 @@ export async function classifyTransaction(
 				return false; // unknown → treat as contract (conservative)
 			}
 		};
+		// Cross-chain legs are checked BEFORE net-flow: a bridge's own event is a
+		// protocol declaration, while the beneficiary detector is a heuristic over
+		// token flow. Declaration wins — the same precedence resolveTrader gives
+		// its UniswapX/ERC-4337 tiers over its net-flow tier.
+		if (hasBridgeLegMarker(collectTraceLogs(trace), BRIDGES)) return { reason: 'CROSS_CHAIN_LEG' };
+
 		const detail = await detectBeneficiaryByNetFlow(trace, trader, isEoa);
 		if (!detail) return { reason: 'NOT_DECODABLE' };
 		return { reason: 'RELAYER_THIRD_PARTY', detail };

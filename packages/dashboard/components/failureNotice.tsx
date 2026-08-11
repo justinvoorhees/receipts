@@ -12,7 +12,11 @@ export const REASON_COPY: Record<FailureReason, { label: string; tooltip: string
 	},
 	RELAYER_THIRD_PARTY: {
 		label: 'Transaction not supported',
-		tooltip: 'Beneficiary-anchored decoding not yet supported (relayer, third-party, peer-to-peer, etc)',
+		tooltip: null,
+	},
+	CROSS_CHAIN_LEG: {
+		label: 'Cross-chain transactions not supported',
+		tooltip: null,
 	},
 	NOT_DECODABLE: {
 		label: 'Not a swap',

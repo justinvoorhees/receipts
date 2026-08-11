@@ -1,0 +1,10 @@
+{
+	"_comment": "HUMAN-CURATED cross-chain bridge allowlist for Base (chain 8453). An entry here lets a transaction that emits one of the bridge topics (0xafbab204e8271965231d37baed9b1abca8725b7409c70314455f68bc89142b91 transfer, 0x49fed1d0b752ce30eee63c7a81133f3363b532fec5d4d7dd1ccfd005de4555e1 deposit) be reported as CROSS_CHAIN_LEG instead of the generic NOT_DECODABLE, so a wrong address would let any contract claim that label by replaying topic0 — the same rule applied to reactors.json, entrypoints.json and the aggregator router allowlists. This allowlist only affects the FAILURE NOTICE shown on a transaction that already could not be decoded; it never influences a receipt. Every address below was observed on Base emitting one of those topics with the documented (from, to, token, amount, requestId) layout across the five QA transactions recorded in classifyTransaction.test.ts. Relay only today; add other bridges as their markers are verified the same way. A missing entry degrades to 'Not a swap' rather than breaking, so under-listing is the safe direction.",
+	"verifiedAt": "2026-08-11T00:00:00.000Z",
+	"chainId": 8453,
+	"bridges": [
+		"0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
+		"0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f",
+		"0x4cd00e387622c35bddb9b4c962c136462338bc31"
+	]
+}

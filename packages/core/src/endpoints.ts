@@ -71,6 +71,7 @@ export type FailureReason =
 	| 'INVALID_HASH'
 	| 'NOT_FOUND_ONCHAIN'
 	| 'RELAYER_THIRD_PARTY'
+	| 'CROSS_CHAIN_LEG'
 	| 'NOT_DECODABLE'
 	| 'ANALYZE_ERROR';
 

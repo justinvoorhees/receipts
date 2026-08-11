@@ -21,7 +21,7 @@ describe('FailureNotice', () => {
 		expect(html).not.toContain('decoration-dotted');
 	});
 
-	it('shows the relayer generic tooltip and NO beneficiary detail', async () => {
+	it('renders the relayer label plain, with no tooltip and NO beneficiary detail', async () => {
 		const { FailureNotice } = await import('./failureNotice');
 		const html = renderToStaticMarkup(
 			<FailureNotice
@@ -32,7 +32,25 @@ describe('FailureNotice', () => {
 			/>,
 		);
 		expect(html).toContain('Transaction not supported');
-		expect(html).toContain('Beneficiary-anchored decoding not yet supported');
+		// The old tooltip claimed beneficiary anchoring was unsupported; it shipped,
+		// and this reason now means an anchored account with no clean 2-token flow.
+		expect(html).not.toContain('Beneficiary-anchored decoding');
+		expect(html).not.toContain('decoration-dotted');
 		expect(html).not.toContain('0xf70d');
+	});
+
+	it('renders the cross-chain label plain, with no tooltip', async () => {
+		const { FailureNotice } = await import('./failureNotice');
+		const html = renderToStaticMarkup(<FailureNotice failure={{ reason: 'CROSS_CHAIN_LEG' }} />);
+		expect(html).toContain('Cross-chain transactions not supported');
+		expect(html).not.toContain('decoration-dotted');
+	});
+
+	it('does not reuse the generic not-a-swap label for a cross-chain leg', async () => {
+		const { FailureNotice } = await import('./failureNotice');
+		const html = renderToStaticMarkup(<FailureNotice failure={{ reason: 'CROSS_CHAIN_LEG' }} />);
+		// Anchor on the closing tag: 'Not a swap' would otherwise also match
+		// nothing here, but a future label containing it must still fail.
+		expect(html).not.toContain('>Not a swap<');
 	});
 });

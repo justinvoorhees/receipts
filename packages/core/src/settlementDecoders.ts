@@ -62,6 +62,82 @@ export function decodeErc4337Beneficiary(
 	return topicToAddress(ops[0]!.topics[2]!);
 }
 
+/**
+ * Cross-chain bridge markers.
+ *
+ * Relay's approval proxy and multicaller emit `(from, to, token, amount, id)`
+ * when they move a leg's tokens; its escrow emits `(depositor, token, amount,
+ * requestId)` when funds are deposited to be delivered on another chain. Either
+ * one identifies a transaction as HALF of a cross-chain trade — the counterpart
+ * leg is on a different chain and is not in this trace.
+ *
+ * That is why such a transaction cannot produce a receipt: no address nets a
+ * clean token-in/token-out pair, because the payer and the receiver are on
+ * different chains by construction. It is a distinct fact from "not a swap" —
+ * an origin leg frequently does swap on Base before bridging the output onward.
+ */
+export const BRIDGE_TRANSFER_TOPIC0 = '0xafbab204e8271965231d37baed9b1abca8725b7409c70314455f68bc89142b91';
+export const BRIDGE_DEPOSIT_TOPIC0 = '0x49fed1d0b752ce30eee63c7a81133f3363b532fec5d4d7dd1ccfd005de4555e1';
+
+/**
+ * True iff a log carrying one of the bridge topics was emitted BY an
+ * allowlisted bridge address.
+ *
+ * Keyed off the emitter, never topic0 alone — any contract can replay a topic,
+ * and this decides a user-facing claim about the transaction. Same discipline
+ * as the reactor and EntryPoint allowlists.
+ *
+ * Deliberately a boolean, not an endpoint pair: identifying WHICH leg this is,
+ * and pairing it with its counterpart, needs the request-id join and a
+ * cross-chain data source. This answers only "is this half of a cross-chain
+ * trade", which is all the failure notice claims.
+ *
+ * ⚠️ A same-chain Relay swap emits BRIDGE_TRANSFER too. Those resolve normally
+ * via resolveTrader tier 1 (the trader is both payer and receiver), so
+ * classifyTransaction — which runs only on a miss — does not see them. If one
+ * ever misses for an unrelated reason it would be mislabelled cross-chain;
+ * separating the two needs the same request-id pairing named above.
+ */
+export function hasBridgeLegMarker(
+	logs: readonly LogLite[],
+	bridges: ReadonlySet<string>,
+): boolean {
+	return logs.some(
+		(l) =>
+			(l.topics[0] === BRIDGE_TRANSFER_TOPIC0 || l.topics[0] === BRIDGE_DEPOSIT_TOPIC0) &&
+			bridges.has(l.address.toLowerCase()),
+	);
+}
+
+export interface BridgesConfig {
+	_comment: string;
+	chainId: number;
+	bridges: string[];
+}
+
+export function parseBridges(json: string): Set<string> {
+	const parsed = JSON.parse(json) as Partial<BridgesConfig>;
+	const out = new Set<string>();
+	for (const a of parsed.bridges ?? []) out.add(a.toLowerCase());
+	return out;
+}
+
+/** Load the bridge allowlist; degrade to an empty set on any error (never
+ *  throw) — matches loadReactors/loadEntryPoints, so a missing config costs the
+ *  more specific failure notice rather than failing the request. */
+export async function loadBridges(path: string): Promise<Set<string>> {
+	try {
+		return parseBridges(await readFile(path, 'utf8'));
+	} catch (err) {
+		log.warn('could not load bridge allowlist, cross-chain legs will read as NOT_DECODABLE', {
+			module: 'settlementDecoders',
+			path,
+			error: err instanceof Error ? err.message : String(err),
+		});
+		return new Set();
+	}
+}
+
 export interface EntryPointsConfig {
 	_comment: string;
 	chainId: number;

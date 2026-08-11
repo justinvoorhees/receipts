@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
 	decodeUniswapXBeneficiary,
 	decodeErc4337Beneficiary,
+	hasBridgeLegMarker,
 	FILL_TOPIC0,
 	USEROP_TOPIC0,
+	BRIDGE_TRANSFER_TOPIC0,
+	BRIDGE_DEPOSIT_TOPIC0,
 	parseReactors,
 	parseEntryPoints,
+	parseBridges,
 	type LogLite,
 } from './settlementDecoders.js';
 
@@ -83,5 +87,46 @@ describe('parseEntryPoints', () => {
 	});
 	it('returns an empty set for a config with no entryPoints array', () => {
 		expect(parseEntryPoints(JSON.stringify({ chainId: 8453 })).size).toBe(0);
+	});
+});
+
+const BRIDGE = '0xccc88a9d1b4ed6b0eaba998850414b24f1c315be';
+const relayLog = (emitter: string, topic0: string): LogLite => ({ address: emitter, topics: [topic0] });
+
+describe('hasBridgeLegMarker', () => {
+	const bridges = new Set([BRIDGE]);
+
+	it('detects a bridge transfer log emitted by an allowlisted bridge address', () => {
+		expect(hasBridgeLegMarker([relayLog(BRIDGE, BRIDGE_TRANSFER_TOPIC0)], bridges)).toBe(true);
+	});
+	it('detects a bridge deposit log emitted by an allowlisted bridge address', () => {
+		expect(hasBridgeLegMarker([relayLog(BRIDGE, BRIDGE_DEPOSIT_TOPIC0)], bridges)).toBe(true);
+	});
+	it('ignores the bridge topic when emitted by an address outside the allowlist', () => {
+		// The whole point of the allowlist: any contract can replay a topic0, so
+		// identity must come from the emitter — same rule as reactors/EntryPoints.
+		const impostor = '0x9999999999999999999999999999999999999999';
+		expect(hasBridgeLegMarker([relayLog(impostor, BRIDGE_TRANSFER_TOPIC0)], bridges)).toBe(false);
+	});
+	it('returns false for an allowlisted emitter logging an unrelated topic', () => {
+		expect(hasBridgeLegMarker([relayLog(BRIDGE, '0xabc')], bridges)).toBe(false);
+	});
+	it('returns false when there are no logs at all', () => {
+		expect(hasBridgeLegMarker([], bridges)).toBe(false);
+	});
+	it('returns false when the allowlist is empty, so a missing config disables detection', () => {
+		expect(hasBridgeLegMarker([relayLog(BRIDGE, BRIDGE_TRANSFER_TOPIC0)], new Set())).toBe(false);
+	});
+});
+
+describe('parseBridges', () => {
+	it('lowercases and indexes bridge addresses', () => {
+		const json = JSON.stringify({ chainId: 8453, bridges: ['0xAbC0000000000000000000000000000000000003'] });
+		const set = parseBridges(json);
+		expect(set.has('0xabc0000000000000000000000000000000000003')).toBe(true);
+		expect(set.size).toBe(1);
+	});
+	it('returns an empty set for a config with no bridges array', () => {
+		expect(parseBridges(JSON.stringify({ chainId: 8453 })).size).toBe(0);
 	});
 });
