@@ -1,0 +1,16 @@
+[
+	{
+		"hash": "0x78ed871b3f43ef921aeec50f541ac18dc2fff664593945b44632931bca4ac18f",
+		"chainId": 8453,
+		"added": "2026-08-11",
+		"tags": ["no-route", "relay", "solver-fill", "zero-legs"],
+		"why": "Relay solver fill from inventory. buildRouteGraph returns ZERO legs (hopCount 0), so decomposition falls back to venuesToUncostedLegs and the only legs are a WETH9 wrap/unwrap pair that nets to nothing. Pricing is 'full' and allInCostBps is -16.31, so the whole-trade delta IS knowable while nothing per-leg is. Drove the no-route receipt state (c529ebe). The solver 0xc77c0f43… is still lost — recovering it as an rfq leg is the open coverage work."
+	},
+	{
+		"hash": "0x79854af2632cf45d8f7f53dfa8ef19b3b59bb4f249c99b06bb410bbbb0be1b71",
+		"chainId": 8453,
+		"added": "2026-08-11",
+		"tags": ["no-route", "relay", "one-uncosted-leg"],
+		"why": "The OTHER shape of un-reconstructed route, and the reason routeReconstructed exists as its own field: reconstructed=false, yet venuesToUncostedLegs still emitted one real aerodrome_cl leg. Any predicate of the form `legs.length > 0` calls this a decomposed route and is wrong. Corpus id 485; POD->USDC, pricingStatus 'estimated'."
+	}
+]

@@ -10,6 +10,20 @@ in `_env.mjs`) rather than a live table — the database this was once dumped
 from is gone. `TCA_RPC_URL` is read the same way, from the repo-root `.env`
 directly, because `source .env` does not export by itself.
 
+## Where a new transaction goes
+
+`docs/qa/cases.json` (via `loadCases()`) — **hashes only**, with a `why`.
+
+⚠️ Do **not** append decoded rows to `corpus.json` to grow a sample. Its
+columns were decoded by the code of 2026-08-07; appending today's decodes makes
+every no-RPC script above average across two versions of core. A hash never
+rots, because everything that needs a receipt re-decodes it. If the stored
+columns genuinely must grow, re-decode the WHOLE set into a fresh snapshot
+(serially — see `decodeGolden.mjs`), never append to the old one.
+
+⚠️ Numeric columns in `corpus.json` are **strings** (Postgres `numeric`); a
+fresh decode returns **numbers**. `num()` coerces both — new code must too.
+
 Some need `packages/core/dist` — run `npx tsc --build packages/core` first.
 ⚠️ Never `npm run build` while a dev server is running; it writes into the same
 `.next` and the app renders unstyled.

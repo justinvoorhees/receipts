@@ -31,6 +31,30 @@ export function loadCorpus() {
 	);
 }
 
+/**
+ * Interesting transactions, as HASHES ONLY (docs/qa/cases.json).
+ *
+ * The deliberate counterpart to loadCorpus(). That file stores decoded columns
+ * and therefore rots the moment core changes — which is why the no-RPC scripts
+ * reading it are always reading some past version of this codebase. A hash does
+ * not rot: every script that needs a receipt re-decodes it against today's code
+ * and today's chain.
+ *
+ * So this is where a newly-interesting transaction goes. Do NOT append decoded
+ * rows to corpus.json to grow a sample — mixing vintages there makes any
+ * average across the set span two versions of core. If the stored columns ever
+ * genuinely need to grow, re-decode the WHOLE set into a fresh snapshot
+ * (serially — see decodeGolden.mjs) rather than appending to the old one.
+ *
+ * Each entry: { hash, chainId, added, tags[], why }. `why` earns the entry its
+ * place — a hash with no explanation is impossible to prune later.
+ */
+export function loadCases() {
+	return JSON.parse(
+		readFileSync(new URL('../../docs/qa/cases.json', import.meta.url), 'utf8'),
+	);
+}
+
 export const core = (file) =>
 	import(new URL(`../../packages/core/dist/${file}`, import.meta.url));
 
