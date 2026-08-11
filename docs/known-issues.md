@@ -35,21 +35,27 @@ still reads, plus the optional `LOG_LEVEL`, `APP_BASE_URL`, the three
 
 ---
 
-## The post-deploy smoke check has never been run against production
+## The post-deploy smoke check is manual, so it drifts between runs
 
-**What's wrong.** `scripts/smokeDeploy.mjs <live-url>` is the only thing that
-verifies the deployed app from outside, and it is entirely manual — there is no
-CI wiring and no post-deploy hook. It has not been run since the database
-removal merged (`11300f0`), which is the change that moved every route.
+**What's wrong.** `scripts/smokeDeploy.mjs <base-url>` is the only thing that
+verifies the deployed app from outside, and it is entirely manual — no CI
+wiring, no post-deploy hook. Nothing makes a deploy wait for it, and nothing
+notices when it is skipped.
 
-The check that matters most is its `/qa` 404 assertion. `/qa/tx/<chain>/<hashes>`
-is guarded only by `process.env.NODE_ENV !== 'development'` as the first
-statement in the route, and it has no rate limiting at all by design. If that
-guard ever evaluates false in production — a deploy exporting `NODE_ENV` to
-something unexpected, a Next change to how the value is inlined — it becomes a
-public, unmetered `n x 40` RPC endpoint, and nothing else in the system would
-notice. The guard is deny-by-default precisely because this is the failure mode,
-but deny-by-default is a design choice, not a verification.
+Run against production for the first time on 2026-08-11: **12/12 passed**,
+including the assertion that matters most — `/qa` returns 404. That settles what
+this entry originally recorded (it had not been run since the database removal
+in `11300f0` moved every route) and leaves only the reason it can quietly go
+stale again.
+
+`/qa/tx/<chain>/<hashes>` is guarded only by `process.env.NODE_ENV !==
+'development'` as the first statement in the route, and it has no rate limiting
+at all by design. If that guard ever evaluates false in production — a deploy
+exporting `NODE_ENV` to something unexpected, a Next change to how the value is
+inlined — it becomes a public, unmetered `n x 130` RPC endpoint, and nothing
+else in the system would notice. Deny-by-default is why that has not happened;
+but that is a design choice, not a verification, and the verification is the
+half that is manual.
 
 **How to reproduce.** Run it. It takes seconds:
 
@@ -57,9 +63,14 @@ but deny-by-default is a design choice, not a verification.
 node scripts/smokeDeploy.mjs https://receipts.withfabric.xyz
 ```
 
-**Fix.** Run it after every deploy. Wiring it into a post-deploy step would be
-better than remembering, and would also cover the receipt-renders and
-bad-hash-404 assertions it makes alongside the `/qa` one.
+**Fix.** Wire it into a post-deploy step so it stops depending on someone
+remembering. It covers the receipt-renders, security-header and bad-hash-404
+assertions alongside the `/qa` one.
+
+One thing to know before putting it on every deploy: the receipt check renders
+a real page, so each run spends one fresh analysis (~130 RPC calls) against the
+global hourly ceiling and fires `ACTIVITY_WEBHOOK_URL`. Harmless occasionally;
+worth a deliberate decision if it becomes automatic.
 
 <!--
 Fixed and removed:
