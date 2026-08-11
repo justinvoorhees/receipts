@@ -77,7 +77,12 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 
 		try {
 			// `text` is what Slack reads and `content` is what Discord reads; each
-			// ignores the other's key, so one URL works with either service.
+			// ignores the other's key, so one URL reaches either service.
+			//
+			// ⚠️ The TRANSPORT is service-agnostic; the message bodies are not.
+			// receiptCreatedMessage emits Slack mrkdwn (`<url|label>`), which
+			// Discord renders literally. Pointing ACTIVITY_WEBHOOK_URL at Discord
+			// needs a per-service formatter, not just a different URL.
 			const res = await fetchImpl(webhookUrl, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -118,6 +123,26 @@ export function budgetWarningMessage(limit: number, remaining: number): string {
 	);
 }
 
+/**
+ * Escape text before it is interpolated into Slack mrkdwn.
+ *
+ * ⚠️ Load-bearing, not cosmetic. Token symbols reach this module straight from
+ * `symbol()` on an arbitrary contract, so their content is chosen by whoever
+ * deployed the token. Interpolated raw into a `<url|label>` link, a symbol
+ * containing `>` closes the link early and one containing `<` opens a new
+ * one — which is enough to post a link whose visible text and real destination
+ * disagree, into our own Slack, from our own bot. Exactly the confusion
+ * APP_BASE_URL exists to prevent at the other end of this same string.
+ *
+ * Slack treats only `&`, `<` and `>` as special, and the order below matters:
+ * `&` must go first or it re-escapes the ampersands the other two introduce.
+ * `|` needs no escaping — Slack splits a link on the FIRST one, so a pipe in
+ * the label is shown literally and cannot reach the URL half.
+ */
+function escapeSlack(s: string): string {
+	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /** The receipt fields the activity message reads. Structural, so a ReceiptModel satisfies it. */
 export interface ReceiptSummary {
 	txHash: string;
@@ -129,22 +154,30 @@ export interface ReceiptSummary {
 }
 
 export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): string {
-	const pair = `${r.inputSymbol ?? '?'} → ${r.outputSymbol ?? '?'}`;
-	const via = r.aggregator ? ` via ${r.aggregator}` : '';
+	const pair = escapeSlack(`${r.inputSymbol ?? '?'} → ${r.outputSymbol ?? '?'}`);
+	const via = r.aggregator ? ` via ${escapeSlack(r.aggregator)}` : '';
 	const notional = r.notionalUsd != null ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
 	const cost = r.allInCostBps != null ? ` · ${Number(r.allInCostBps).toFixed(1)}bps` : '';
 	// DEFAULT_CHAIN rather than the row's own chain: ReceiptSummary is structural
 	// and carries no chainId, and this message only ever fires from the /tx page
 	// render — which SUPPORTED_CHAIN_IDS constrains to Base.
+	const url = `${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
+	// ⚠️ SLACK-SPECIFIC. `<url|label>` is Slack mrkdwn; Discord wants
+	// `[label](url)` and renders this literally. The transport still posts both
+	// `text` and `content` (see createNotifier), but THIS message is no longer
+	// portable between the two — a Discord destination needs its own formatter.
 	//
-	// No prefix — the pair leads, so a channel of these scans as a feed rather
-	// than a column of repeated labels.
+	// The pair carries the link rather than a bare URL on a second line, so the
+	// channel reads as one scannable line per receipt. Note the link is not
+	// unfurled: robots.txt disallows /tx/, and Slack's link expander honours it —
+	// which is load-bearing here, since an unfurl would make Slack fetch the page
+	// and spend a SECOND full analysis against the global ceiling.
 	//
 	// ⚠️ The function name and the `receipt_created` AlertKind both say
 	// "created", but nothing is persisted and nothing is being created: this
 	// fires on EVERY successful render of /tx/<chain>/<hash>, including repeat
 	// views of the same transaction. Do not count these as unique receipts.
-	return `${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
+	return `<${url}|${pair}>${via}${notional}${cost}`;
 }
 
 /**

@@ -162,14 +162,15 @@ describe('message formatting', () => {
 			},
 			'https://app.test',
 		);
-		// The pair leads — no label prefix. Asserted as startsWith, not merely
-		// not.toContain, so reintroducing ANY prefix fails here rather than only
-		// the one spelling this used to have.
-		expect(msg.startsWith('WETH → USDC')).toBe(true);
+		// The pair leads AND carries the link — one scannable line, no bare URL on
+		// a second. Asserted as the whole opening construct rather than the URL
+		// and the pair separately, which would pass even if they came apart.
+		expect(msg.startsWith('<https://app.test/tx/base/0xdead|WETH → USDC>')).toBe(true);
 		expect(msg).toContain('0x');
 		expect(msg).toContain('$4210');
 		expect(msg).toContain('12.4bps');
-		expect(msg).toContain('https://app.test/tx/base/0xdead');
+		// Single line: the link is inline, so nothing should follow a newline.
+		expect(msg).not.toContain('\n');
 	});
 
 	it('tolerates a receipt with nothing resolved', () => {
@@ -203,6 +204,42 @@ describe('message formatting', () => {
 		);
 		expect(msg).toContain('$0');
 		expect(msg).toContain('0.0bps');
+	});
+
+	it('cannot be broken out of by a hostile token symbol', () => {
+		// inputSymbol/outputSymbol come from symbol() on an arbitrary contract, so
+		// their content is chosen by whoever deployed the token. Interpolated raw
+		// into `<url|label>`, the symbol below closes our link and opens its own —
+		// posting a link that reads one way and navigates another, into our Slack,
+		// from our bot. The escaping is what stops that, so it needs a test that
+		// actually attempts the break-out rather than one asserting a tidy input.
+		const msg = receiptCreatedMessage(
+			{
+				txHash: '0xevil',
+				aggregator: 'R&D',
+				inputSymbol: '<https://evil.example|CLICK>',
+				outputSymbol: 'USDC',
+				notionalUsd: 1,
+				allInCostBps: 1,
+			},
+			'https://app.test',
+		);
+
+		// The destination is ours, and the separator follows it immediately — so
+		// nothing the symbol contains can reach the URL half of the construct.
+		expect(msg.startsWith('<https://app.test/tx/base/0xevil|')).toBe(true);
+
+		// Exactly one link construct in the whole message. Counting delimiters is
+		// what proves the break-out failed: an unescaped symbol yields three of
+		// each, and every assertion above would still pass.
+		expect(msg.match(/</g)).toHaveLength(1);
+		expect(msg.match(/>/g)).toHaveLength(1);
+
+		// The hostile markup survives as visible text, not as markup.
+		expect(msg).toContain('&lt;https://evil.example|CLICK&gt;');
+		// & escaped first, so the entities above are not themselves re-escaped.
+		expect(msg).toContain('R&amp;D');
+		expect(msg).not.toContain('&amp;lt;');
 	});
 });
 
