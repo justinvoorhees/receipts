@@ -43,6 +43,42 @@ a real page, so each run spends one fresh analysis (~130 RPC calls) against the
 global hourly ceiling and fires `ACTIVITY_WEBHOOK_URL`. Harmless occasionally;
 worth a deliberate decision if it becomes automatic.
 
+---
+
+## Any link expander can spend an analysis, and robots.txt does not stop it
+
+**What's wrong.** `GET /tx/<chain>/<hash>` runs a full ~130-call analysis on
+every hit, and `public/robots.txt` was the assumed defence against automated
+fetches. It is not one. Measured 2026-08-11: Slack fetched a receipt URL to
+build a message preview despite `Disallow: /tx/` being served correctly, which
+rendered the receipt and spent the analysis.
+
+Slack is now handled — `unfurl_links`/`unfurl_media` in `lib/alerts.ts` stop it
+at the source, and that closed a feedback loop where each activity message
+caused a second render. But that fix only covers **messages we post**. Nothing
+covers a receipt link pasted into Slack by a person, or into iMessage, Discord,
+WhatsApp, Teams, or any other client that previews links. Each such paste is a
+full analysis charged to the global hourly ceiling, and receipts are meant to
+be shared — so this is on the happy path, not an edge case.
+
+**How to reproduce.** Paste a receipt URL into any chat client that previews
+links and watch `ACTIVITY_WEBHOOK_URL` — a message appears for a receipt nobody
+opened.
+
+**Fix.** No obviously right one, which is why this is recorded rather than
+solved. Options, roughly in order of appeal:
+
+- Serve a cheap `<head>`-only response to known expander user-agents, so the
+  preview works without the analysis. Fragile (user-agent sniffing) but targets
+  the actual cost.
+- Cache receipts, which makes the second fetch free rather than preventing it.
+  The seam is `loadReceipt`; see the Deferred section of
+  `docs/superpowers/specs/2026-08-06-database-removal-design.md`.
+- Accept it and size the global ceiling with the expansion multiplier included.
+
+Note the per-IP limiter does not help: expanders fetch from their own
+infrastructure, so each arrives with a full budget.
+
 <!--
 Fixed and removed:
 - `resolveContractName` ignored an explicit `apiKey: undefined` and fell back to

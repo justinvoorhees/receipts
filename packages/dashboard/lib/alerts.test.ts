@@ -23,7 +23,36 @@ describe('createNotifier', () => {
 		expect(fetchImpl).toHaveBeenCalledTimes(1);
 		const [url, init] = fetchImpl.mock.calls[0]!;
 		expect(url).toBe('https://hook.test/x');
-		expect(JSON.parse(init!.body as string)).toEqual({ text: 'hello', content: 'hello' });
+		// toEqual, not toMatchObject: the payload is asserted WHOLE so that a key
+		// silently disappearing fails here. unfurl_links/unfurl_media are the
+		// reason — see the regression test directly below.
+		expect(JSON.parse(init!.body as string)).toEqual({
+			text: 'hello',
+			content: 'hello',
+			unfurl_links: false,
+			unfurl_media: false,
+		});
+	});
+
+	it('tells Slack not to expand links, or every message causes another render', async () => {
+		// Regression, measured against production 2026-08-11. Every activity
+		// message contains a receipt URL. Slack fetched that URL to build a
+		// preview, which RENDERED THE RECEIPT, which fired the activity webhook
+		// again — one view costing two full analyses and posting two messages.
+		//
+		// robots.txt does NOT prevent this: `Disallow: /tx/` is served correctly
+		// and Slack's expander fetched anyway. Verified by posting a bare receipt
+		// URL straight to the webhook and watching a second message arrive.
+		// Re-verified with these flags set: no fetch, no second message.
+		//
+		// So this is not decoration. Without it the app and Slack form a loop that
+		// doubles RPC spend and halves the effective global ceiling.
+		const fetchImpl = okFetch();
+		const notify = createNotifier({ webhookUrl: 'https://hook.test/x', fetchImpl });
+		await notify('receipt_created', 'https://app.test/tx/base/0xabc');
+		const body = JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string);
+		expect(body.unfurl_links).toBe(false);
+		expect(body.unfurl_media).toBe(false);
 	});
 
 	it('does not fetch when no webhook url is configured', async () => {
@@ -257,6 +286,25 @@ describe('baseUrlFromHeaders', () => {
 		process.env.APP_BASE_URL = 'https://app.example.com';
 		const h = new Headers({ host: 'evil.com', 'x-forwarded-proto': 'https' });
 		expect(baseUrlFromHeaders(h)).toBe('https://app.example.com');
+	});
+
+	it('adds a scheme when APP_BASE_URL was configured without one', () => {
+		// Regression, from production 2026-08-11. APP_BASE_URL was set by copying
+		// the address bar, which hides `https://` — so the value was a bare host.
+		// Passed through, it made every Slack link `<receipts.example.com/tx/...|
+		// PAIR>`, which Slack cannot resolve to a URL: it rendered the angle
+		// brackets literally and DROPPED the label. The receipt link stopped being
+		// a link at all, and nothing anywhere failed.
+		process.env.APP_BASE_URL = 'receipts.example.com';
+		const h = new Headers({ host: 'evil.com' });
+		expect(baseUrlFromHeaders(h)).toBe('https://receipts.example.com');
+	});
+
+	it('keeps an explicit http:// scheme rather than forcing https', () => {
+		// The guard above must not rewrite a deliberate choice — a staging host on
+		// plain http would otherwise get an unreachable URL.
+		process.env.APP_BASE_URL = 'http://staging.example.com';
+		expect(baseUrlFromHeaders(new Headers({ host: 'evil.com' }))).toBe('http://staging.example.com');
 	});
 
 	it('falls back to the derived origin when APP_BASE_URL is unset', () => {

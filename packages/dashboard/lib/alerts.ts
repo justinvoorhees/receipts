@@ -83,10 +83,20 @@ export function createNotifier(opts: NotifierOptions = {}): Notify {
 			// receiptCreatedMessage emits Slack mrkdwn (`<url|label>`), which
 			// Discord renders literally. Pointing ACTIVITY_WEBHOOK_URL at Discord
 			// needs a per-service formatter, not just a different URL.
+			//
+			// ⚠️⚠️ unfurl_links/unfurl_media are LOAD-BEARING, not cosmetic.
+			// Activity messages carry a receipt URL. Left to expand it, Slack
+			// FETCHES that URL to build a preview — which renders the receipt,
+			// which fires this webhook again. One view, two full analyses, two
+			// identical messages, and an effective global ceiling of half what is
+			// configured. Measured in production 2026-08-11.
+			//
+			// robots.txt does not prevent it. `Disallow: /tx/` is served correctly
+			// and Slack's expander fetched anyway; these flags are what stopped it.
 			const res = await fetchImpl(webhookUrl, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ text, content: text }),
+				body: JSON.stringify({ text, content: text, unfurl_links: false, unfurl_media: false }),
 				signal: AbortSignal.timeout(TIMEOUT_MS),
 			});
 			// fetch only rejects on transport failure. Slack and Discord report a
@@ -168,10 +178,13 @@ export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): strin
 	// portable between the two — a Discord destination needs its own formatter.
 	//
 	// The pair carries the link rather than a bare URL on a second line, so the
-	// channel reads as one scannable line per receipt. Note the link is not
-	// unfurled: robots.txt disallows /tx/, and Slack's link expander honours it —
-	// which is load-bearing here, since an unfurl would make Slack fetch the page
-	// and spend a SECOND full analysis against the global ceiling.
+	// channel reads as one scannable line per receipt.
+	//
+	// ⚠️ An earlier version of this comment claimed the link is safe from
+	// unfurling because robots.txt disallows /tx/. That was WRONG — measured
+	// 2026-08-11, Slack fetched it anyway and each message triggered a second
+	// render. What actually prevents it is unfurl_links/unfurl_media in
+	// createNotifier. Do not rely on robots.txt to stop a link expander.
 	//
 	// ⚠️ The function name and the `receipt_created` AlertKind both say
 	// "created", but nothing is persisted and nothing is being created: this
@@ -192,7 +205,23 @@ export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): strin
  */
 export function baseUrlFromHeaders(h: Headers): string {
 	const configured = process.env.APP_BASE_URL;
-	if (configured) return configured.replace(/\/+$/, '');
+	if (configured) {
+		const trimmed = configured.replace(/\/+$/, '');
+		// ⚠️ A scheme-less value is the likely misconfiguration, because the
+		// obvious way to obtain this URL — copy the browser's address bar — hides
+		// `https://`. Passed through, it produced `<receipts.example.com/tx/...|
+		// PAIR>`, which Slack cannot resolve to a URL: it printed the angle
+		// brackets literally and dropped the label, so the receipt link silently
+		// stopped being a link. Nothing failed, nothing logged. Measured in
+		// production 2026-08-11.
+		//
+		// Defaulting to https rather than rejecting: this runs on the render path
+		// of a receipt that already computed, and a bad base URL must not be able
+		// to fail the page. An explicit http:// is preserved — a staging host on
+		// plain http is a real choice, and rewriting it would break the link the
+		// other way.
+		return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+	}
 	const host = h.get('host') ?? 'localhost:3000';
 	const proto = h.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
 	return `${proto}://${host}`;
