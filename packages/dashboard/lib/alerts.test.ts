@@ -162,14 +162,13 @@ describe('message formatting', () => {
 			},
 			'https://app.test',
 		);
-		// "Receipt viewed:", not "New receipt:" — nothing is persisted, so no row
-		// is being "created"; this fires on every render, including a repeat view.
-		expect(msg).toContain('Receipt viewed:');
-		expect(msg).toContain('WETH');
-		expect(msg).toContain('USDC');
+		// The pair leads — no label prefix. Asserted as startsWith, not merely
+		// not.toContain, so reintroducing ANY prefix fails here rather than only
+		// the one spelling this used to have.
+		expect(msg.startsWith('WETH → USDC')).toBe(true);
 		expect(msg).toContain('0x');
 		expect(msg).toContain('$4210');
-		expect(msg).toContain('12.4 bps');
+		expect(msg).toContain('12.4bps');
 		expect(msg).toContain('https://app.test/tx/base/0xdead');
 	});
 
@@ -188,9 +187,9 @@ describe('message formatting', () => {
 	it('renders a genuinely zero all-in cost, not a blank segment (0 is falsy, absence is null)', () => {
 		// Regression: notionalUsd/allInCostBps used to arrive as Drizzle strings,
 		// where '0' is truthy. Now that ReceiptSummary is number | null, a truthy
-		// guard would silently drop a real zero-cost execution's "bps all-in"
-		// segment — indistinguishable from a receipt where the cost was never
-		// resolved at all. Must check != null, not truthiness.
+		// guard would silently drop a real zero-cost execution's bps segment —
+		// indistinguishable from a receipt where the cost was never resolved at
+		// all. Must check != null, not truthiness.
 		const msg = receiptCreatedMessage(
 			{
 				txHash: '0xzero',
@@ -203,7 +202,7 @@ describe('message formatting', () => {
 			'https://app.test',
 		);
 		expect(msg).toContain('$0');
-		expect(msg).toContain('0.0 bps all-in');
+		expect(msg).toContain('0.0bps');
 	});
 });
 

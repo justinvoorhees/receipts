@@ -132,16 +132,19 @@ export function receiptCreatedMessage(r: ReceiptSummary, baseUrl: string): strin
 	const pair = `${r.inputSymbol ?? '?'} → ${r.outputSymbol ?? '?'}`;
 	const via = r.aggregator ? ` via ${r.aggregator}` : '';
 	const notional = r.notionalUsd != null ? ` · $${Number(r.notionalUsd).toFixed(0)}` : '';
-	const cost = r.allInCostBps != null ? ` · ${Number(r.allInCostBps).toFixed(1)} bps all-in` : '';
+	const cost = r.allInCostBps != null ? ` · ${Number(r.allInCostBps).toFixed(1)}bps` : '';
 	// DEFAULT_CHAIN rather than the row's own chain: ReceiptSummary is structural
 	// and carries no chainId, and this message only ever fires from the /tx page
 	// render — which SUPPORTED_CHAIN_IDS constrains to Base.
 	//
-	// "Receipt viewed:", not "New receipt:" — nothing is persisted, so there is
-	// no "new" row being created. This fires on every successful render of
-	// /tx/<chain>/<hash>, including a repeat view of the same transaction; the
-	// label says what actually happens.
-	return `Receipt viewed: ${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
+	// No prefix — the pair leads, so a channel of these scans as a feed rather
+	// than a column of repeated labels.
+	//
+	// ⚠️ The function name and the `receipt_created` AlertKind both say
+	// "created", but nothing is persisted and nothing is being created: this
+	// fires on EVERY successful render of /tx/<chain>/<hash>, including repeat
+	// views of the same transaction. Do not count these as unique receipts.
+	return `${pair}${via}${notional}${cost}\n${baseUrl}${receiptPath(DEFAULT_CHAIN, r.txHash)}`;
 }
 
 /**
