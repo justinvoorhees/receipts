@@ -54,7 +54,7 @@ but deny-by-default is a design choice, not a verification.
 **How to reproduce.** Run it. It takes seconds:
 
 ```
-node scripts/smokeDeploy.mjs https://<live-url>
+node scripts/smokeDeploy.mjs https://receipts.withfabric.xyz
 ```
 
 **Fix.** Run it after every deploy. Wiring it into a post-deploy step would be

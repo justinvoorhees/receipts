@@ -76,7 +76,7 @@ npm run dev                   # dashboard on http://localhost:3000
 | `DUNE_API_KEY` | Currently inert — `DUNE_ETH_USD_QUERY_ID` in `duneOracle.ts` is still `0`. |
 | `ALERT_WEBHOOK_URL` | Optional. Slack/Discord incoming-webhook URL for incidents (the global spend ceiling), debounced to one message/hour. Unset ⇒ log-only. **Set on the deployment, not locally** — if this points at the same webhook production uses, a local receipt posts to the same channel as production traffic. |
 | `ACTIVITY_WEBHOOK_URL` | Optional. Separate webhook URL, one message per newly generated receipt, not debounced. Independent of `ALERT_WEBHOOK_URL` — an unset URL never falls back to the other stream's URL. Same local-vs-production caveat as above. |
-| `APP_BASE_URL` | Optional. Base URL used to build the receipt link in the activity webhook message. Without it the link is derived from the request's `Host` header, which is caller-controlled on this public endpoint. |
+| `APP_BASE_URL` | Optional. Origin used to build the receipt link in the activity webhook message — no path, the code appends `/tx/<chain>/<hash>`. Production is `https://receipts.withfabric.xyz`. Without it the link is derived from the request's `Host` header, which is caller-controlled on this public endpoint. |
 
 ## Gotchas
 

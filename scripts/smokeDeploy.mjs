@@ -8,7 +8,7 @@
  * service any more, so there is no corpus to damage; the one real cost is
  * the single fresh analysis (~40 RPC calls) the receipt check triggers.
  *
- *   node scripts/smokeDeploy.mjs https://your-app.up.railway.app
+ *   node scripts/smokeDeploy.mjs https://receipts.withfabric.xyz
  *
  * Exits non-zero if any check fails, so it can gate a deploy.
  */
