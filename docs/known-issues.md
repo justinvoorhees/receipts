@@ -65,18 +65,38 @@ be shared — so this is on the happy path, not an edge case.
 links and watch `ACTIVITY_WEBHOOK_URL` — a message appears for a receipt nobody
 opened.
 
-**Fix.** No obviously right one, which is why this is recorded rather than
-solved. Options, roughly in order of appeal:
+**Partly fixed 2026-08-11.** `middleware.ts` now recognises known expander
+user-agents and serves a cheap `<head>`-only stub above the route, so those
+fetches never reach `loadReceipt`. Verified against a dev server: the same URL
+returns 983 bytes in 0.34s to a Slackbot UA and 161KB in 12.1s to a Chrome UA.
+`scripts/smokeDeploy.mjs` asserts both directions on every run.
 
-- Serve a cheap `<head>`-only response to known expander user-agents, so the
-  preview works without the analysis. Fragile (user-agent sniffing) but targets
-  the actual cost.
-- Cache receipts, which makes the second fetch free rather than preventing it.
-  The seam is `loadReceipt`; see the Deferred section of
-  `docs/superpowers/specs/2026-08-06-database-removal-design.md`.
-- Accept it and size the global ceiling with the expansion multiplier included.
+**What is still open.** The matcher is a user-agent list, which means:
 
-Note the per-IP limiter does not help: expanders fetch from their own
+- It drifts. Every token in `lib/linkExpander.ts` is a snapshot of what those
+  services sent on 2026-08-11, and nothing tells us when one changes.
+- It is incomplete by construction. An expander not on the list — a new app, a
+  self-hosted bot, anything sending a browser-ish UA — still pays full price.
+- It cannot be tightened much. The list deliberately errs toward missing a bot
+  rather than risking a match on a real browser, because a false positive
+  serves a person a stub where their receipt should be.
+
+So this narrows the hole rather than closing it, and it is explicitly a cost
+optimisation and not a security control: a UA is self-reported, and the only
+thing forging one buys is a cheaper response.
+
+**The durable fix** is caching `loadReceipt`, which makes a second fetch of the
+same hash free regardless of who makes it — covering the expanders we do not
+recognise, and the thundering-herd case where a link reaches fifty people at
+once. See the Deferred section of
+`docs/superpowers/specs/2026-08-06-database-removal-design.md`.
+
+⚠️ Do not reach for that without first resolving the concurrent-decode
+inconsistency (same transaction, different receipts, no flag). Caching would pin
+whichever answer landed first for the whole TTL, turning an intermittent wrong
+receipt into a sticky one.
+
+Note the per-IP limiter does not help here: expanders fetch from their own
 infrastructure, so each arrives with a full budget.
 
 <!--

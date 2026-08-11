@@ -11,10 +11,13 @@
 #
 # ⚠️ THIS DOES NOT STOP LINK EXPANDERS. Measured 2026-08-11: Slack fetched
 # /tx/... to build a message preview despite the Disallow below, rendering a
-# receipt and spending a full analysis per expansion. Slack specifically is
-# handled by unfurl_links/unfurl_media in lib/alerts.ts — but any chat app,
-# and anyone pasting a receipt link into one, can still fetch this path.
-# Treat the rules below as advisory, not as a spend control.
+# receipt and spending a full analysis per expansion.
+#
+# Expanders are handled in middleware.ts instead, which serves a cheap stub to
+# known preview user-agents — and in lib/alerts.ts, which tells Slack not to
+# expand the links we post ourselves. Neither is complete: an expander whose UA
+# we do not recognise still spends an analysis. Treat the rules below as
+# advisory, not as a spend control.
 #
 # /qa is dev-only and 404s in production, but is listed for the same reason.
 # The index and /methodology are deliberately left crawlable.

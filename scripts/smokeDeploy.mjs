@@ -2,11 +2,15 @@
  * smokeDeploy.mjs — verify a deployed instance behaves the way it does locally.
  *
  * Checks a running deployment: that the public receipt path renders, that a
- * malformed hash 404s cheaply instead of spending an analysis, that security
- * headers are in place, and — the check that matters most — that the
- * dev-only /qa route is unreachable in production. Nothing is stored on this
- * service any more, so there is no corpus to damage; the one real cost is
- * the single fresh analysis (~40 RPC calls) the receipt check triggers.
+ * malformed hash 404s cheaply instead of spending an analysis, that link
+ * expanders get the cheap stub while browsers do not, that security headers are
+ * in place, and — the check that matters most — that the dev-only /qa route is
+ * unreachable in production. Nothing is stored on this service any more, so
+ * there is no corpus to damage; the one real cost is the single fresh analysis
+ * (~130 RPC calls) the receipt check triggers.
+ *
+ * That analysis also fires ACTIVITY_WEBHOOK_URL, so each run posts one message
+ * to the activity channel.
  *
  *   node scripts/smokeDeploy.mjs https://receipts.withfabric.xyz
  *
@@ -45,10 +49,37 @@ check('GET /  serves the receipt tool', home.status === 200, `status ${home.stat
 check('GET /methodology', (await req('/methodology')).status === 200);
 
 // The receipt route computes on demand now; a known-good hash must render.
-const receipt = await req(`/tx/base/${KNOWN_HASH}`);
+//
+// Sent with an ordinary browser user-agent, deliberately. middleware.ts serves
+// link expanders a cheap stub instead of running the analysis, so this doubles
+// as the check that a PERSON is never mistaken for one — the expensive
+// direction of that matcher being wrong. Reusing this request rather than
+// adding a second browser-UA fetch keeps the script at one analysis.
+const BROWSER_UA =
+	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const receipt = await req(`/tx/base/${KNOWN_HASH}`, { headers: { 'user-agent': BROWSER_UA } });
 check('GET /tx/base/<hash> renders a receipt', receipt.status === 200, `status ${receipt.status}`);
 check('  …with the pair on the page', /→/.test(receipt.body));
+check('  …and a browser is not mistaken for a link expander', !receipt.body.includes('Open the receipt'));
 
+// A link expander must get the cheap stub, not a ~130-call analysis. Costs
+// nothing to check — that is the entire point of the response being asserted.
+const preview = await req(`/tx/base/${KNOWN_HASH}`, {
+	headers: { 'user-agent': 'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)' },
+});
+check(
+	'a link expander gets the cheap preview, not an analysis',
+	preview.status === 200 && preview.body.includes('Open the receipt'),
+	`status ${preview.status}, ${preview.body.length} bytes`,
+);
+// Asserted against the REAL receipt fetched above rather than a fixed number:
+// the point is that one response is an order of magnitude cheaper than the
+// other, and a hardcoded byte threshold would drift with the page.
+check(
+	'  …and it is far smaller than the real receipt',
+	preview.body.length * 10 < receipt.body.length,
+	`${preview.body.length} vs ${receipt.body.length} bytes`,
+);
 console.log('\nsecurity headers:');
 const csp = home.headers.get('content-security-policy') ?? '';
 check('CSP is set', csp.length > 0);
