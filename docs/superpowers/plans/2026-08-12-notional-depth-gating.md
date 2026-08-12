@@ -62,15 +62,20 @@ where `$SCRATCH` is the scratchpad directory named above. Do **not** add `--conc
 
 - [ ] **Step 3: Verify the capture is complete before proceeding**
 
+⚠️ **Each entry is `{ "receipt": {…}, "error": … }`, not a bare receipt.** Reading `v['notionalUsd']` at the top level returns `None` for every row, which looks exactly like "nothing moved". Always go through `v['receipt']`.
+
 ```bash
 python3 -c "
 import json,os
 d=json.load(open(os.environ['SCRATCH']+'/golden-before.json'))
+rec=[v['receipt'] for v in d.values() if isinstance(v,dict) and v.get('receipt')]
 print('receipts:', len(d))
 print('errors:', sum(1 for v in d.values() if isinstance(v,dict) and v.get('error')))
-print('with notionalUsd:', sum(1 for v in d.values() if isinstance(v,dict) and v.get('notionalUsd') is not None))
+print('with notionalUsd:', sum(1 for r in rec if r.get('notionalUsd') is not None))
 "
 ```
+
+Measured on 2026-08-12: **62 receipts, 0 errors, 62 with a non-null `notionalUsd`.** Task 5 compares against exactly this.
 
 Expected: 62 receipts. A handful of errors is tolerable if they are transport failures; note the count, because Task 5 compares like for like. If the count is below 62, the capture did not finish — re-run it.
 
@@ -659,16 +664,19 @@ node scripts/analysis/decodeGolden.mjs diff "$SCRATCH/golden-before.json" "$SCRA
 
 - [ ] **Step 3: Classify every difference — this is the deliverable, not a formality**
 
+⚠️ Entries nest under `receipt` — go through it or every comparison silently reads `None` against `None` and reports no movement.
+
 ```bash
 python3 -c "
 import json,os
 S=os.environ['SCRATCH']
 a=json.load(open(S+'/golden-before.json')); b=json.load(open(S+'/golden-after.json'))
+g=lambda d,h: (d[h] or {}).get('receipt') or {}
 for h in sorted(set(a)&set(b)):
-    x,y=a[h],b[h]
-    if not isinstance(x,dict) or not isinstance(y,dict): continue
+    x,y=g(a,h),g(b,h)
+    if not x or not y: continue
     if x.get('notionalUsd')!=y.get('notionalUsd'):
-        print(h[:12], x.get('inputSymbol'),'->',y.get('outputSymbol'),
+        print(h[:12], x.get('direction'),
               '|', x.get('notionalUsd'),'->',y.get('notionalUsd'))
 "
 ```
