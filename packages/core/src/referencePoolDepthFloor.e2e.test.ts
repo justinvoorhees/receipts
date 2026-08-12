@@ -4,9 +4,12 @@
  * Every other test in this feature runs on fakes. These three are the ones that
  * would actually have caught the bug, and the ones that will catch its return.
  *
- * ⚠️ Skips SILENTLY without TCA_RPC_URL, and `source .env` does not export by
- * itself. Run with:  set -a && source .env && set +a && npx vitest run …
- * A "skipped" result here proves nothing.
+ * ⚠️ This file imports `dotenv/config`, so it loads the repo-root `.env` itself
+ * under a root-cwd vitest run and does NOT need the `source .env` export
+ * ritual — verified by running it green without the export. Without
+ * TCA_RPC_URL set (in the environment or `.env`), it still skips SILENTLY.
+ * A "skipped" result here proves nothing. The other e2e files still need the
+ * ritual: only `beneficiaryAnchoring.e2e.test.ts` also imports `dotenv/config`.
  */
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
@@ -51,7 +54,7 @@ d('reference-pool depth floor e2e', () => {
 		// deepest one. weightedPriceImpactBps below normalizes by this whole-trade
 		// notional, so its ~0.1bps/~0.15 lpFeeBps drift is that same unification,
 		// not a new defect.
-		expect(r!.notionalUsd).toBeGreaterThan(50);
+		expect(r!.notionalUsd).toBeCloseTo(81.56, 1);
 		expect(r!.routeLegs!.length).toBeGreaterThan(0);
 		const leg = r!.routeLegs![0] as { priceImpactBps: number | null; lpFeeBps: number | null };
 		expect(leg.priceImpactBps).toBeCloseTo(61.23, 1);
