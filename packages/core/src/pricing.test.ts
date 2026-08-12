@@ -31,7 +31,7 @@ function makeDeps(over: Partial<PricingDeps> = {}): PricingDeps {
     },
     getPairMid: async () => null,
     getEstimatedMid: async () => null,
-    getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] }),
+    getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'], referenceDepthUsd: null, referencePoolAddress: null }),
     getUsdValue: async () => null,
     readDecimals: async () => 18,
     readSymbol: async () => 'TKN',
@@ -164,7 +164,7 @@ describe('priceReceipt', () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: USDC },
       makeDeps({
-        getMarketPrice: async () => ({ tier: 'full', marketMid: 0.5, corroboratedBy: ['direct', 'bridged'], flags: [] }),
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 0.5, corroboratedBy: ['direct', 'bridged'], flags: [], referenceDepthUsd: null, referencePoolAddress: null }),
         getUsdValue: async () => 500,
         readDecimals: async (t) => (t.toLowerCase() === USDC ? 6 : 18),
         readSymbol: async (t) => (t.toLowerCase() === USDC ? 'USDC' : 'AAA'),
@@ -187,7 +187,7 @@ describe('priceReceipt', () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
       makeDeps({
-        getMarketPrice: async () => ({ tier: 'full', marketMid: 3.3, corroboratedBy: ['direct', 'bridged'], flags: [] }),
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 3.3, corroboratedBy: ['direct', 'bridged'], flags: [], referenceDepthUsd: null, referencePoolAddress: null }),
       }),
     );
     expect(r.status).toBe('estimated');
@@ -208,9 +208,9 @@ describe('priceReceipt', () => {
       makeDeps({
         getMarketPrice: async (_i, _o, blockNumber) => {
           const refBlock = baseArgs.blockNumber - 1n; // 99n
-          if (blockNumber === refBlock - 1n) return { tier: 'full', marketMid: 100, corroboratedBy: ['direct'], flags: [] }; // N-2
-          if (blockNumber === refBlock) return { tier: 'full', marketMid: 200, corroboratedBy: ['direct'], flags: [] }; // N-1, the ruler
-          if (blockNumber === refBlock + 1n) return { tier: 'full', marketMid: 300, corroboratedBy: ['direct'], flags: [] }; // N
+          if (blockNumber === refBlock - 1n) return { tier: 'full', marketMid: 100, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null }; // N-2
+          if (blockNumber === refBlock) return { tier: 'full', marketMid: 200, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null }; // N-1, the ruler
+          if (blockNumber === refBlock + 1n) return { tier: 'full', marketMid: 300, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null }; // N
           throw new Error(`unexpected getMarketPrice blockNumber ${blockNumber}`);
         },
       }),
@@ -233,7 +233,7 @@ describe('priceReceipt', () => {
       makeDeps({
         getMarketPrice: async (_i, _o, blockNumber) => {
           seenBlocks.push(blockNumber);
-          return { tier: 'full', marketMid: 1, corroboratedBy: ['direct'], flags: [] };
+          return { tier: 'full', marketMid: 1, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null };
         },
       }),
     );
@@ -253,9 +253,9 @@ describe('priceReceipt', () => {
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
       makeDeps({
         getMarketPrice: async (_i, _o, blockNumber) => {
-          if (blockNumber === refBlock) return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'] };
+          if (blockNumber === refBlock) return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'], referenceDepthUsd: null, referencePoolAddress: null };
           // Wings WOULD resolve if the centre didn't gate them.
-          return { tier: 'full', marketMid: 42, corroboratedBy: ['direct'], flags: [] };
+          return { tier: 'full', marketMid: 42, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null };
         },
       }),
     );
@@ -386,7 +386,7 @@ describe('priceReceipt', () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
       makeDeps({
-        getMarketPrice: async () => ({ tier: 'estimated', marketMid: 0.0005, corroboratedBy: ['bridged'], flags: ['SINGLE_CLASS'] }),
+        getMarketPrice: async () => ({ tier: 'estimated', marketMid: 0.0005, corroboratedBy: ['bridged'], flags: ['SINGLE_CLASS'], referenceDepthUsd: null, referencePoolAddress: null }),
         getUsdValue: async () => 135, // best-effort notional from the anchored side
       }),
     );
@@ -400,7 +400,7 @@ describe('priceReceipt', () => {
   it('stays partial when the apparatus finds no usable mid', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
-      makeDeps({ getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'] }) }),
+      makeDeps({ getMarketPrice: async () => ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_ESTIMATOR'], referenceDepthUsd: null, referencePoolAddress: null }) }),
     );
     expect(r.status).toBe('partial');
     expect(r.marketMid).toBeNull();
@@ -410,7 +410,7 @@ describe('priceReceipt', () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: EXOTIC_A, outputToken: USDC },
       makeDeps({
-        getMarketPrice: async () => ({ tier: 'full', marketMid: 0.5, corroboratedBy: ['direct', 'bridged'], flags: [] }),
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 0.5, corroboratedBy: ['direct', 'bridged'], flags: [], referenceDepthUsd: null, referencePoolAddress: null }),
         getUsdValue: async () => 500,
       }),
     );
@@ -553,11 +553,11 @@ describe('defaultGetPairMid — basic-AMM (v2-reserves) pool', () => {
 
 // ── priceReceipt tier wiring: routed through the single Market Price apparatus ──
 const fullMid = (price: number): MarketPriceResult =>
-  ({ tier: 'full', marketMid: price, corroboratedBy: ['direct', 'bridged'], flags: [] });
+  ({ tier: 'full', marketMid: price, corroboratedBy: ['direct', 'bridged'], flags: [], referenceDepthUsd: null, referencePoolAddress: null });
 const estMid = (price: number): MarketPriceResult =>
-  ({ tier: 'estimated', marketMid: price, corroboratedBy: ['direct'], flags: ['SINGLE_SOURCE'] });
+  ({ tier: 'estimated', marketMid: price, corroboratedBy: ['direct'], flags: ['SINGLE_SOURCE'], referenceDepthUsd: null, referencePoolAddress: null });
 const noMid = (): MarketPriceResult =>
-  ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'] });
+  ({ tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'], referenceDepthUsd: null, referencePoolAddress: null });
 
 describe('priceReceipt tier wiring', () => {
   it('full tier -> status full, marketMid set, methodology mentions corroboration', async () => {
@@ -609,7 +609,7 @@ describe('methodology descriptor strings', () => {
     return r.methodology;
   };
   const mp = (tier: MarketPriceResult['tier'], corroboratedBy: MarketPriceResult['corroboratedBy'], flags: string[]): MarketPriceResult =>
-    ({ tier, marketMid: tier === 'none' ? null : 1800, corroboratedBy, flags });
+    ({ tier, marketMid: tier === 'none' ? null : 1800, corroboratedBy, flags, referenceDepthUsd: null, referencePoolAddress: null });
 
   it('full: direct + bridged + oracle', async () =>
     expect(await run(mp('full', ['direct', 'bridged', 'oracle'], []))).toBe(

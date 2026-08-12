@@ -118,8 +118,8 @@ const OUT = '0x0555e30da8f98308edb960aa94c0db47230d2b9c'; // WBTC
 
 function makeMpDeps(over: Partial<MarketPriceDeps> = {}): MarketPriceDeps {
   return {
-    getDirectMid: async () => null,
-    getBridgedMid: async () => null,
+    getDirectMid: async () => ({ price: null }),
+    getBridgedMid: async () => ({ price: null }),
     getOracleImpliedMid: async () => null,
     ...over,
   };
@@ -127,14 +127,14 @@ function makeMpDeps(over: Partial<MarketPriceDeps> = {}): MarketPriceDeps {
 
 describe('getMarketPriceForPair', () => {
   it('is full when direct and bridged agree', async () => {
-    const deps = makeMpDeps({ getDirectMid: async () => 100, getBridgedMid: async () => 100.1 });
+    const deps = makeMpDeps({ getDirectMid: async () => ({ price: 100 }), getBridgedMid: async () => ({ price: 100.1 }) });
     const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
     expect(r.tier).toBe('full');
     expect(r.corroboratedBy.sort()).toEqual(['bridged', 'direct']);
   });
 
   it('is estimated with only a direct pool', async () => {
-    const deps = makeMpDeps({ getDirectMid: async () => 100 });
+    const deps = makeMpDeps({ getDirectMid: async () => ({ price: 100 }) });
     const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
     expect(r.tier).toBe('estimated');
     expect(r.marketMid).toBe(100);
@@ -149,10 +149,68 @@ describe('getMarketPriceForPair', () => {
   it('never throws — a rejecting dep just drops that estimator', async () => {
     const deps = makeMpDeps({
       getDirectMid: async () => { throw new Error('rpc'); },
-      getBridgedMid: async () => 100,
+      getBridgedMid: async () => ({ price: 100 }),
     });
     const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
     expect(r.tier).toBe('estimated'); // only bridged survived
     expect(r.marketMid).toBe(100);
+  });
+});
+
+// ── depth rejections reach the flags without touching the reducer ───────────
+// A floored-out estimator is simply ABSENT from computeMarketPrice's array —
+// byte-identical to one that never existed — so the reason has to be merged in
+// afterwards, in getMarketPriceForPair, where the deps were actually called.
+describe('getMarketPriceForPair — depth rejection side-channel', () => {
+  it('co-emits NO_LIQUIDITY and INSUFFICIENT_DEPTH when the floor emptied every class', async () => {
+    const deps = makeMpDeps({
+      getBridgedMid: async () => ({ price: null, rejected: true, depthUsd: 0.216, poolAddress: '0x6945a4bf' }),
+    });
+    const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+
+    expect(r.tier).toBe('none');
+    expect(r.marketMid).toBeNull();
+    expect(r.flags).toContain('NO_LIQUIDITY');       // the reducer: zero classes
+    expect(r.flags).toContain('INSUFFICIENT_DEPTH');  // the merge: WHY
+    expect(r.referenceDepthUsd).toBeCloseTo(0.216, 6);
+    expect(r.referencePoolAddress).toBe('0x6945a4bf');
+  });
+
+  it('records depth on the PASSING path too, so a thin-but-passing ruler is visible', async () => {
+    const deps = makeMpDeps({
+      getBridgedMid: async () => ({ price: 2, depthUsd: 250, poolAddress: '0xthin' }),
+    });
+    const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+
+    expect(r.tier).toBe('estimated');
+    expect(r.flags).not.toContain('INSUFFICIENT_DEPTH');
+    expect(r.referenceDepthUsd).toBe(250);
+    expect(r.referencePoolAddress).toBe('0xthin');
+  });
+
+  it('emits DEPTH_UNVERIFIED when depth could not be valued, and still allows the mid', async () => {
+    const deps = makeMpDeps({ getDirectMid: async () => ({ price: 3, unverified: true }) });
+    const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+
+    expect(r.marketMid).toBe(3);
+    expect(r.flags).toContain('DEPTH_UNVERIFIED');
+    expect(r.flags).not.toContain('INSUFFICIENT_DEPTH');
+  });
+
+  it('reports the thinnest pool when both classes carry a depth', async () => {
+    const deps = makeMpDeps({
+      getDirectMid: async () => ({ price: 100, depthUsd: 90_000, poolAddress: '0xfat' }),
+      getBridgedMid: async () => ({ price: 100.1, depthUsd: 400, poolAddress: '0xthin' }),
+    });
+    const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+
+    expect(r.referencePoolAddress).toBe('0xthin');
+    expect(r.referenceDepthUsd).toBe(400);
+  });
+
+  it('leaves computeMarketPrice untouched — no depth fields invented by the reducer', () => {
+    const r = computeMarketPrice([{ price: 5, class: 'direct', label: 'direct pool' }]);
+    expect(r.referenceDepthUsd).toBeNull();
+    expect(r.referencePoolAddress).toBeNull();
   });
 });

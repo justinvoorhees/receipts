@@ -26,6 +26,14 @@ export interface MarketPriceResult {
   marketMid: number | null;
   corroboratedBy: EstimatorClass[];
   flags: string[];
+  /**
+   * Depth of the binding (thinnest) reference pool in USD, populated whether or
+   * not the floor passed — a thin-but-passing ruler has to be visible too.
+   * Always null out of `computeMarketPrice`, which sees prices and nothing else.
+   */
+  referenceDepthUsd: number | null;
+  /** The pool that depth belongs to. Depth alone cannot be re-audited. */
+  referencePoolAddress: string | null;
 }
 
 /** Cross-class agreement tolerance (matches benchmark MANIPULATION_TOL_BPS). */
@@ -47,7 +55,7 @@ export function computeMarketPrice(
     if (prices.length > 0) liq.set(cls, median(prices));
   }
   if (liq.size === 0) {
-    return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'] };
+    return { tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'], referenceDepthUsd: null, referencePoolAddress: null };
   }
 
   const liqClasses = [...liq.keys()];
@@ -83,7 +91,7 @@ export function computeMarketPrice(
   // co-occur with ORACLE_DISAGREE (a lone pool the oracle contradicts) but never with
   // LIQUIDITY_DISAGREE (that requires >=2 classes). Tier is already 'estimated' here.
   if (!corroborated && liqClasses.length === 1) flags.push('SINGLE_SOURCE');
-  return { tier: corroborated ? 'full' : 'estimated', marketMid, corroboratedBy, flags };
+  return { tier: corroborated ? 'full' : 'estimated', marketMid, corroboratedBy, flags, referenceDepthUsd: null, referencePoolAddress: null };
 }
 
 // The single-ruler identity `reconciledResult` lives in the pure leaf (receiptPure)
@@ -91,12 +99,32 @@ export function computeMarketPrice(
 // and tests that import it from marketPrice.
 export { reconciledResult } from './receiptPure.js';
 
+/**
+ * A liquidity estimator's price plus what its reference pool looked like.
+ *
+ * The extra fields exist because a pool that failed the depth floor contributes
+ * NOTHING to the estimator array — it is byte-identical to a pool that never
+ * existed — so the reason cannot be recovered downstream and has to be carried
+ * out of the dep itself.
+ */
+export interface MidOutcome {
+  price: number | null;
+  /** Depth of the pool used, in USD; null when it could not be valued. */
+  depthUsd?: number | null;
+  poolAddress?: string | null;
+  /** A pool existed and was rejected for being below the USD floor. */
+  rejected?: boolean;
+  /** Depth could not be valued, so the floor was not applied. */
+  unverified?: boolean;
+}
+
 export interface MarketPriceDeps {
-  /** Guarded deepest direct pool mid (output-per-input), or null. */
-  getDirectMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<number | null>;
-  /** (in/WETH) x (WETH/out) bridged mid (output-per-input), or null. */
-  getBridgedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<number | null>;
-  /** usd(in)/usd(out) implied ratio when BOTH sides have USD feeds, else null. */
+  /** Guarded deepest direct pool mid (output-per-input), plus its pool evidence. */
+  getDirectMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<MidOutcome>;
+  /** (in/WETH) x (WETH/out) bridged mid (output-per-input), plus its pool evidence. */
+  getBridgedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<MidOutcome>;
+  /** usd(in)/usd(out) implied ratio when BOTH sides have USD feeds, else null.
+   *  Stays a bare number: the oracle has no pool, so there is no depth to report. */
   getOracleImpliedMid: (inputToken: string, outputToken: string, blockNumber: bigint) => Promise<number | null>;
 }
 
@@ -111,6 +139,17 @@ async function safeMid(
   }
 }
 
+async function safeOutcome(
+  fn: (a: string, b: string, blk: bigint) => Promise<MidOutcome>,
+  a: string, b: string, blk: bigint,
+): Promise<MidOutcome> {
+  try {
+    return await fn(a, b, blk);
+  } catch {
+    return { price: null };
+  }
+}
+
 export async function getMarketPriceForPair(
   deps: MarketPriceDeps,
   inputToken: string,
@@ -118,13 +157,37 @@ export async function getMarketPriceForPair(
   blockNumber: bigint,
 ): Promise<MarketPriceResult> {
   const [d, b, o] = await Promise.all([
-    safeMid(deps.getDirectMid, inputToken, outputToken, blockNumber),
-    safeMid(deps.getBridgedMid, inputToken, outputToken, blockNumber),
+    safeOutcome(deps.getDirectMid, inputToken, outputToken, blockNumber),
+    safeOutcome(deps.getBridgedMid, inputToken, outputToken, blockNumber),
     safeMid(deps.getOracleImpliedMid, inputToken, outputToken, blockNumber),
   ]);
   const estimators: Estimator[] = [];
-  if (d != null) estimators.push({ price: d, class: 'direct', label: 'direct pool' });
-  if (b != null) estimators.push({ price: b, class: 'bridged', label: 'WETH bridge' });
+  if (d.price != null) estimators.push({ price: d.price, class: 'direct', label: 'direct pool' });
+  if (b.price != null) estimators.push({ price: b.price, class: 'bridged', label: 'WETH bridge' });
   if (o != null) estimators.push({ price: o, class: 'oracle', label: 'oracle ratio' });
-  return computeMarketPrice(estimators);
+
+  // computeMarketPrice stays UNTOUCHED and pure over its existing signature.
+  const base = computeMarketPrice(estimators);
+
+  // Merge what only this scope knows. When the floor is what emptied every
+  // class the result carries BOTH NO_LIQUIDITY (from the reducer, which
+  // correctly observed zero classes) and INSUFFICIENT_DEPTH (explaining why);
+  // that co-occurrence is intended, and methodologyFor must branch on the
+  // specific reason first.
+  const flags = [...base.flags];
+  if (d.rejected || b.rejected) flags.push('INSUFFICIENT_DEPTH');
+  if (d.unverified || b.unverified) flags.push('DEPTH_UNVERIFIED');
+
+  // Report the thinnest pool we have evidence for — the binding constraint.
+  const valued = [d, b].filter((x) => x.depthUsd != null);
+  const thinnest = valued.length
+    ? valued.reduce((lo, x) => ((x.depthUsd as number) < (lo.depthUsd as number) ? x : lo))
+    : null;
+
+  return {
+    ...base,
+    flags,
+    referenceDepthUsd: thinnest?.depthUsd ?? null,
+    referencePoolAddress: thinnest?.poolAddress ?? null,
+  };
 }
