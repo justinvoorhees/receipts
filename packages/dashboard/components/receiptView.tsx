@@ -21,6 +21,7 @@ import {
 	hasUnresolvedFee,
 	UNRESOLVED_FEE_TOOLTIP,
 	NULL_PRICE_TOOLTIP,
+	NULL_NOTIONAL_TOOLTIP,
 	NO_ROUTE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
@@ -254,7 +255,14 @@ export function Receipt({
 				    Otherwise → the soft ~Size line for orientation (notionalUsd already
 				    prefers the USD-anchored side via pricing.ts bestEffortNotional). */}
 				{!anchored && (
-					<DetailRow label="Size">
+					<DetailRow
+						label="Size"
+						// DetailRow's valueTooltip is typed `string` (unlike every other row's
+						// `string | undefined`), so exactOptionalPropertyTypes rejects an
+						// explicit undefined here — spread the prop in only when there's a
+						// tooltip to show, rather than widen the shared row component.
+						{...(row.notionalUsd == null ? { valueTooltip: NULL_NOTIONAL_TOOLTIP } : {})}
+					>
 						{row.notionalUsd == null ? UNAVAILABLE : `~${formatSubvalueUsd(Number(row.notionalUsd))}`}
 					</DetailRow>
 				)}

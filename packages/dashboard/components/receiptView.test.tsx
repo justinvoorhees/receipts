@@ -952,6 +952,40 @@ describe('Size row', () => {
 		expect(html).toContain('Size');
 		expect(html).toContain('Unavailable for this pair');
 	});
+
+	it('lets the reader interrogate a Size the depth floor refused', async () => {
+		const { Receipt } = await import('./receiptView');
+		// Both sides volatile and the notional refused: the receipt now has no
+		// dollar figure at all, so the row must say why rather than dead-end.
+		const html = renderToStaticMarkup(
+			<Receipt row={{
+				...fullUsdcWethRow, aggregator: 'fabric', pricingStatus: 'partial',
+				inputSymbol: 'LFI', outputSymbol: 'GITLAWB',
+				inputToken: '0x3722264ab15a1dfce5a5af89e6547f7949a8aba3',
+				outputToken: '0x5f980dcfc4c0fa3911554cf5ab288ed0eb13dba3',
+				inputAmount: 6745937.5, outputAmount: 7234145.96,
+				notionalUsd: null, marketMid: null, allInCostBps: null,
+			} as never} />,
+		);
+		// Bound the window by the NEXT row's label: Size and Token In sit adjacent
+		// and an over-wide slice reads the neighbour's markup and passes vacuously.
+		const window = html.slice(html.indexOf('Size'), html.indexOf('Token In'));
+		expect(window).toContain('Unavailable for this pair');
+		expect(window).toContain('No pool with enough liquidity to value this trade');
+	});
+
+	it('leaves a Size that resolved without a tooltip', async () => {
+		const { Receipt } = await import('./receiptView');
+		const html = renderToStaticMarkup(
+			<Receipt row={{
+				...fullUsdcWethRow, pricingStatus: 'partial',
+				marketMid: null, allInCostBps: null, notionalUsd: 1000.00,
+			} as never} />,
+		);
+		const window = html.slice(html.indexOf('Size'), html.indexOf('Token In'));
+		expect(window).toContain('$1,000.00');
+		expect(window).not.toContain('No pool with enough liquidity');
+	});
 });
 
 describe('Anchored single-ruler receipt (supersedes the MVP no-fair-value thesis)', () => {

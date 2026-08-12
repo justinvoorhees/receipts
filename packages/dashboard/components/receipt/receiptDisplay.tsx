@@ -438,6 +438,12 @@ export function isMakerLeg(leg: Pick<RouteLeg, 'type' | 'venue'>): boolean {
 // same everywhere it's not the market-maker-specific case above.
 export const NULL_PRICE_TOOLTIP = 'No market price available';
 
+// The notional's counterpart to NULL_PRICE_TOOLTIP. Deliberately covers both
+// causes of an absent Size — no pool at all, and a pool the depth floor
+// refused — because the receipt does not carry which one it was, and a tooltip
+// that named the floor would be a guess on the no-pool case.
+export const NULL_NOTIONAL_TOOLTIP = 'No pool with enough liquidity to value this trade';
+
 // A fee tier core could not read. Distinct from the null/rfq cases above: the
 // pool DOES charge an LP fee, we just failed to resolve it — so the cell must
 // not render "0.00bps", which would assert the pool was free. Reads as the
