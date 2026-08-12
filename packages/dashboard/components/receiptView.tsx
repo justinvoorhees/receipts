@@ -331,7 +331,7 @@ export function Receipt({
 					    /methodology in a new tab (Figma 546-694). The dispersion clause
 					    appends only when all three blocks priced (priceDispersion.ts). */}
 					<p className="text-[12px] leading-[20px] text-[var(--color-secondary)]">
-						<MethodologyText text={methodologyText} />
+						<MethodologyText text={methodologyText} poolAddress={row.referencePoolAddress} />
 						{dispersion ? ` ${dispersion}` : ''}
 					</p>
 				</div>

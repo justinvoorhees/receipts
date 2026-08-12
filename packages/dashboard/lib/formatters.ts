@@ -50,6 +50,7 @@ export function shortTxHash(txHash: string): string {
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	fabric: 'Fabric',
+	juicebox: 'Juicebox',
 	kyberswap: 'KyberSwap',
 	'0x': '0x',
 	'1inch': '1inch',
@@ -58,6 +59,8 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 	okx: 'OKX',
 	openocean: 'OpenOcean',
 	relay: 'Relay',
+	spire: 'Spire',
+	uniswap: 'Uniswap',
 	velora: 'Velora',
 };
 

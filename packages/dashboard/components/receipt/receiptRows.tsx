@@ -135,7 +135,42 @@ const METHODOLOGY_PATTERN = new RegExp(`(${METHODOLOGY_TERMS.join('|')})`, 'g');
  * is built only from these literal strings plus fixed prose — so a single
  * non-overlapping split is sufficient; no priority/longest-match logic needed.
  */
-export function MethodologyText({ text }: { text: string }) {
+/**
+ * The phrase the depth-floor methodology sentence uses for its reference pool.
+ * Linking it is the ONLY way the pool behind a refused market price is reachable
+ * — there is no depth row on the receipt — which is why `referencePoolAddress`
+ * is persisted rather than just the depth number.
+ */
+const POOL_PHRASE = 'deepest reference pool';
+
+export function MethodologyText({
+	text,
+	poolAddress,
+}: {
+	text: string;
+	/** The reference pool this sentence is about, when one was recorded. */
+	poolAddress?: string | null;
+}) {
+	// Only linked when we know WHICH pool. A sentence naming a pool we cannot
+	// point at stays plain text rather than becoming a dead link.
+	if (poolAddress && text.includes(POOL_PHRASE)) {
+		const [before, ...rest] = text.split(POOL_PHRASE);
+		return (
+			<>
+				{before}
+				<a
+					href={explorerAddress(DEFAULT_CHAIN, poolAddress)}
+					target="_blank"
+					rel="noreferrer"
+					className="underline decoration-dotted underline-offset-[3px] [text-decoration-skip-ink:none] hover:decoration-solid"
+				>
+					{POOL_PHRASE}
+				</a>
+				{rest.join(POOL_PHRASE)}
+			</>
+		);
+	}
+
 	return (
 		<>
 			{text.split(METHODOLOGY_PATTERN).map((part, i) =>

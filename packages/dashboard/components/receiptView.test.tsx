@@ -2357,3 +2357,54 @@ describe('Receipt with a floored market price', () => {
 		expect(html).toContain('109.87bps');
 	});
 });
+
+// ── the reference pool is reachable from the sentence that names it ─────────
+describe('MethodologyText — reference pool link', () => {
+	const DEPTH_SENTENCE =
+		'Unavailable: The deepest reference pool for this token pair held $0.22 of liquidity. ' +
+		'No reliable market price could be calculated.';
+	const POOL = '0x6945a4Bf3E7A68D86c4BFd863c6d664575D81545';
+
+	it('links the phrase to the pool that was actually used', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(<MethodologyText text={DEPTH_SENTENCE} poolAddress={POOL} />);
+		expect(html).toContain(`https://basescan.org/address/${POOL}`);
+		expect(html).toContain('>deepest reference pool<');
+		expect(html).toContain('decoration-dotted');
+	});
+
+	it('leaves the sentence as plain text when no pool address was recorded', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(<MethodologyText text={DEPTH_SENTENCE} poolAddress={null} />);
+		expect(html).toContain('deepest reference pool');
+		expect(html).not.toContain('basescan.org/address/null');
+		expect(html).not.toContain('<a');
+	});
+
+	it('does not invent a link on a sentence that never mentions a pool', async () => {
+		const { MethodologyText } = await import('./receipt/receiptRows');
+		const html = renderToStaticMarkup(
+			<MethodologyText text="Unavailable: No reliable market price could be calculated." poolAddress={POOL} />,
+		);
+		expect(html).not.toContain('basescan.org/address');
+	});
+
+	it('reaches the pool from a rendered receipt end to end', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const row = {
+			txHash: '0x7e21b6dcc964e36ffb7921841d6c9bf00624dac086738843af561b7c7768b0ce',
+			chainId: 8453, blockNumber: 49825278, aggregator: 'unknown', direction: 'BEAN->ETH',
+			inputToken: '0x5c72992b83e74c4d5200a8e8920fb946214a5a5d', outputToken: 'native',
+			inputSymbol: 'BEAN', outputSymbol: 'ETH',
+			inputAmount: 75, outputAmount: 0.0435, notionalUsd: 81.68,
+			realizedPrice: 0.00058, marketMid: null, allInCostBps: null,
+			pricingStatus: 'partial', tier: 'none', methodology: DEPTH_SENTENCE,
+			referenceDepthUsd: 0.216, referencePoolAddress: POOL,
+			lpFeeBps: 109.87, aggFeeBps: 0, slippageBps: null, executionBps: null, gasCostUsd: 0.0365,
+			hopCount: 1, routeShape: 'single', decompConfidence: 'low', routePure: true,
+			reconResidualBps: null, manipulationFlag: false, routeReconstructed: true, routeLegs: [],
+		};
+		const html = renderToStaticMarkup(<ReceiptView trade={row as never} hash={row.txHash} />);
+		expect(html).toContain(`https://basescan.org/address/${POOL}`);
+	});
+});
