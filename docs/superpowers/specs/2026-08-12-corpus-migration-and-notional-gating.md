@@ -120,7 +120,7 @@ Reuse what the depth floor already built. `usdRefGated` (`tokenPricing.ts:305`) 
 
 | receipt | notional source | `Size` |
 |---|---|---|
-| anchored side valued (`0x7e21b6dc`) | ETH via the WETH/USDC reference — trustworthy | **keep** `~$81.68` |
+| anchored side valued (`0x7e21b6dc`) | ETH via the WETH/USDC reference — trustworthy | **keep** `~$81.56` ⚠️ |
 | non-anchored, valued by a below-floor pool | the ungated pool — the actual risk | **refused in core → row shows the unavailable state** |
 | non-anchored, valued by a pool clearing the floor | ranked winner, floor passed | **keep** |
 
@@ -143,6 +143,6 @@ Ranking is uncontroversial and ships regardless: first-match is strictly worse t
 
 **Part B**
 - Golden diff, **captured serially** (`decodeGolden.mjs`) — concurrency produces false differences. Expect movement confined to non-anchored pairs. Check specifically for legs whose notional fell to 0 via the `notionalUsd ?? 0` path.
-- Assert `0x7e21b6dc` still shows `~$81.68` — it is the case the refinement exists to protect.
+- Assert `0x7e21b6dc` still shows a notional off its anchored ETH side — it is the case the refinement exists to protect. ⚠️ **Measured during implementation: the figure is `~$81.56`, not `~$81.68`.** Putting the ETH side on the ruler's ranked-deepest WETH/USDC pool instead of a first-match one picks a different pool at that block. Two pinned per-leg numbers in `referencePoolDepthFloor.e2e.test.ts` moved with it (`priceImpactBps` 61.14→61.23, `lpFeeBps` 109.87→110.02) because `decomposeRoute.ts:822` and `:908` normalize both by the whole-trade notional — a coupling the spec's "per-leg is out of scope" note did not anticipate.
 - RPC e2e: pin a non-anchored pair whose notional currently comes from a first-match pool, and assert the ranked result differs.
 - Unit: the gated valuation returns null with `rejected: true` on a below-floor pool, and a number on one that clears it. ⚠️ `unverified` is **structurally unreachable** on this path — `usdRefGated` always prices against WETH, `pickReferenceToken(volatile, WETH)` always returns WETH, so `depthUsd` can only go null when `wethUsd` is invalid, which fails anchor resolution first. Plumb the field for parity with the ruler; do not write a test that has to defeat the types to fire it.
