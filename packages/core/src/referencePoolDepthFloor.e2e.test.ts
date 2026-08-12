@@ -115,4 +115,35 @@ d('reference-pool depth floor e2e', () => {
 		const legs = r!.routeLegs as { priceImpactBps: number | null }[];
 		expect(legs.some((l) => l.priceImpactBps != null)).toBe(true);
 	}, 120000);
+
+	/*
+	  Not a floor case -- the ranking half of this change. Neither KEYCAT nor
+	  AERO anchors, so before this change `bestEffortNotional` took the first
+	  matching pool: a thin direct KEYCAT/USDC pool that overstated the trade
+	  5.3x ($37,984.03). Ranked-and-floored discovery now prices through the
+	  deepest KEYCAT/WETH pool instead: $7,153.36.
+
+	  Trusted by cross-check against the receipt's OWN market mid, which this
+	  change does not touch (marketMid stays 0.00082548 AERO per KEYCAT,
+	  confirmed unmoved in the golden diff). The old notional implies AERO
+	  priced at $2.5563; the new one implies $0.4814. AERO did not trade at
+	  $2.56 on 2026-08-12 -- the old figure was the dead-pool trap from
+	  bestEffortNotional's docstring, caught here on a real receipt.
+	*/
+	it('reprices KEYCAT->AERO off the deepest pool instead of the first match', async () => {
+		const r = await analyzeTransaction(
+			'0x39a026fba042a6a937e7837cc3f6f132929fdc9bf7a30cce661a91d67c1cd2b6', CHAIN, { rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+
+		// Wide bounds on purpose: this is a live-chain float, and the point is to
+		// fail loudly on a regression back toward the old $37,984 first-match
+		// figure, not to pin the exact cent.
+		expect(r!.notionalUsd).not.toBeNull();
+		expect(r!.notionalUsd!).toBeGreaterThan(5000);
+		expect(r!.notionalUsd!).toBeLessThan(10000);
+
+		// The ruler this change must not touch.
+		expect(r!.marketMid).toBeCloseTo(0.00082548, 6);
+	}, 120000);
 });
