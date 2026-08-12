@@ -2371,6 +2371,27 @@ describe('Receipt with a floored market price', () => {
 		}
 	});
 
+	// An N/A the reader cannot interrogate is a dead end. Slippage already carried
+	// the dotted-underline + "No market price available" affordance; its two
+	// siblings state the same absence for the same reason and must explain it too.
+	it('gives all three whole-trade N/As the dotted underline and the reason', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);
+		// Bound each row by the NEXT row's label rather than a fixed character
+		// count: these rows sit adjacent and all three carry the same tooltip
+		// string, so an over-wide window would read the neighbour's markup and
+		// pass vacuously. ('>Slippage<' cannot match '>Positive Slippage<' — the
+		// character before "Slippage" there is a space, not '>'.)
+		const labels = ['Slippage', 'Positive Slippage', 'Total Execution Delta'];
+		const marks = labels.map((l) => html.indexOf(`>${l}<`));
+		marks.forEach((start, i) => {
+			expect(start, labels[i]).toBeGreaterThan(-1);
+			const cell = html.slice(start, marks[i + 1] ?? html.length);
+			expect(cell, labels[i]).toContain('decoration-dotted');
+			expect(cell, labels[i]).toContain('No market price available');
+		});
+	});
+
 	it('keeps the per-leg LP fee alongside the per-leg impact', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);

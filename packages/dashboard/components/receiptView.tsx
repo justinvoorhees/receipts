@@ -521,7 +521,11 @@ export function Receipt({
 						value={execution.positiveSlippageDisplay.text}
 						color={execution.positiveSlippageDisplay.color}
 						tooltip="Residual benefit after third-party fees, L.P. fees, and price impact"
-						valueTooltip={execution.slippageUnavailableTooltip}
+						// Mirrors the Slippage row exactly: on the partial tier the blocker is
+						// the missing reference mid, not how much of the route we priced, so a
+						// coverage percentage there would blame our leg readers for an absent
+						// market price.
+						valueTooltip={isPartial ? NULL_PRICE_TOOLTIP : execution.slippageUnavailableTooltip}
 						standalone
 					/>
 				)}
@@ -554,6 +558,10 @@ export function Receipt({
 					value={accuracy}
 					color={accuracyColor}
 					tooltip="Delta between execution price and market price; the sum of Third-Party Fee, L.P. Fee, Price Impact, and Slippage (or Unattributed)"
+					// Keyed off the value itself rather than the tier: this row prints N/A
+					// exactly when costBps could not be derived, and an N/A the reader cannot
+					// interrogate is a dead end.
+					valueTooltip={costBps == null ? NULL_PRICE_TOOLTIP : undefined}
 					standalone
 				/>
 			</div>
