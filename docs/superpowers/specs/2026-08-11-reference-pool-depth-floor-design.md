@@ -1,6 +1,8 @@
 # Spec: Reference-pool depth floor
 
-**Status:** approved, not implemented · **Date:** 2026-08-11 · **Scope:** core pricing (`tokenPricing`, `pricing`, `marketPrice`, `analyzeTransaction`)
+**Status:** approved, not implemented · **Date:** 2026-08-11, revised 2026-08-12 · **Scope:** core pricing (`tokenPricing`, `pricing`, `marketPrice`, `analyzeTransaction`) + receipt UI
+
+**2026-08-12 revision.** Two more confirming transactions were verified, the floor was **calibrated against the corpus and lowered from $1,000 to $100**, the sole "known consequence" (receipt 253) was found to be **stale and wrong**, a live witness for the direct/v2 gate was found (receipt 485), a second ungated path onto the same dust pools was identified (`getTokenUsdcValue`), and the *Data flow* section's claim about what still renders was corrected against the UI and the approved design (Figma `733:209`).
 
 **Relationship to other work:** the successor to `2026-07-31-depth-ranked-reference-pool-discovery-design.md`. That spec's depth *ranking* has since shipped — `createDefaultPricingDeps` now resolves reference pools through `getDeepestPoolForPair` / `getDeepestPoolWithDepth`, so pools are ranked by `balanceOf(refToken)` rather than taken first-match. This spec covers the case ranking cannot reach: **the ranked winner is itself dust.**
 
@@ -65,7 +67,7 @@ This transaction is the case that reasoning did not cover: ranking ran, and sele
 | decision | choice |
 |---|---|
 | floor shape | **absolute USD**, not scaled to trade notional |
-| floor value | **$1,000** |
+| floor value | **$100** (revised 2026-08-12 from $1,000 — see *Calibration*) |
 | scope | **both** liquidity classes (direct and bridged) |
 | application point | the **ranked winner**, never the candidate set |
 | on failure | degrade `tier` to `none`; do **not** fall through to another pool |
@@ -89,7 +91,7 @@ Raising this one constant to any meaningful value would silently apply a token-a
 
 Instead:
 - Keep the L check as its own named constant with its current semantics (`L > 0` sanity, "this pool is not empty"). Rename to something that says so, e.g. `MIN_POOL_LIQUIDITY_L`.
-- Introduce `MIN_REFERENCE_DEPTH_USD = 1_000` as a genuinely separate concept, compared only against a USD-valued depth.
+- Introduce `MIN_REFERENCE_DEPTH_USD = 100` as a genuinely separate concept, compared only against a USD-valued depth.
 
 ### ⚠️ The v2-reserves branch is in scope
 
@@ -134,12 +136,30 @@ The direct path needs a `wethUsd` to value a WETH-denominated depth. `getMarketP
   - `MarketPriceDeps`' three getters change from returning `number | null` to returning a small result carrying the reason (`{ price } | { rejected: 'depth', depthUsd } | null`), **or** `getMarketPriceForPair` collects rejections in a side-channel it merges into `MarketPriceResult.flags` after `computeMarketPrice` returns.
   - Prefer the second: it keeps `computeMarketPrice` — the most heavily unit-tested function in the module — untouched and still pure over its existing signature.
   - When the floor is what emptied every class, the result carries **both** `NO_LIQUIDITY` (from the reducer, which correctly observed zero classes) and `INSUFFICIENT_DEPTH` (from the merge, explaining why). That co-occurrence is intended, and `methodologyFor` must branch on `INSUFFICIENT_DEPTH` **before** the generic `tier === 'none'` string so the specific reason wins.
-- New `Receipt` field carrying the winning reference pool's depth in USD, populated **whether or not the floor passed**, so a *passing but thin* ruler is also visible. No migration — receipts are ephemeral since `database-removal`.
-- `methodologyFor` (`pricing.ts:375`) gains a branch naming the reason when `INSUFFICIENT_DEPTH` is present.
+- Two new `Receipt` fields for the winning reference pool, both populated **whether or not the floor passed**, so a *passing but thin* ruler is also visible. No migration — receipts are ephemeral since `database-removal`.
+  - `referenceDepthUsd` — the depth in USD.
+  - `referencePoolAddress` — **the pool itself.** Depth alone cannot be re-audited; an address can, and it is what proved `0x7e21b6dc` and `0x537a3c55` share one dust pool (`0x6945a4Bf`, byte-identical depth). Nearly free to capture at selection time, impossible to recover afterwards on an ephemeral receipt.
+- `methodologyFor` (`pricing.ts:375`) gains a branch naming the reason when `INSUFFICIENT_DEPTH` is present. **Approved copy** (Figma `733:504`):
+
+  > Unavailable: The <u>deepest reference pool</u> for this token pair held $0.22 of liquidity. No reliable market price could be calculated.
+
+  Note what this string does **not** say: it never states the threshold. The receipt reports the measured depth and lets it speak; publishing "below the $1,000 minimum" would harden a tuning constant into user-facing copy and invite argument about the number rather than the pool. Keep it out.
+
+  "deepest reference pool" is a **link to `referencePoolAddress`** on the block explorer, standard dotted-underline treatment (Figma `733:494`) — the same affordance the Filler address and per-leg venues already use. This is what makes the field observable without a dedicated depth row, and it is why the address must be persisted rather than just the number.
 
 ### Interaction with pinned selection
 
 `pinnedPool.ts` pins pool *selection* once per decode while still reading the mid at each of the three sampled blocks. The floor is therefore evaluated against the same pool at `refBlock-1 / refBlock / refBlock+1`. A receipt cannot pass the floor at one wing and fail at another, which would otherwise render an incoherent Before/At/After triple. **The floor must be evaluated at selection time, not per sampled block** — putting it in the per-block read path would reintroduce exactly the space-vs-time confusion `pinnedPool` was built to eliminate.
+
+### ⚠️ `getTokenUsdcValue` is a second, ungated door onto the same dust pool
+
+`notionalUsd` does **not** come from the gated path. `bestEffortNotional` (`pricing.ts:628`) calls `deps.getUsdValue` → `getTokenUsdcValue` (`tokenPricing.ts:292`), which resolves mids through `getPairMidAtBlock` — **not** the ranked, floored discovery this spec gates. Its fallback chain is: token/USDC direct, then token/WETH × WETH/USDC. Both can land on exactly the kind of pool this spec exists to reject.
+
+For an **anchored** pair this is harmless, and it is why both 2026-08-12 cases survive with a correct `~Size`: `bestEffortNotional` prefers the anchored side, so `0x7e21b6dc` takes $81.68 off the ETH leg and `0x1955c578` takes $6.91 off the USDC leg, neither touching the dust pool.
+
+For a pair with **neither** side anchored there is no such protection. `receiptDollars` already returns `null` there (no anchor ⇒ no per-side USD), so the `~Size` row is the *only* dollar figure on the page — and it would be computed from an ungated mid. The precedent is recorded in `bestEffortNotional`'s own docstring: a WARP→ETH swap whose WARP/USDC pool had zero in-range liquidity and a stale mid, *"inflating notional ~7×."* Post-floor, such a receipt reads `tier: none`, `INSUFFICIENT_DEPTH`, no market price — beside a confident `~$4,061`.
+
+**Decision: out of scope for this spec, in scope for the follow-up, and recorded here so it is not mistaken for covered.** Gating `getTokenUsdcValue` means either routing it through the ranked resolver (a wider change than this spec wants, and it feeds `notionalUsdc` on every leg) or accepting that notional and market price are gated by different rules. Do not quietly do half of it.
 
 ### The volatile/volatile gap — accepted, flagged, not paid for
 
@@ -163,15 +183,81 @@ usdRef(BEAN)
 ⇒ referenceDepthUsd: 0.2166 (recorded even though it failed the floor)
 ```
 
-Amounts, direction, gas, route legs, per-leg LP fees and per-leg price impact all still render. The receipt loses only the claim it could not support.
+### ⚠️ What the receipt actually does — the original claim here was wrong
+
+This section previously read *"Amounts, direction, gas, route legs, per-leg LP fees and per-leg price impact all still render. The receipt loses only the claim it could not support."* Traced against the UI on 2026-08-12, that is wrong in two places and incomplete in a third. Approved design: Figma `733:209` (`no-liquidity`).
+
+**1. The per-side USD figures stop rendering, and the `~Size` row takes over.** `receiptDollars` (`qualityNotionals.ts:37`) returns `null` the moment `marketMid` is null, so the Token In / Token Out USD subvalues disappear — and one of them was *correct*, being the anchored side straight from `bestEffortNotional`. It is rescued only because `anchored` is defined as `dollars != null` (`receiptView.tsx:186`), which un-suppresses the soft `~Size` line. Net effect on `0x7e21b6dc`: `$4,061.25 → $81.68 → −$3,979.57` is replaced by a single `Size ~$81.68`, which is right.
+
+⚠️ **That rescue is currently accidental.** `anchored` was written as a fallback for *unanchored pairs*, not for an anchored pair whose mid got floored; it does the right thing here by coincidence and nothing pins it. **Add a UI test** asserting `Size` renders and the per-side subvalues do not, on a receipt with a null mid and an anchored side.
+
+**2. Per-leg Price Impact does NOT render — and this is a defect the floor makes common.** `tier: 'none'` routes through `partial()` (`pricing.ts:461`), which sets `pricingStatus: 'partial'`; `receiptView.tsx:444` then gates the *entire* Price Impact section on `isPartial` and collapses it to one `N/A`. But per-leg `priceImpactBps` is measured against **each leg's own pool mid at N−1** (`decomposeRoute.ts:855-908`) and is completely independent of the market ruler — 61.14bps on `0x7e21b6dc`, 0.34 + 20.05bps on `0x1955c578`, all still computed and stored.
+
+The gate's own comment justifies itself with *"there is a route but no reference mid to measure it against"* — true of the whole-trade delta, **false of per-leg impact**. The two must be separated: the whole-trade rows (Slippage, Positive Slippage, Total Execution Delta) legitimately die with the ruler; the per-leg rows do not.
+
+Per Figma `733:290` / `733:513`, the Price Impact section **keeps its leg rows** — `Uniswap v4 · BEAN/WETH` — rather than collapsing to a bare heading, so the receipt's shape is unchanged and the reader can still see which venues the trade touched.
+
+**RESOLVED 2026-08-12 (user decision): render each leg's REAL price impact whenever it is available.** The design's per-leg `N/A` was an overstep and is superseded — `61.14bps` renders on `0x7e21b6dc`, `0.34bps` and `20.05bps` on `0x1955c578`. A floored market price says nothing about what a leg cost against its own pool, and withholding a number we measured understates the receipt.
+
+**The change is a gate deletion, not new rendering.** `getPriceImpactRows` (`receiptDisplay.tsx:358`) is already entirely ruler-independent — it reads `leg.priceImpactBps`, formats per leg, and *already* handles every degenerate case on its own: `N/A` plus a per-leg explanation via `getNullPriceImpactTooltip` when the impact is null (rfq legs, `MID_NULL`, zero amountIn), and `–` for wrap/unwrap step legs. So "when available" needs no new logic; it is what that function already does.
+
+In `receiptView.tsx:444`, drop `isPartial` from the gate:
+
+```
+- {!routeReconstructed || isPartial ? (
++ {!routeReconstructed ? (
+```
+
+Two consequences to carry through:
+- Inside that branch, `valueTooltip={routeReconstructed ? NULL_PRICE_TOOLTIP : NO_ROUTE_TOOLTIP}` collapses — `routeReconstructed` is now always `false` there, so it simplifies to `NO_ROUTE_TOOLTIP`. Simplify it rather than leaving a ternary that reads as if both arms are reachable.
+- ⚠️ **Do NOT make the same change to the Slippage rows.** `isPartial` stays on Slippage / Positive Slippage / Total Execution Delta (`receiptView.tsx:488`) — those are whole-trade quantities measured against the ruler and they legitimately die with it. The whole point of this change is that per-leg and whole-trade are different questions; deleting the gate in both places would recreate the conflation in the opposite direction.
+
+**Test:** a receipt with `pricingStatus: 'partial'` and legs carrying non-null `priceImpactBps` must render the per-leg numbers; the same receipt's Slippage and Total Execution Delta must still render `N/A`. That pair of assertions is what pins the distinction.
+
+**3. Price Delta is removed entirely.** With `marketMid` null the row could only ever print `N/A` directly beneath a Market Price row already printing `N/A` — redundant. Per Figma `733:494`, the Price Range section on a floored receipt is exactly: `Execution Price`, `Market Price: N/A`, then the methodology sentence. Drop the row rather than render a second `N/A`.
+
+Amounts, direction, gas, route legs, per-leg LP fees, and the route's venue list all still render. The receipt loses the whole-trade delta it could not support.
 
 ---
 
-## Known consequences
+## Calibration (measured 2026-08-12)
 
-**Receipt 253 (`KEYCAT→AERO`) degrades to `tier: 'none'`.** Its best available pool was measured at **$183**, below the floor. This is intended and is the cost of the chosen floor value: $183 is not a market price for a $37,984 trade. Accepted knowingly.
+`scripts/analysis/referenceDepthDistribution.mjs` re-runs the *selection* half of the estimator over the frozen 62-row corpus at each receipt's own refBlock and values the winner's depth in USD. Serial, read-only, ~1 minute.
 
-**Some long-tail memecoin receipts will stop showing a market price.** That is the point. The alternative is continuing to show numbers like 9755 bps.
+**44 of 62 receipts are depth-gated at all.** The other 18 are ETH↔USDC pairs that price through the `benchmark` fast path, where this floor never applies — so every percentage below is out of 44, not 62.
+
+Receipts that would lose their market price entirely (i.e. **every** class floored out):
+
+| floor | receipts losing market price | which |
+|---|---:|---|
+| $1 – $100 | **1 / 44 (2%)** | 173 |
+| $200 – $500 | 2 / 44 (5%) | +371 |
+| $700 – $1,000 | 4 / 44 (9%) | +189, +485 |
+| $2,000 | 5 / 44 (11%) | +55 |
+| $10,000 | 9 / 44 (20%) | +52, +56, +252, +536 |
+
+The distribution has a **4,400× gap** at the bottom — $0.04, then nothing until $177.63:
+
+| id | pair | binding depth | `allInCostBps` |
+|---|---|---:|---:|
+| 173 | ETH→SIRE | **$0.04** | **−2,249.0** |
+| 543 | USDC→FLOWER | $177.63 | 38.7 |
+| 371 | ETH→KellyClaude | $180.73 | −22.3 |
+| 485 | POD→USDC | $595.15 | 165.4 |
+| 189 | ETH→jesse | $628.72 | 279.2 |
+| 55 | USDC→CLAWD | $1,670.87 | 372.4 |
+
+Every **confirmed** instance of the pathology sits at or below $0.22 — `0x537a3c55` ($0.216 → +9,755), `0x7e21b6dc` ($0.216 → +9,799), `0x1955c578` ($0.0113 → −16,961), and id 173 ($0.04 → −2,249). Every receipt in the $177–$629 band reports a cost that looks entirely ordinary. **$100 catches 100% of known pathology at a cost of one receipt; $1,000 costs four receipts to catch the same one.**
+
+### ⚠️ Two corrections to the original spec
+
+**Receipt 253 is not $183 — it measures $2,925.32.** Its binding side is KEYCAT/WETH (`0xB211a9DD`, aerodrome_cl); the AERO side holds $1.38M. It does **not** degrade at $1,000, let alone $100. The $183 figure predates depth *ranking* shipping, which is exactly the change that would raise it. The old "Known consequences" section rested entirely on this number and has been deleted — **there is no longer any known receipt that the floor degrades and that we would rather keep.**
+
+**Receipt 543 is rescued by its direct class**, and that vindicates the per-class design: its bridged out-side pool holds $177.63, but the direct USDC/FLOWER pool holds $131,721, so it keeps a `full` direct mid and merely loses bridged corroboration. A floor applied to some notional "overall depth" rather than per class would have wrongly killed it.
+
+### Residual uncertainty
+
+n=44, one frozen corpus, and the $177–$629 band was cleared only on the weaker test that its *headline* bps look plausible — not by verifying those rulers are right. `referenceDepthUsd` + `referencePoolAddress` are the instrument for revisiting this: ship them, accumulate receipts, re-run this script. The constant does not have to be right forever, it has to be defensible now.
 
 **Corpus repopulation is required.** Pricing changes do not propagate to stored rows, and `receipt-repopulation-2026-07-21` warns stored receipts go stale silently. Note `three-price-receipt`'s three-arm protocol (backup → control on `main` in an isolated worktree → branch) — without the control arm, months of pre-existing staleness reads as if this branch caused it.
 
@@ -181,7 +267,16 @@ Amounts, direction, gas, route legs, per-leg LP fees and per-leg price impact al
 
 **Pure unit tests (no RPC)** — `depthUsd` across stable / WETH / native / volatile refTokens; the floor predicate at, just below, and just above $1,000; the v2-reserves branch specifically, per the breadcrumb; `computeMarketPrice` reaching `tier: 'none'` when every class is floored out; `methodologyFor` producing the `INSUFFICIENT_DEPTH` string.
 
-**RPC e2e** — pin `0x537a3c55…` and assert `tier === 'none'`, `marketMid === null`, `allInCostBps === null`, and `INSUFFICIENT_DEPTH` present. Add it to `docs/qa/cases.json` as a hash with a `why`, per `qa-cases-file` — **never** append a decoded row to `corpus.json`.
+**RPC e2e — bridged gate.** Pin `0x537a3c55…` and assert `tier === 'none'`, `marketMid === null`, `allInCostBps === null`, and `INSUFFICIENT_DEPTH` present. Two more confirming cases are already in `docs/qa/cases.json` and should be pinned alongside it, because they cover shapes `0x537a3c55` does not:
+
+- **`0x7e21b6dc…`** — same dust pool, byte-identical depth, but a **$81.68** notional (41× the motivating tx) and a **positive** delta of +9,798.9bps.
+- **`0x1955c578…`** — the **negative**-sign case, −16,960.7bps. ⚠️ A test that only asserts an absurdly *large* delta would pass on both of the others and miss this one; assert on `|allInCostBps|` or on the flag, never on sign.
+
+**RPC e2e — direct gate (the v2-reserves branch).** ⚠️ Originally there was no live witness for this path; **there is one: corpus receipt 485** (`0x79854af2…`, POD→USDC, block 49,504,751). Its direct pool `0x6e2752252794dd3Ad7bF2889FBc2FB3e15635e6E` (`aerodrome_basic`) holds reserves `[3385, 8778689381562459]` — **3385 raw USDC = $0.0034** — and `defaultGetPairMid` returns a **non-null 0.38559286618676636** today. This is precisely the case `pricing.ts:194-196`'s breadcrumb predicted (*"a near-empty v2 pool would otherwise pass through"*), so the direct gate and the v2 branch get their regression from one real transaction rather than from fakes alone.
+
+Add any new hash to `docs/qa/cases.json` with a `why`, per `qa-cases-file` — **never** append a decoded row to `corpus.json`.
+
+**Calibration regression** — `scripts/analysis/referenceDepthDistribution.mjs` is checked in. Re-run it after any change to discovery or ranking: if the corpus's binding-depth distribution shifts, the constant's justification has moved and the *Calibration* section above is stale.
 
 **Regression guard** — a receipt whose reference pool is comfortably deep (e.g. `WETH→wstETH`, corpus 254, $19,334 notional) must be byte-identical before and after. Verify with `scripts/analysis/decodeGolden.mjs`, **captured serially** — concurrency produces false differences (`transient-rpc-silently-degrades-receipts`).
 
