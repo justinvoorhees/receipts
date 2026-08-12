@@ -238,6 +238,13 @@ export interface Receipt {
 	tier: string | null;
 	methodology: string | null;
 	marketPriceFlags: string[] | null;
+	/** Depth of the binding reference pool in USD, populated whether or not the
+	 *  depth floor passed — a thin-but-passing ruler must be visible too. */
+	referenceDepthUsd: number | null;
+	/** The reference pool that depth belongs to. Persisted so the methodology
+	 *  sentence can link it and so a receipt's ruler can be re-audited later;
+	 *  a depth with no address cannot be checked against anything. */
+	referencePoolAddress: string | null;
 	executionBps: number | null;
 	lpFeeBps: number | null;
 	aggFeeBps: number | null;
@@ -548,6 +555,10 @@ async function analyzeTransactionInSession(
 			tier: midReliable ? pricing.tier : 'none',
 			methodology: pricing.methodology,
 			marketPriceFlags: pricing.marketPriceFlags,
+			// NOT gated on midReliable: a thin-but-passing ruler is exactly the case
+			// these fields exist to expose, and it has a perfectly reliable mid.
+			referenceDepthUsd: pricing.referenceDepthUsd,
+			referencePoolAddress: pricing.referencePoolAddress,
 			executionBps: midReliable ? route.executionBps : null,
 			lpFeeBps: route.lpFeeBps,
 			aggFeeBps: route.aggFeeBps,

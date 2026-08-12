@@ -11,6 +11,7 @@ import {
   defaultGetPairMid,
   defaultGetPairMidOutcome,
   bridgedIsIndependent,
+  methodologyFor,
   impliedOracleRatio,
   type PricingDeps,
   type PoolMidReaders,
@@ -722,5 +723,44 @@ describe('defaultGetPairMidOutcome — direct depth floor', () => {
   it('defaultGetPairMid keeps its signature and stays ungated', async () => {
     const mid = await defaultGetPairMid(readers485(), POD, USDC_L, 100n);
     expect(mid).not.toBeNull();
+  });
+});
+
+// ── the depth methodology sentence ──────────────────────────────────────────
+describe('methodologyFor — INSUFFICIENT_DEPTH', () => {
+  const mpNone = (over: Partial<MarketPriceResult> = {}): MarketPriceResult => ({
+    tier: 'none', marketMid: null, corroboratedBy: [], flags: ['NO_LIQUIDITY'],
+    referenceDepthUsd: null, referencePoolAddress: null, ...over,
+  });
+
+  it('names the pool depth and NEVER states the threshold', () => {
+    const s = methodologyFor(mpNone({
+      flags: ['NO_LIQUIDITY', 'INSUFFICIENT_DEPTH'],
+      referenceDepthUsd: 0.216,
+      referencePoolAddress: '0x6945a4bf',
+    }));
+    expect(s).toBe(
+      'Unavailable: The deepest reference pool for this token pair held $0.22 of liquidity. ' +
+      'No reliable market price could be calculated.',
+    );
+    // Publishing the constant would harden a tuning value into user-facing copy.
+    expect(s).not.toContain('100');
+    expect(s).not.toContain('minimum');
+  });
+
+  it('branches on the specific reason BEFORE the generic tier-none string', () => {
+    // Both flags are present by design; the specific one must win.
+    const s = methodologyFor(mpNone({ flags: ['NO_LIQUIDITY', 'INSUFFICIENT_DEPTH'], referenceDepthUsd: 0.0113 }));
+    expect(s).toContain('deepest reference pool');
+    expect(s).not.toBe('Unavailable: No reliable market price could be calculated.');
+  });
+
+  it('keeps the generic string when depth was not the reason', () => {
+    expect(methodologyFor(mpNone())).toBe('Unavailable: No reliable market price could be calculated.');
+  });
+
+  it('renders sub-cent depths without collapsing them to $0.00', () => {
+    const s = methodologyFor(mpNone({ flags: ['INSUFFICIENT_DEPTH'], referenceDepthUsd: 0.0034 }));
+    expect(s).toContain('$0.0034');
   });
 });

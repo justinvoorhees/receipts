@@ -29,6 +29,7 @@ import {
   getTokenUsdcValue,
   getEstimatedMidAtBlock,
   getEstimatedMidOutcome,
+  midViaDeepest,
   depthUsd,
   MIN_POOL_LIQUIDITY_L,
   MIN_REFERENCE_DEPTH_USD,
@@ -110,6 +111,11 @@ export interface PricingResult {
   tier: MarketPriceTier;
   methodology: string;
   marketPriceFlags: string[];
+  /** Depth of the binding reference pool in USD. Populated whether or not the
+   *  floor passed, so a thin-but-passing ruler is visible too. */
+  referenceDepthUsd: number | null;
+  /** The pool that depth belongs to — depth alone cannot be re-audited later. */
+  referencePoolAddress: string | null;
   chainlinkDevBps: number | null;
   offchainPrice: number | null;
   offchainDevBps: number | null;
@@ -375,15 +381,40 @@ export function createDefaultPricingDeps(rpcUrl: string, pinPoolsAtBlock?: bigin
     getPairMid: (tokenIn, tokenOut, blockNumber) => defaultGetPairMid(poolReaders, tokenIn, tokenOut, blockNumber),
     getEstimatedMid: (inputToken, outputToken, blockNumber) =>
       getEstimatedMidAtBlock(bridgeReaders, inputToken, outputToken, blockNumber, ESTIMATED_MID_MIN_LIQUIDITY),
-    getMarketPrice: (inputToken, outputToken, blockNumber) =>
-      getMarketPriceForPair(
+    getMarketPrice: async (inputToken, outputToken, blockNumber) => {
+      // The depth floor needs a USD yardstick, and only the WETH/USDC anchor can
+      // supply one. Reading it here costs no extra round trip: pool selection is
+      // pinned for the decode and the read itself is memoised by rpcSession, so
+      // this is the same anchor the bridged estimator is about to use anyway.
+      // When it is unavailable the floor is simply not applied — never guessed.
+      const anchor = await midViaDeepest(bridgeReaders, WETH, USDC, blockNumber);
+      const wethUsd = anchor != null && anchor.price > 0 ? anchor.price : null;
+      const gate = wethUsd == null ? undefined : { minDepthUsd: MIN_REFERENCE_DEPTH_USD, wethUsd };
+
+      return getMarketPriceForPair(
         {
-          getDirectMid: async (i, o, blk) => (await defaultGetPairMid(poolReaders, i, o, blk))?.price ?? null,
+          getDirectMid: async (i, o, blk) => {
+            const out = await defaultGetPairMidOutcome(poolReaders, i, o, blk, gate);
+            return {
+              price: out.mid?.price ?? null,
+              depthUsd: out.depthUsd,
+              poolAddress: out.poolAddress,
+              rejected: out.rejected,
+              unverified: out.unverified,
+            };
+          },
           getBridgedMid: async (i, o, blk) => {
-            if (!bridgedIsIndependent(i, o)) return null; // duplicates direct for WETH pairs
-            return (
-              (await getEstimatedMidAtBlock(bridgeReaders, i, o, blk, ESTIMATED_MID_MIN_LIQUIDITY))?.price ?? null
+            if (!bridgedIsIndependent(i, o)) return { price: null }; // duplicates direct for WETH pairs
+            const out = await getEstimatedMidOutcome(
+              bridgeReaders, i, o, blk, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD,
             );
+            return {
+              price: out.mid?.price ?? null,
+              depthUsd: out.depthUsd,
+              poolAddress: out.poolAddress,
+              rejected: out.rejected,
+              unverified: out.unverified,
+            };
           },
           getOracleImpliedMid: async (i, o, blk) => {
             // Independent per-side USD: stable=$1, WETH/native via the WETH/USD
@@ -408,7 +439,8 @@ export function createDefaultPricingDeps(rpcUrl: string, pinPoolsAtBlock?: bigin
         inputToken,
         outputToken,
         blockNumber,
-      ),
+      );
+    },
     getUsdValue: (token, amountRaw, blockNumber, precomputedWethUsd) =>
       getTokenUsdcValue(client, token, amountRaw, blockNumber, decCache, precomputedWethUsd),
     readDecimals: decCache,
@@ -423,12 +455,31 @@ function fallbackSymbolFor(token: string): string {
   return KNOWN_SYMBOLS.get(token.toLowerCase()) ?? '???';
 }
 /** Human-readable methodology string derived from a Market Price apparatus result. */
-function methodologyFor(mp: MarketPriceResult): string {
+export function methodologyFor(mp: MarketPriceResult): string {
   const CLASS_PHRASE: Record<EstimatorClass, string> = {
     direct: 'direct-pool price',
     bridged: 'WETH-derived price',
     oracle: 'oracle reference',
   };
+
+  // MUST precede the generic tier === 'none' string below. INSUFFICIENT_DEPTH
+  // co-occurs with NO_LIQUIDITY by design (the reducer saw zero classes; the
+  // merge explains why), so the specific reason has to win the race.
+  //
+  // Deliberately does NOT state the threshold. Reporting the measured depth lets
+  // the number speak; publishing "below the $100 minimum" would harden a tuning
+  // constant into user-facing copy and invite an argument about the constant
+  // rather than about the pool. Copy fixed by Figma 733:504.
+  if (mp.flags.includes('INSUFFICIENT_DEPTH')) {
+    const d = mp.referenceDepthUsd;
+    // Sub-cent depths are the whole point of this branch — never round them to
+    // $0.00, which would read as "free" rather than "empty".
+    const amount = d == null
+      ? 'negligible liquidity'
+      : `$${d < 0.01 ? Number(d.toPrecision(2)) : d.toFixed(2)} of liquidity`;
+    return `Unavailable: The deepest reference pool for this token pair held ${amount}. ` +
+      'No reliable market price could be calculated.';
+  }
 
   if (mp.tier === 'none') return 'Unavailable: No reliable market price could be calculated.';
 
@@ -525,6 +576,8 @@ export async function priceReceipt(
     tier: 'none',
     methodology: 'Unavailable: No reliable market price could be calculated.',
     marketPriceFlags: [],
+    referenceDepthUsd: null,
+    referencePoolAddress: null,
     chainlinkDevBps: null,
     offchainPrice: null,
     offchainDevBps: null,
@@ -605,6 +658,8 @@ export async function priceReceipt(
         tier: fastPathTier,
         methodology: fastPathMethodology,
         marketPriceFlags: bench.flags,
+        referenceDepthUsd: null,
+        referencePoolAddress: null,
         chainlinkDevBps: bench.chainlinkDevBps,
         offchainPrice: bench.offchainPrice,
         offchainDevBps: bench.offchainDevBps,
@@ -652,11 +707,20 @@ export async function priceReceipt(
         chainlinkPrice: null, poolDivergenceBps: null, manipulationFlag: false,
         chainlinkDevBps: null, offchainPrice: null, offchainDevBps: null, chainlinkStalenessSecs: null,
         tier: mp.tier, methodology, marketPriceFlags: mp.flags,
+        referenceDepthUsd: mp.referenceDepthUsd,
+        referencePoolAddress: mp.referencePoolAddress,
       };
     }
 
     const notionalUsd = await bestEffortNotional(deps, args, refBlock);
-    return { ...partial(notionalUsd), tier: 'none', methodology, marketPriceFlags: mp.flags };
+    return {
+      ...partial(notionalUsd),
+      tier: 'none',
+      methodology,
+      marketPriceFlags: mp.flags,
+      referenceDepthUsd: mp.referenceDepthUsd,
+      referencePoolAddress: mp.referencePoolAddress,
+    };
   } catch {
     // Any failure (transient RPC, decode, etc.) degrades to partial — never throw.
     return partial(null);
