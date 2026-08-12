@@ -416,11 +416,18 @@ describe('Receipt estimated pricing tier', () => {
 		);
 		// Execution Price now renders (previously "Unavailable for this pair").
 		expect(html).toContain('Execution Price');
-		// Execution Price renders (realizedPrice present); Market Price, Price Delta,
-		// Price Impact, and Slippage are all null on a fully partial receipt, each
-		// carrying the generic "no market price" tooltip.
-		expect((html.match(/>N\/A</g) ?? []).length).toBe(4);
-		expect((html.match(/No market price available/g) ?? []).length).toBeGreaterThanOrEqual(4);
+		// Market Price is N/A and carries the generic "no market price" tooltip.
+		expect(html).toContain('>Market Price<');
+		expect(html).toContain('No market price available');
+		// Price Delta is GONE rather than N/A — a second "N/A" directly under a
+		// Market Price row already saying it states nothing (see the Price Range
+		// section of the no-liquidity design).
+		expect(html).not.toContain('>Price Delta<');
+		// Price Impact is no longer collapsed by `isPartial`. This row has no legs,
+		// so it falls back to its own "No Route Found" sub-row — but the section is
+		// rendered rather than replaced by a single N/A.
+		expect(html).toContain('>Price Impact<');
+		expect(html).toContain('No Route Found');
 	});
 });
 
@@ -1658,12 +1665,16 @@ describe('group section bottom padding (Figma 546-713)', () => {
 		expect(pricedLabel).toBeGreaterThan(-1);
 		expect(hasPb22Ancestor(htmlPriced, pricedLabel)).toBe(true);
 
-		const htmlPartial = renderToStaticMarkup(
-			<Receipt row={{ ...fullUsdcWethRow, pricingStatus: 'partial', marketMid: null, allInCostBps: null } as never} />,
+		// The standalone (ungrouped) Price Impact is now reached ONLY by an
+		// un-reconstructed route. A `partial` receipt no longer collapses the
+		// section: per-leg impact is measured against each leg's own pool mid and
+		// does not depend on the market ruler, so it keeps its group.
+		const htmlNoRoute = renderToStaticMarkup(
+			<Receipt row={{ ...fullUsdcWethRow, routeReconstructed: false } as never} />,
 		);
-		const partialLabel = htmlPartial.indexOf('>Price Impact<');
-		expect(partialLabel).toBeGreaterThan(-1);
-		expect(hasPb22Ancestor(htmlPartial, partialLabel)).toBe(false);
+		const noRouteLabel = htmlNoRoute.indexOf('>Price Impact<');
+		expect(noRouteLabel).toBeGreaterThan(-1);
+		expect(hasPb22Ancestor(htmlNoRoute, noRouteLabel)).toBe(false);
 	});
 });
 
@@ -2282,5 +2293,67 @@ describe('Positive Slippage collapse', () => {
 		expect(html).not.toContain('>Positive Slippage<');
 		// The maker leg is still named — this frame keeps its per-leg rows.
 		expect(html).toContain('Market Maker');
+	});
+});
+
+// ── the floored receipt: per-leg survives, whole-trade does not ─────────────
+// A floored market price kills the whole-trade delta. It says NOTHING about what
+// each leg cost against its own pool: decomposeRoute measures per-leg impact
+// against the executing pool's mid at N-1, which never touches the ruler.
+describe('Receipt with a floored market price', () => {
+	const flooredRow = {
+		txHash: '0x7e21b6dcc964e36ffb7921841d6c9bf00624dac086738843af561b7c7768b0ce',
+		chainId: 8453, blockNumber: 49825278, aggregator: 'unknown', direction: 'BEAN->ETH',
+		inputToken: '0x5c72992b83e74c4d5200a8e8920fb946214a5a5d',
+		outputToken: 'native',
+		inputSymbol: 'BEAN', outputSymbol: 'ETH',
+		inputAmount: 75, outputAmount: 0.0435080059160212, notionalUsd: 81.68,
+		realizedPrice: 0.0005801067455469493,
+		marketMid: null, marketMidBefore: null, marketMidAfter: null,
+		allInCostBps: null, pricingStatus: 'partial', tier: 'none',
+		methodology: 'Unavailable: The deepest reference pool for this token pair held $0.22 of liquidity. No reliable market price could be calculated.',
+		marketPriceFlags: ['NO_LIQUIDITY', 'INSUFFICIENT_DEPTH'],
+		referenceDepthUsd: 0.216, referencePoolAddress: '0x6945a4Bf3E7A68D86c4BFd863c6d664575D81545',
+		lpFeeBps: 109.87, aggFeeBps: 0, slippageBps: null, executionBps: null, gasCostUsd: 0.0365,
+		hopCount: 1, routeShape: 'single', decompConfidence: 'low', routePure: true,
+		reconResidualBps: null, manipulationFlag: false, routeReconstructed: true,
+		routeLegs: [{
+			venue: '0x498581ff718922c3f8e6a244956af099b2652b2b', type: 'univ4',
+			tokenIn: '0x5c72992b83e74c4d5200a8e8920fb946214a5a5d',
+			tokenOut: '0x4200000000000000000000000000000000000006',
+			feeTierBps: 109.9, notionalUsdc: 81.65,
+			lpFeeBps: 109.86923768183975, priceImpactBps: 61.140710458703175,
+			tokenInSymbol: 'BEAN', tokenOutSymbol: 'WETH',
+		}],
+	};
+
+	it('renders the REAL per-leg price impact even though the ruler is gone', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);
+		expect(html).toContain('61.14bps');
+	});
+
+	it('still refuses the whole-trade rows, which DO depend on the ruler', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);
+		// Anchor on '>Label<' — 'Slippage' is a PREFIX of 'Positive Slippage'.
+		expect(html).toContain('>Slippage<');
+		expect(html).toContain('>Total Execution Delta<');
+		// Neither may print a number: both are measured against the absent ruler.
+		expect(html).not.toContain('9,798');
+		expect(html).not.toContain('9689');
+	});
+
+	it('drops the Price Delta row rather than printing a second N/A', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);
+		expect(html).toContain('>Market Price<');
+		expect(html).not.toContain('>Price Delta<');
+	});
+
+	it('keeps the per-leg LP fee alongside the per-leg impact', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);
+		expect(html).toContain('109.87bps');
 	});
 });

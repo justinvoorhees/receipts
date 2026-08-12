@@ -336,14 +336,17 @@ export function Receipt({
 					</p>
 				</div>
 
-				<DetailRow
-					label="Price Delta"
-					subValue={priceDelta?.sub ?? undefined}
-					stackOnMobile
-					{...(hasMarketPrice ? {} : { valueTooltip: NULL_PRICE_TOOLTIP })}
-				>
-					{priceDelta?.text ?? 'N/A'}
-				</DetailRow>
+				{/*
+				  Dropped entirely when there is no market price, rather than printing a
+				  second "N/A" directly beneath the Market Price row that already says it.
+				  Price Delta exists to state the gap per 1 base unit; with no mid there is
+				  no gap to state, and the row adds a line of noise without a fact.
+				*/}
+				{priceDelta != null && (
+					<DetailRow label="Price Delta" subValue={priceDelta.sub ?? undefined} stackOnMobile>
+						{priceDelta.text}
+					</DetailRow>
+				)}
 			</div>
 
 			<Divider />
@@ -441,14 +444,26 @@ export function Receipt({
 					</div>
 				)}
 
-				{!routeReconstructed || isPartial ? (
+				{!routeReconstructed ? (
+					/*
+					  Only ONE failure gates this section: with no route there is nothing to
+					  measure impact ON.
+
+					  ⚠️ `isPartial` deliberately does NOT gate it. Per-leg price impact is
+					  measured against each leg's OWN pool mid at N-1 (decomposeRoute), so it
+					  is entirely independent of the market ruler and survives a null
+					  marketMid intact. The old gate's rationale — "there is a route but no
+					  reference mid to measure it against" — is true of the WHOLE-TRADE delta
+					  and false of a per-leg one; fusing them hid numbers we had measured.
+					  The whole-trade rows below (Slippage, Positive Slippage, Total Execution
+					  Delta) keep their `isPartial` gate, because those really are measured
+					  against the ruler. Legs with no impact of their own still render N/A
+					  individually via getPriceImpactRows.
+					*/
 					<BkdHeading
 						label="Price Impact"
 						value="N/A"
-						// Two different failures, two different explanations: with no route
-						// there is nothing to measure impact ON; on the partial tier there
-						// is a route but no reference mid to measure it AGAINST.
-						valueTooltip={routeReconstructed ? NULL_PRICE_TOOLTIP : NO_ROUTE_TOOLTIP}
+						valueTooltip={NO_ROUTE_TOOLTIP}
 						tooltip="Per-venue delta between execution price and the prior-block mid, excluding third-party fees and L.P. fees"
 						standalone
 					/>
