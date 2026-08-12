@@ -24,7 +24,14 @@
 		"hash": "0x99ed929c406191c45f58d1ca2ff3d7a5cd5ad6bd1b09aa99d5aac63a8f2801e0",
 		"chainId": 8453,
 		"added": "2026-08-11",
-		"tags": [],
-		"why": "TODO: decode and fill in shape/venues/why before relying on this case."
+		"tags": ["reconstructed", "linear", "curve", "lp-side-sink", "memecoin"],
+		"why": "Decoded 2026-08-11: an ordinary reconstructed route, useful as the control case. OFC->ETH via Relay, shape 'linear', hopCount 2, reconstructed=true, pricingStatus 'estimated' (SINGLE_SOURCE), allInCostBps 9065 on an $11 trade. Three legs — aerodrome_cl (OFC/USDC, 5.02bps) -> curve_stableng (USDC/WETH, 20.07bps) -> unwrap — so it is the only case here exercising curve_stableng. Also exercises LP_SIDE_SINK_DROPPED: the curve pool retained 0.0205 USDC, correctly counted as a pool fee rather than a third-party fee. The 9065bps is a memecoin pricing artifact, not a route defect; do not use this case to reason about cost magnitude."
+	},
+	{
+		"hash": "0xe770ac315c3e6010e74ea7a4611f5a1a20156d20b90727b8c8ce703517f6d7b6",
+		"chainId": 8453,
+		"added": "2026-08-12",
+		"tags": ["no-route", "cyclic-route", "leg-truncation", "split-route", "unknown-venue"],
+		"why": "The cyclic-route case, and the one that proves routeLegs is TRUNCATED on the un-reconstructed path. KyberSwap cbBTC->WETH, block 49855393, $478.42, reconstructed=false, shape 'complex', hopCount 1. Five pools swap: four forward (0x22aee369 aerodrome_cl, 0xd800b7e8, 0x1d6cfee6, 0x7c7420dd) and ONE backwards — 0x3f9b863e buys 0.00296 cbBTC back with 0.1002 WETH to feed the others, so the pools take in 0.01046 cbBTC against the trader's 0.0075. That two-token cycle defeats reconstructDag, and chainLegs' best-effort ordering then slices the list at the first leg whose tokenOut is the output token: 5 legs in, 1 leg out, carrying $67.51 of $478.42 (14%). Proven by calling chainLegs directly — with the reverse leg: complex/false/1 leg; drop only it: split/true/4 legs. diagnoseBreak returns the useless generic 'unreconstructed' because it skips inputToken/outputToken and a cbBTC<->WETH cycle has no intermediate. Fee tiers read at the trade block are 0.85/3.56/1.00/0.85/0.86 bps, so the real LP fee is ~3.40bps versus the 0.12bps the surviving leg implies. Two venues (0xd800b7e8 factory 0xc5396866, 0x3f9b863e factory 0x36077d39) are unknown to the registry. Receipt mockups of the current and fixed states: https://claude.ai/code/artifact/62d01c4d-ef4e-4686-9d0a-8591eec7bd54"
 	}
 ]
