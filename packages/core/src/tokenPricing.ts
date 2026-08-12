@@ -488,9 +488,23 @@ export async function getTokenUsdcValueGated(
 ): Promise<GatedUsdValue> {
   const t = token.toLowerCase();
 
-  // USDC needs neither a pool nor the anchor — short-circuit before any RPC.
+  // USDC needs neither a pool, the anchor, nor a decimals() read — short-circuit
+  // before any RPC. A real decimals() read on USDC would cost nothing (it's
+  // pre-seeded in the production decimals cache), but keeping the literal here
+  // means this path stays free of a `readDecimals` call in every environment.
   if (t === USDC) {
     return { usd: Number(amountRaw) / 1e6, rejected: false, unverified: false };
+  }
+
+  // Other stables need neither a pool nor the anchor, but decimals vary per
+  // token (DAI is 18; USDbC is 6), so read them. MUST cover the whole
+  // `anchorsToUsd` stable set (USDC, USDbC, DAI): `usdRefGated` would otherwise
+  // price DAI/USDbC as volatile tokens through a token/WETH pool and refuse
+  // them on the depth floor, losing a figure the first-match path used to
+  // produce via a direct token/USDC pool.
+  if (isStable(t)) {
+    const dec = await readers.readDecimals(t);
+    return { usd: Number(amountRaw) / 10 ** dec, rejected: false, unverified: false };
   }
 
   let wethUsd = precomputedWethUsd;
