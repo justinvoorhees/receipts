@@ -20,7 +20,7 @@ import {
   readV2Reserves,
   type PoolKind,
 } from './poolDiscovery.js';
-import { mechanismForKind } from './poolFamilies.js';
+import { mechanismForKind, pickReferenceToken } from './poolFamilies.js';
 import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -281,30 +281,134 @@ export async function midViaDeepest(
   return { price, depth: disc.depth };
 }
 
-/** USD value of one unit of `token`, floor-gated for volatile tokens. */
-async function usdRef(
+/** What one side's valuation observed, so the caller can explain a refusal. */
+interface SideOutcome {
+  /** USD per one unit of the token; null when it could not be priced. */
+  price: number | null;
+  /** Depth of the pool used, in USD; null when it could not be valued. */
+  usd: number | null;
+  pool: string | null;
+  /** True when a pool existed and was rejected for being too thin. */
+  rejected: boolean;
+  /** True when the depth check could not be performed (volatile refToken). */
+  unverified: boolean;
+}
+
+const ANCHORED_SIDE: SideOutcome = { price: null, usd: null, pool: null, rejected: false, unverified: false };
+
+/**
+ * USD value of one unit of `token`, gated on both the L sanity floor and the
+ * USD depth floor. Returns its evidence rather than a bare number: a rejection
+ * is indistinguishable from an absent pool once it reaches `computeMarketPrice`,
+ * so the reason has to travel out of here.
+ */
+async function usdRefGated(
   readers: EstimatedMidReaders,
   token: string,
   block: bigint,
   wethUsd: number,
   minLiquidity: bigint,
-): Promise<number | null> {
+  minDepthUsd: number,
+): Promise<SideOutcome> {
   const t = token.toLowerCase();
-  if (t === USDC) return 1;
-  if (t === NATIVE || t === WETH) return wethUsd;
-  // Volatile: price via the floor-gated deepest token/WETH pool. NEVER the
-  // direct token/USDC pool (dead-pool trap).
+  // Anchored sides need no pool at all, so there is no depth to gate.
+  if (t === USDC) return { ...ANCHORED_SIDE, price: 1 };
+  if (t === NATIVE || t === WETH) return { ...ANCHORED_SIDE, price: wethUsd };
+
+  // Volatile: price via the deepest token/WETH pool. NEVER the direct
+  // token/USDC pool (dead-pool trap).
+  const disc = await readers.getDeepestPoolWithDepth(t, WETH, block);
+  if (disc === null) return ANCHORED_SIDE;
+
+  const ref = pickReferenceToken(t, WETH);
+  const usd = depthUsd(ref, disc.depth, wethUsd, await readers.readDecimals(ref));
+
+  // Gate the ranked WINNER. A depth we cannot value is recorded as unverified
+  // and allowed through — the check is reported as not performed, never as passed.
+  if (usd !== null && usd < minDepthUsd) {
+    return { price: null, usd, pool: disc.address, rejected: true, unverified: false };
+  }
+
   const m = await midViaDeepest(readers, t, WETH, block); // WETH per token
-  if (m === null || m.depth < minLiquidity || m.price <= 0) return null;
-  return m.price * wethUsd;
+  const unverified = usd === null;
+  if (m === null || m.depth < minLiquidity || m.price <= 0) {
+    return { price: null, usd, pool: disc.address, rejected: false, unverified };
+  }
+  return { price: m.price * wethUsd, usd, pool: disc.address, rejected: false, unverified };
+}
+
+/** The bridged estimator plus the evidence behind a refusal. */
+export interface EstimatedMidOutcome {
+  mid: PairMidResult | null;
+  /** Depth of the binding (thinnest) reference pool in USD, or null. */
+  depthUsd: number | null;
+  /** The pool that depth belongs to. */
+  poolAddress: string | null;
+  /** A pool existed and was rejected for being below the USD floor. */
+  rejected: boolean;
+  /** Depth could not be valued, so the floor was not applied. */
+  unverified: boolean;
 }
 
 /**
  * Best-effort ("estimated") output-per-input market mid for a pair whose direct
- * pool is illiquid/absent. Prices each side independently through its deepest
- * `token/WETH` pool (Approach A) and returns the ratio. Returns null when either
- * side can't be priced above the liquidity floor. NEVER the direct token/USDC
- * pool. Reference block is the caller's (already N-1).
+ * pool is illiquid/absent, plus why it refused when it did.
+ *
+ * Prices each side independently through its deepest `token/WETH` pool and
+ * returns the ratio. The WETH/USDC anchor is gated too — not circularly, since
+ * its reference token is USDC and so its depth is valued without needing
+ * `wethUsd`. Reference block is the caller's (already N-1).
+ */
+export async function getEstimatedMidOutcome(
+  readers: EstimatedMidReaders,
+  inputToken: string,
+  outputToken: string,
+  blockNumber: bigint,
+  minLiquidity: bigint,
+  minDepthUsd: number,
+): Promise<EstimatedMidOutcome> {
+  const none: EstimatedMidOutcome = {
+    mid: null, depthUsd: null, poolAddress: null, rejected: false, unverified: false,
+  };
+
+  const anchorPool = await readers.getDeepestPoolWithDepth(WETH, USDC, blockNumber);
+  if (anchorPool === null) return none;
+  const anchorRef = pickReferenceToken(WETH, USDC); // USDC — a stable, so no wethUsd needed
+  const anchorUsd = depthUsd(anchorRef, anchorPool.depth, 0, await readers.readDecimals(anchorRef));
+  if (anchorUsd !== null && anchorUsd < minDepthUsd) {
+    return { ...none, rejected: true, depthUsd: anchorUsd, poolAddress: anchorPool.address };
+  }
+
+  const anchor = await midViaDeepest(readers, WETH, USDC, blockNumber); // USDC per WETH
+  if (anchor === null || anchor.price <= 0 || anchor.depth < minLiquidity) return none;
+  const wethUsd = anchor.price;
+
+  const [a, b] = await Promise.all([
+    usdRefGated(readers, inputToken, blockNumber, wethUsd, minLiquidity, minDepthUsd),
+    usdRefGated(readers, outputToken, blockNumber, wethUsd, minLiquidity, minDepthUsd),
+  ]);
+
+  // Report the THINNEST valued side: it is the binding constraint, and the pool
+  // the methodology sentence has to name.
+  const valued = [a, b].filter((s) => s.usd !== null);
+  const thinnest = valued.length
+    ? valued.reduce((lo, s) => ((s.usd as number) < (lo.usd as number) ? s : lo))
+    : null;
+
+  const base = {
+    depthUsd: thinnest?.usd ?? null,
+    poolAddress: thinnest?.pool ?? null,
+    rejected: a.rejected || b.rejected,
+    unverified: a.unverified || b.unverified,
+  };
+
+  if (a.price === null || b.price === null || b.price <= 0) return { ...base, mid: null };
+  return { ...base, mid: { price: a.price / b.price, poolAddress: 'bridged', poolKind: 'estimated' } };
+}
+
+/**
+ * Back-compat wrapper: the bridged mid alone, with the depth floor applied.
+ * Callers that need to know WHY it refused should use `getEstimatedMidOutcome`.
  */
 export async function getEstimatedMidAtBlock(
   readers: EstimatedMidReaders,
@@ -313,13 +417,10 @@ export async function getEstimatedMidAtBlock(
   blockNumber: bigint,
   minLiquidity: bigint,
 ): Promise<PairMidResult | null> {
-  const anchor = await midViaDeepest(readers, WETH, USDC, blockNumber); // USDC per WETH
-  if (anchor === null || anchor.price <= 0 || anchor.depth < minLiquidity) return null;
-  const wethUsd = anchor.price;
-  const usdIn = await usdRef(readers, inputToken, blockNumber, wethUsd, minLiquidity);
-  const usdOut = await usdRef(readers, outputToken, blockNumber, wethUsd, minLiquidity);
-  if (usdIn === null || usdOut === null || usdOut <= 0) return null;
-  return { price: usdIn / usdOut, poolAddress: 'bridged', poolKind: 'estimated' };
+  const out = await getEstimatedMidOutcome(
+    readers, inputToken, outputToken, blockNumber, minLiquidity, MIN_REFERENCE_DEPTH_USD,
+  );
+  return out.mid;
 }
 
 /**

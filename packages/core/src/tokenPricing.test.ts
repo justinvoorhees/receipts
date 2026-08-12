@@ -6,7 +6,7 @@
  * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, midViaDeepest, depthUsd, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, type EstimatedMidReaders } from './tokenPricing.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, getEstimatedMidOutcome, midViaDeepest, depthUsd, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, type EstimatedMidReaders } from './tokenPricing.js';
 import { type PublicClient } from 'viem';
 
 // ── sqrtPriceX96ToPrice ─────────────────────────────────────────────────────
@@ -316,5 +316,78 @@ describe('the split floor constants', () => {
   it('keeps the L sanity check at 1n and the USD floor separate', () => {
     expect(MIN_POOL_LIQUIDITY_L).toBe(1n);
     expect(MIN_REFERENCE_DEPTH_USD).toBe(100);
+  });
+});
+
+// ── the bridged depth gate ──────────────────────────────────────────────────
+
+describe('getEstimatedMidOutcome — bridged depth floor', () => {
+  // WETH/USDC anchor is deep; the WARP/WETH side's depth is the variable under test.
+  // readDecimals returns 18 throughout, so a WETH depth of 1e18 wei reads as 1 WETH.
+  function readersWithSideDepth(sideDepth: bigint): EstimatedMidReaders {
+    return makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n, kind: 'univ3' };
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0x6945a4bf', depth: sideDepth, kind: 'univ3' };
+        return null;
+      },
+    });
+  }
+
+  it('rejects the bridged class when the ranked winner is dust, and says why', async () => {
+    // 0.001 WETH at wethUsd 1 => $0.001, far under the $100 floor.
+    const out = await getEstimatedMidOutcome(readersWithSideDepth(10n ** 15n), WARP, NATIVE, 100n, 1n, 100);
+    expect(out.mid).toBeNull();
+    expect(out.rejected).toBe(true);
+    expect(out.poolAddress).toBe('0x6945a4bf');
+    expect(out.depthUsd!).toBeLessThan(100);
+  });
+
+  it('admits a winner that clears the floor, and reports depth on the PASSING path too', async () => {
+    // 1e6 WETH at wethUsd 1 => $1,000,000.
+    const out = await getEstimatedMidOutcome(readersWithSideDepth(10n ** 24n), WARP, NATIVE, 100n, 1n, 100);
+    expect(out.rejected).toBe(false);
+    expect(out.mid).not.toBeNull();
+    expect(out.depthUsd!).toBeGreaterThan(100);
+    expect(out.poolAddress).toBe('0x6945a4bf');
+  });
+
+  it('gates the WETH/USDC anchor itself against its own USDC-denominated depth', async () => {
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        // 1 unit of USDC at 18 fake decimals => $1, under the floor.
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 18n, kind: 'univ3' };
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0x6945a4bf', depth: 10n ** 24n, kind: 'univ3' };
+        return null;
+      },
+    });
+    const out = await getEstimatedMidOutcome(readers, WARP, NATIVE, 100n, 1n, 100);
+    expect(out.mid).toBeNull();
+    expect(out.rejected).toBe(true);
+  });
+
+  it('reports the THINNEST side, since that is the binding constraint', async () => {
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n, kind: 'univ3' };
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xthin', depth: 200n * 10n ** 18n, kind: 'univ3' };
+        if (key === [USDC, WARP].sort().join('|')) return { address: '0xfat', depth: 10n ** 24n, kind: 'univ3' };
+        return null;
+      },
+    });
+    // WARP -> USDC: only the WARP side needs a pool, so it is trivially thinnest.
+    const out = await getEstimatedMidOutcome(readers, WARP, USDC, 100n, 1n, 100);
+    expect(out.poolAddress).toBe('0xthin');
+    expect(out.depthUsd).toBeCloseTo(200, 6);
+    expect(out.rejected).toBe(false);
+  });
+
+  it('getEstimatedMidAtBlock keeps its old signature and stays a thin wrapper', async () => {
+    const res = await getEstimatedMidAtBlock(readersWithSideDepth(10n ** 24n), WARP, NATIVE, 100n, 1n);
+    expect(res).not.toBeNull();
+    expect(res!.poolKind).toBe('estimated');
   });
 });
