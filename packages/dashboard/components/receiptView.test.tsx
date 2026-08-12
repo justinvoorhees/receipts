@@ -2351,6 +2351,26 @@ describe('Receipt with a floored market price', () => {
 		expect(html).not.toContain('>Price Delta<');
 	});
 
+	/*
+	  '–' means "this row does not apply" (a wrap leg has no LP fee). 'N/A' means
+	  "we could not compute it". The whole-trade rows are the second case whenever
+	  the ruler is gone, so they must not borrow the first's dash — Figma 733:325 /
+	  733:522 / 733:333 all show N/A.
+	*/
+	it('renders N/A, not an en-dash, on the three whole-trade rows', async () => {
+		const { ReceiptView } = await import('./receiptView');
+		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);
+		const cell = (label: string) => {
+			const i = html.indexOf(`>${label}<`);
+			expect(i).toBeGreaterThan(-1);
+			return html.slice(i, i + 700);
+		};
+		for (const label of ['Slippage', 'Positive Slippage', 'Total Execution Delta']) {
+			expect(cell(label)).toContain('N/A');
+			expect(cell(label)).not.toContain('>–<');
+		}
+	});
+
 	it('keeps the per-leg LP fee alongside the per-leg impact', async () => {
 		const { ReceiptView } = await import('./receiptView');
 		const html = renderToStaticMarkup(<ReceiptView trade={flooredRow as never} hash={flooredRow.txHash} />);

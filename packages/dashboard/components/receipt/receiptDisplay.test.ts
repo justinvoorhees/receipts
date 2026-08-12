@@ -308,10 +308,13 @@ describe('getExecutionBreakdown coverage gating', () => {
 		expect(r.slippageUnavailableTooltip).toContain('pricing coverage is 0% complete');
 	});
 
+	// The name always said "N/A everywhere"; the '–' assertion was the accidental
+	// behaviour of formatDialogBps(null) and contradicted it. '–' means "this row
+	// does not apply"; a residual we could not compute is 'N/A'.
 	it('a null slippageBps yields N/A everywhere, not a fake zero', async () => {
 		const { getExecutionBreakdown } = await import('./receiptDisplay');
 		const r = getExecutionBreakdown({ slippageBps: null, routeLegs: [] } as never);
-		expect(r.unattributedDisplay.text).toBe('–');
+		expect(r.unattributedDisplay.text).toBe('N/A');
 		expect(r.slippageDisplay.text).toBe('N/A');
 	});
 

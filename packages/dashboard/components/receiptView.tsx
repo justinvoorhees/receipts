@@ -197,7 +197,11 @@ export function Receipt({
 			: row.allInCostBps != null
 				? Number(row.allInCostBps)
 				: null;
-	const { text: accuracy, color: accuracyColor } = formatDialogBps(costBps == null ? null : -costBps);
+	// Same two-empty-states rule as the Slippage rows (see getExecutionBreakdown):
+	// with no market price this delta could not be COMPUTED, which is 'N/A', not
+	// the '–' that means "does not apply".
+	const { text: accuracy, color: accuracyColor } =
+		costBps == null ? { text: 'N/A', color: undefined } : formatDialogBps(-costBps);
 	// Passed `costBps` so that when NOTHING could be attributed, the Unattributed
 	// row is the same quantity Total Execution Delta prints — on a route with no
 	// attributable parts those two rows are the same number by definition, and

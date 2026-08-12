@@ -270,17 +270,28 @@ export function getExecutionBreakdown(
 
 	const residualDisplay = formatDialogBps(marketForcesRaw == null ? null : -marketForcesRaw);
 
+	/*
+	  The two empty states are NOT interchangeable, and these rows want the second:
+
+	    '–'   this row does not apply — a wrap leg has no LP fee to state.
+	    'N/A' we could not compute it.
+
+	  Slippage, Positive Slippage and the residual are whole-trade quantities
+	  measured against the market ruler. When the ruler is absent (a floored
+	  reference pool, an unpriced pair) there is nothing to compute, which is the
+	  second case — but `formatDialogBps(null)` returns the first, so a receipt
+	  with no market price printed a dash that read as "nothing to report" rather
+	  than "we could not tell you". Figma 733:325 / 733:522 / 733:333 all show N/A.
+	*/
+	const bpsOrNA = (v: number | null) => (v == null ? NOT_AVAILABLE : formatDialogBps(-v));
+
 	return {
 		executionDisplay: formatDialogBps(executionRaw == null ? null : -executionRaw),
 		priceImpactDisplay: formatDialogBps(priceImpactRaw == null ? null : -priceImpactRaw),
 		marketForcesDisplay: residualDisplay,
-		slippageDisplay: fullyPriced
-			? formatDialogBps(slippageCostRaw == null ? null : -slippageCostRaw)
-			: NOT_AVAILABLE,
-		positiveSlippageDisplay: fullyPriced
-			? formatDialogBps(slippageBenefitRaw == null ? null : -slippageBenefitRaw)
-			: NOT_AVAILABLE,
-		unattributedDisplay: fullyPriced ? NOT_AVAILABLE : residualDisplay,
+		slippageDisplay: fullyPriced ? bpsOrNA(slippageCostRaw) : NOT_AVAILABLE,
+		positiveSlippageDisplay: fullyPriced ? bpsOrNA(slippageBenefitRaw) : NOT_AVAILABLE,
+		unattributedDisplay: fullyPriced ? NOT_AVAILABLE : bpsOrNA(marketForcesRaw),
 		slippageUnavailableTooltip,
 		coveragePercent,
 		fullyPriced,
