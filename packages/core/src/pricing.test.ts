@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   priceReceipt,
   defaultGetPairMid,
+  defaultGetPairMidOutcome,
   bridgedIsIndependent,
   impliedOracleRatio,
   type PricingDeps,
@@ -441,7 +442,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
       getDeepestPool: async (token0, token1) => {
         captured.token0 = token0;
         captured.token1 = token1;
-        return { address: '0xpool', kind: 'univ3' };
+        return { address: '0xpool', kind: 'univ3', depth: 10n ** 24n };
       },
       readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
       readLiquidity: async () => 1_000_000n, // healthy pool
@@ -486,7 +487,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
 
   it('returns null when slot0 is unreadable/uninitialized', async () => {
     const readers: PoolMidReaders = {
-      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
+      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3', depth: 10n ** 24n }),
       readSlot0: async () => null,
       readLiquidity: async () => 1_000_000n,
       readV2Reserves: async () => null,
@@ -499,7 +500,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
   it('returns null for an empty pool (liquidity below floor) — its slot0 price is a garbage mid', async () => {
     // The CLAWNCH bug: a 0-liquidity direct pool was accepted as a `full` mid.
     const readers: PoolMidReaders = {
-      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
+      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3', depth: 10n ** 24n }),
       readSlot0: async () => SQRT_PRICE_X96_FOR_4X,
       readLiquidity: async () => 0n,
       readV2Reserves: async () => null,
@@ -513,7 +514,7 @@ describe('defaultGetPairMid (orientation + inversion, hand-computed)', () => {
     // Real CLAWNCH pool 0x8DB5…: sqrtPriceX96 = MAX_SQRT_RATIO-1, liquidity 0.
     const MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342n;
     const readers: PoolMidReaders = {
-      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3' }),
+      getDeepestPool: async () => ({ address: '0xpool', kind: 'univ3', depth: 10n ** 24n }),
       readSlot0: async () => MAX_SQRT_RATIO - 1n,
       readLiquidity: async () => 1_000_000n, // even with "liquidity", a boundary price is unusable
       readV2Reserves: async () => null,
@@ -530,7 +531,7 @@ describe('defaultGetPairMid — basic-AMM (v2-reserves) pool', () => {
   const token1 = '0x2222222222222222222222222222222222222222';
 
   const readers = (kind: string): PoolMidReaders => ({
-    getDeepestPool: async () => ({ address: '0xpool', kind }),
+    getDeepestPool: async () => ({ address: '0xpool', kind, depth: 10n ** 24n }),
     readSlot0: async () => { throw new Error('slot0 should not be called for a basic pool'); },
     readLiquidity: async () => 0n,
     readV2Reserves: async () => [2n * 10n ** 18n, 6000n * 10n ** 18n], // 3000 token1 per token0
@@ -670,5 +671,56 @@ describe('impliedOracleRatio', () => {
     expect(impliedOracleRatio(null, 50000)).toBeNull();
     expect(impliedOracleRatio(2000, null)).toBeNull();
     expect(impliedOracleRatio(2000, 0)).toBeNull();
+  });
+});
+
+// ── the direct-class depth gate (the v2-reserves branch) ────────────────────
+// Regression source: corpus receipt 485 (POD->USDC, block 49,504,751). Its direct
+// pool 0x6e2752252794dd3Ad7bF2889FBc2FB3e15635e6E (aerodrome_basic) holds reserves
+// [3385, 8778689381562459] — 3385 raw USDC, $0.0034 — and still returns a
+// non-null mid today, exactly as readMidFromPool's breadcrumb predicted.
+describe('defaultGetPairMidOutcome — direct depth floor', () => {
+  const USDC_L = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+  const POD = '0xed664536023d8e4b1640c394777d34abaff1df8f';
+
+  function readers485(): PoolMidReaders {
+    return {
+      getDeepestPool: async () => ({ address: '0x6e275225', kind: 'aerodrome_basic', depth: 3385n }),
+      readSlot0: async () => null,
+      readLiquidity: async () => 0n,
+      readV2Reserves: async () => [3385n, 8778689381562459n] as [bigint, bigint],
+      readDecimals: async (t: string) => (t.toLowerCase() === USDC_L ? 6 : 18),
+    };
+  }
+
+  it('rejects a dust v2 direct pool and reports which pool it was', async () => {
+    const out = await defaultGetPairMidOutcome(readers485(), POD, USDC_L, 100n, {
+      minDepthUsd: 100,
+      wethUsd: 1900,
+    });
+    expect(out.rejected).toBe(true);
+    expect(out.mid).toBeNull();
+    expect(out.poolAddress).toBe('0x6e275225');
+    expect(out.depthUsd!).toBeCloseTo(0.003385, 6);
+  });
+
+  it('still returns the v2 mid when no floor is supplied, so ungated callers are unchanged', async () => {
+    const out = await defaultGetPairMidOutcome(readers485(), POD, USDC_L, 100n);
+    expect(out.rejected).toBe(false);
+    expect(out.mid).not.toBeNull();
+    expect(out.mid!.price).toBeGreaterThan(0);
+  });
+
+  it('admits a direct pool that clears the floor', async () => {
+    const readers = { ...readers485(), getDeepestPool: async () => ({ address: '0xdeep', kind: 'aerodrome_basic', depth: 500_000_000n }) };
+    const out = await defaultGetPairMidOutcome(readers, POD, USDC_L, 100n, { minDepthUsd: 100, wethUsd: 1900 });
+    expect(out.rejected).toBe(false);
+    expect(out.depthUsd).toBeCloseTo(500, 6);
+    expect(out.mid).not.toBeNull();
+  });
+
+  it('defaultGetPairMid keeps its signature and stays ungated', async () => {
+    const mid = await defaultGetPairMid(readers485(), POD, USDC_L, 100n);
+    expect(mid).not.toBeNull();
   });
 });

@@ -15,20 +15,23 @@ import { sessionHttp } from './rpcSession.js';
 import { base } from 'viem/chains';
 import { getBenchmarkMid, type BenchmarkResult } from './benchmarkPrice.js';
 import {
-  getDeepestPoolForPair,
   getDeepestPoolWithDepth,
   readSlot0,
   readLiquidity,
   readV2Reserves,
   type PoolKind,
 } from './poolDiscovery.js';
-import { mechanismForKind } from './poolFamilies.js';
+import { mechanismForKind, pickReferenceToken } from './poolFamilies.js';
 import {
   makeRpcDecimalsCache,
   sqrtPriceX96ToPrice,
   v2MidFromReserves,
   getTokenUsdcValue,
   getEstimatedMidAtBlock,
+  getEstimatedMidOutcome,
+  depthUsd,
+  MIN_POOL_LIQUIDITY_L,
+  MIN_REFERENCE_DEPTH_USD,
   ESTIMATED_MID_MIN_LIQUIDITY,
   type PairMidResult,
 } from './tokenPricing.js';
@@ -157,7 +160,7 @@ export interface PoolMidReaders {
     token0: string,
     token1: string,
     blockNumber: bigint,
-  ) => Promise<{ address: string; kind: string } | null>;
+  ) => Promise<{ address: string; kind: string; depth: bigint } | null>;
   /** Raw `slot0` sqrtPriceX96 read for a given pool address. */
   readSlot0: (poolAddress: string, blockNumber: bigint) => Promise<bigint | null>;
   /** In-range `liquidity()` for a pool at a block; null on revert. Used to reject
@@ -190,10 +193,13 @@ async function readMidFromPool(
   if (mechanismForKind(pool.kind as PoolKind) === 'v2-reserves') {
     const reserves = await readers.readV2Reserves(pool.address, blockNumber);
     // Deliberate asymmetry vs the v3 branch below: this rejects only a literal
-    // zero reserve, with no depth floor beyond that. That's harmless only
-    // because ESTIMATED_MID_MIN_LIQUIDITY is currently 1n — if that floor is
-    // ever raised, revisit whether basic-AMM direct mids need an equivalent
-    // depth guard, since a near-empty v2 pool would otherwise pass through.
+    // zero reserve, with no depth floor beyond that. The depth guard this used
+    // to ask for now lives OUTSIDE this function — `defaultGetPairMidOutcome`
+    // applies it in USD to the ranked winner, before any mid is read — so
+    // basic-AMM pools are covered by construction and this branch does not need
+    // its own. Corpus receipt 485 is the regression that pins it: an
+    // aerodrome_basic pool holding 3385 raw USDC ($0.0034) reaches exactly here
+    // and returns a perfectly finite, perfectly useless mid.
     if (reserves === null || reserves[0] === 0n || reserves[1] === 0n) return null;
     rawPrice = v2MidFromReserves(reserves[0], reserves[1], dec0, dec1);
   } else {
@@ -215,7 +221,7 @@ async function readMidFromPool(
 /**
  * Compute an arbitrary-pair mid from the deepest on-chain pool.
  *
- * `getDeepestPoolForPair` can return either a V3-style pool (mid via `slot0`)
+ * `getDeepestPool` can return either a V3-style pool (mid via `slot0`)
  * or a basic-AMM pool (mid via `getReserves`); `mechanismForKind` picks the
  * branch. Both branches yield token1-per-token0 (Uniswap sort order, lower
  * address = token0); we invert when the caller's `tokenIn` is the higher
@@ -232,6 +238,36 @@ export async function defaultGetPairMid(
   tokenOut: string,
   blockNumber: bigint,
 ): Promise<PairMidResult | null> {
+  return (await defaultGetPairMidOutcome(readers, tokenIn, tokenOut, blockNumber)).mid;
+}
+
+/** The direct estimator plus the evidence behind a refusal. */
+export interface PairMidOutcome {
+  mid: PairMidResult | null;
+  /** Depth of the ranked winner in USD, or null when it could not be valued. */
+  depthUsd: number | null;
+  poolAddress: string | null;
+  /** A pool existed and was rejected for being below the USD floor. */
+  rejected: boolean;
+  /** Depth could not be valued, so the floor was not applied. */
+  unverified: boolean;
+}
+
+/**
+ * `defaultGetPairMid` plus the depth gate and its evidence.
+ *
+ * The floor is applied to the ranked WINNER, after selection and before any mid
+ * is read — never to the candidate set, so it can never fall through to a worse
+ * pool. Omitting `opts` leaves the call ungated, which is what keeps the fast
+ * path and every other existing caller byte-identical.
+ */
+export async function defaultGetPairMidOutcome(
+  readers: PoolMidReaders,
+  tokenIn: string,
+  tokenOut: string,
+  blockNumber: bigint,
+  opts?: { minDepthUsd: number; wethUsd: number },
+): Promise<PairMidOutcome> {
   const inLc = tokenIn.toLowerCase();
   const outLc = tokenOut.toLowerCase();
   const inverted = inLc > outLc; // tokenIn is token1 → need 1/raw
@@ -239,12 +275,28 @@ export async function defaultGetPairMid(
   const token1 = inverted ? inLc : outLc;
 
   const pool = await readers.getDeepestPool(token0, token1, blockNumber);
-  if (!pool) return null;
+  if (!pool) return { mid: null, depthUsd: null, poolAddress: null, rejected: false, unverified: false };
+
+  let usd: number | null = null;
+  if (opts) {
+    const ref = pickReferenceToken(inLc, outLc);
+    usd = depthUsd(ref, pool.depth, opts.wethUsd, await readers.readDecimals(isNative(ref) ? WETH : ref));
+    // A depth we cannot value (volatile/volatile pair) is reported unverified
+    // and allowed through, never silently treated as having passed.
+    if (usd !== null && usd < opts.minDepthUsd) {
+      return { mid: null, depthUsd: usd, poolAddress: pool.address, rejected: true, unverified: false };
+    }
+  }
 
   const [dec0, dec1] = await Promise.all([readers.readDecimals(token0), readers.readDecimals(token1)]);
   const price = await readMidFromPool(readers, pool, dec0, dec1, inverted, blockNumber);
-  if (price === null) return null;
-  return { price, poolAddress: pool.address, poolKind: pool.kind };
+  return {
+    mid: price === null ? null : { price, poolAddress: pool.address, poolKind: pool.kind },
+    depthUsd: usd,
+    poolAddress: pool.address,
+    rejected: false,
+    unverified: opts !== undefined && usd === null,
+  };
 }
 
 /**
@@ -292,11 +344,10 @@ export function createDefaultPricingDeps(rpcUrl: string, pinPoolsAtBlock?: bigin
   const pin = <T>(resolve: (a: string, b: string, block: bigint) => Promise<T>) =>
     pinPoolsAtBlock === undefined ? resolve : pinnedPoolResolver(resolve, pinPoolsAtBlock);
 
-  const resolveDeepest = pin((token0: string, token1: string, blockNumber: bigint) =>
-    getDeepestPoolForPair(client, token0, token1, blockNumber),
-  );
-  // One resolver shared by both bridged paths below, which previously carried
-  // byte-identical copies of this closure and so could not share a cache.
+  // ONE resolver for every path. There used to be two — a with-depth one for the
+  // bridged reads and a depth-discarding one for the direct read — which doubled
+  // the RPC (they memoise separately) and, worse, meant the pool the depth floor
+  // gates was not provably the pool whose mid gets read. Now it is the same pool.
   const resolveDeepestWithDepth = pin(async (a: string, b: string, block: bigint) => {
     const best = await getDeepestPoolWithDepth(client, a, b, block);
     return best ? { address: best.pool.address, depth: best.depth, kind: best.pool.kind } : null;
@@ -310,7 +361,7 @@ export function createDefaultPricingDeps(rpcUrl: string, pinPoolsAtBlock?: bigin
   };
 
   const poolReaders: PoolMidReaders = {
-    getDeepestPool: resolveDeepest,
+    getDeepestPool: resolveDeepestWithDepth,
     readSlot0: (poolAddress, blockNumber) => readSlot0(client, poolAddress as `0x${string}`, blockNumber),
     readLiquidity: (poolAddress, blockNumber) => readLiquidity(client, poolAddress as `0x${string}`, blockNumber),
     readV2Reserves: (poolAddress, blockNumber) => readV2Reserves(client, poolAddress as `0x${string}`, blockNumber),
