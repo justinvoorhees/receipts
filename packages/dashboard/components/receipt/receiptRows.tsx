@@ -208,7 +208,7 @@ export function DetailRow({
 	children: React.ReactNode;
 	underscored?: boolean;
 	tooltip?: string;
-	valueTooltip?: string;
+	valueTooltip?: string | undefined;
 	/** Second line under the value (e.g. a USD subvalue). */
 	subValue?: React.ReactNode;
 	/** Overrides the subvalue color; defaults to secondary. */

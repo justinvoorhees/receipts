@@ -257,11 +257,7 @@ export function Receipt({
 				{!anchored && (
 					<DetailRow
 						label="Size"
-						// DetailRow's valueTooltip is typed `string` (unlike every other row's
-						// `string | undefined`), so exactOptionalPropertyTypes rejects an
-						// explicit undefined here — spread the prop in only when there's a
-						// tooltip to show, rather than widen the shared row component.
-						{...(row.notionalUsd == null ? { valueTooltip: NULL_NOTIONAL_TOOLTIP } : {})}
+						valueTooltip={row.notionalUsd == null ? NULL_NOTIONAL_TOOLTIP : undefined}
 					>
 						{row.notionalUsd == null ? UNAVAILABLE : `~${formatSubvalueUsd(Number(row.notionalUsd))}`}
 					</DetailRow>
