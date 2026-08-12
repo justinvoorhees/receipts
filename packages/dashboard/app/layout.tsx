@@ -13,6 +13,17 @@ export const metadata = {
 			{ url: '/favicon-32x32.png', type: 'image/png', sizes: '32x32' },
 		],
 	},
+	openGraph: {
+		type: 'website',
+		title: 'Receipts',
+		url: 'https://receipts.withfabric.xyz',
+		description: 'Transaction cost analysis for aggregator-routed swaps on Base.',
+		images: ['https://receipts.withfabric.xyz/og.jpg'],
+	},
+	twitter: {
+		card: 'summary_large_image',
+		images: ['https://receipts.withfabric.xyz/og.jpg'],
+	},
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
