@@ -255,6 +255,29 @@ Every **confirmed** instance of the pathology sits at or below $0.22 — `0x537a
 
 **Receipt 543 is rescued by its direct class**, and that vindicates the per-class design: its bridged out-side pool holds $177.63, but the direct USDC/FLOWER pool holds $131,721, so it keeps a `full` direct mid and merely loses bridged corroboration. A floor applied to some notional "overall depth" rather than per class would have wrongly killed it.
 
+### Measured blast radius (golden diff, 62 receipts, captured serially on both refs)
+
+| receipts | change |
+|---:|---|
+| **48** | only the two new fields — purely additive |
+| **7** | only a new flag, `marketMid` and `allInCostBps` byte-identical (4 × `INSUFFICIENT_DEPTH`, 3 × `DEPTH_UNVERIFIED`) |
+| **4** | a dust class dropped out of the median ⇒ a **better** number |
+| **1** | lost its market price entirely — `0xb2697ab6` ETH→SIRE, the $0.04 pool (corpus 173) |
+| **2** | per-leg price impact **restored** (111.29bps, 26.96bps) on receipts that were already `tier: none` |
+
+Zero regressions.
+
+⚡ **The floor helps more receipts than the calibration predicted**, because that table counted only receipts that lose their price outright. It missed the case where a dust class was *corrupting the median*:
+
+| tx | before | after |
+|---|---|---|
+| `0x510ed021` USDC→BENJI | `LIQUIDITY_DISAGREE`, **134.9bps** | `SINGLE_SOURCE`, **60.7bps** |
+| `0x79854af2` POD→USDC | `LIQUIDITY_DISAGREE`, **165.4bps** | `SINGLE_SOURCE`, **22.7bps** |
+
+`0x79854af2` is corpus receipt **485** — the direct/v2 witness — with its $0.0034 pool now correctly excluded in production.
+
+⚠️ Two receipts (`0x5bd00e22`, `0xbc853779`) drop `full → estimated`. That is a deliberate honesty downgrade: two classes agreeing is not corroboration when one of them is a dust pool.
+
 ### Residual uncertainty
 
 n=44, one frozen corpus, and the $177–$629 band was cleared only on the weaker test that its *headline* bps look plausible — not by verifying those rulers are right. `referenceDepthUsd` + `referencePoolAddress` are the instrument for revisiting this: ship them, accumulate receipts, re-run this script. The constant does not have to be right forever, it has to be defensible now.
