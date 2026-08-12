@@ -6,7 +6,7 @@
  * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, getEstimatedMidOutcome, midViaDeepest, depthUsd, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, type EstimatedMidReaders } from './tokenPricing.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getTokenUsdcValueGated, getEstimatedMidAtBlock, getEstimatedMidOutcome, midViaDeepest, depthUsd, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, type EstimatedMidReaders } from './tokenPricing.js';
 import { type PublicClient } from 'viem';
 
 // ── sqrtPriceX96ToPrice ─────────────────────────────────────────────────────
@@ -238,6 +238,83 @@ describe('getEstimatedMidAtBlock', () => {
     });
     const res = await getEstimatedMidAtBlock(readers, WARP, NATIVE, 100n, 1n);
     expect(res).toBeNull();
+  });
+});
+
+// ── getTokenUsdcValueGated — the notional path on the ruler's apparatus ──────
+
+describe('getTokenUsdcValueGated', () => {
+  const FLOOR = 100; // MIN_REFERENCE_DEPTH_USD, passed explicitly so the test
+                     // states the threshold it is exercising.
+
+  it('values a volatile token through its deepest token/WETH pool', async () => {
+    // makeReaders prices WARP at $1 (see its comment): 5 WARP -> $5.
+    const res = await getTokenUsdcValueGated(
+      makeReaders(), WARP, 5n * 10n ** 18n, 100n, 1n, FLOOR,
+    );
+    expect(res.usd).toBeCloseTo(5, 6);
+    expect(res.rejected).toBe(false);
+  });
+
+  it('refuses a token whose deepest pool is below the USD depth floor', async () => {
+    // WARP/WETH holds 1 WETH == $1 of depth, far under the $100 floor. The old
+    // first-match path returned a number here; that number was the defect.
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 24n, kind: 'univ3' };
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 18n, kind: 'univ3' }; // dust
+        return null;
+      },
+    });
+    const res = await getTokenUsdcValueGated(readers, WARP, 5n * 10n ** 18n, 100n, 1n, FLOOR);
+    expect(res.usd).toBeNull();
+    expect(res.rejected).toBe(true);
+  });
+
+  it('refuses when the WETH/USDC anchor pool is itself below the floor', async () => {
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async (a, b) => {
+        const key = [a.toLowerCase(), b.toLowerCase()].sort().join('|');
+        if (key === [WETH, USDC].sort().join('|')) return { address: '0xwethusdc', depth: 10n ** 6n, kind: 'univ3' }; // dust
+        if (key === [WARP, WETH].sort().join('|')) return { address: '0xwarpweth', depth: 10n ** 24n, kind: 'univ3' };
+        return null;
+      },
+    });
+    const res = await getTokenUsdcValueGated(readers, WARP, 5n * 10n ** 18n, 100n, 1n, FLOOR);
+    expect(res.usd).toBeNull();
+    expect(res.rejected).toBe(true);
+  });
+
+  it('values USDC directly, touching no pool and no anchor', async () => {
+    // A pool read here would be a wasted RPC round trip on every single receipt.
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async () => { throw new Error('USDC must not discover a pool'); },
+    });
+    const res = await getTokenUsdcValueGated(readers, USDC, 1_500_000n, 100n, 1n, FLOOR);
+    expect(res.usd).toBeCloseTo(1.5, 9); // 1.5 USDC at 6 decimals
+    expect(res.rejected).toBe(false);
+  });
+
+  it('uses precomputedWethUsd for WETH without discovering the anchor pool', async () => {
+    const readers = makeReaders({
+      getDeepestPoolWithDepth: async () => { throw new Error('precomputed wethUsd must skip discovery'); },
+    });
+    const res = await getTokenUsdcValueGated(readers, WETH, 10n ** 18n, 100n, 1n, FLOOR, 3000);
+    expect(res.usd).toBeCloseTo(3000, 6);
+  });
+
+  it('prices native ETH as WETH without reading decimals("native")', async () => {
+    // A real decimals() read on the "native" pseudo-address reverts, and
+    // makeDecimalsCache deliberately still throws — so this must never be called.
+    const readers = makeReaders({
+      readDecimals: async (addr: string) => {
+        if (addr.toLowerCase() === 'native') throw new Error('decimals("native") must not be called');
+        return 18;
+      },
+    });
+    const res = await getTokenUsdcValueGated(readers, 'native', 5n * 10n ** 17n, 100n, 1n, FLOOR, 3000);
+    expect(res.usd).toBeCloseTo(1500, 6); // 0.5 ETH x 3000
   });
 });
 
