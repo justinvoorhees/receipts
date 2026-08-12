@@ -25,18 +25,63 @@ import { sqrtPriceX96ToPrice, v2MidFromReserves } from './priceMath.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-import { USDC, WETH } from './receiptPure.js';
+import { USDC, WETH, isStable, isWeth, isNative } from './receiptPure.js';
 /** Synthetic endpoint for native ETH (mirrors `NATIVE` in pricing.ts / endpoints.ts). */
 const NATIVE = 'native';
 
 /**
- * Liquidity floor for the best-effort ("estimated") market mid. The deepest
- * `token/WETH` pool backing a volatile side must clear this in-range
- * `liquidity()` depth, else we refuse to quote a mid (tier stays `partial`).
- * A depth of 0 (dead pool) is always rejected. Conservative default — tune up
- * as we learn what depth is "trustworthy enough" for a given token.
+ * V3 virtual-liquidity (`L`) sanity floor: "this pool is not empty". Compared
+ * against `readLiquidity()`, whose units are L — NOT tokens.
+ *
+ * ⚠️ This is NOT a depth threshold and must never be raised to act as one. The
+ * old single constant was compared against BOTH an `L` value (pricing.ts) and a
+ * `balanceOf` token amount (usdRef / the anchor here), so raising it applied a
+ * token-amount threshold to an L value. The real depth floor is
+ * `MIN_REFERENCE_DEPTH_USD` below — a separate concept in different units.
  */
-export const ESTIMATED_MID_MIN_LIQUIDITY = 1n;
+export const MIN_POOL_LIQUIDITY_L = 1n;
+
+/**
+ * Back-compat alias for the pre-split name.
+ * @deprecated prefer `MIN_POOL_LIQUIDITY_L` (an L sanity check) or
+ * `MIN_REFERENCE_DEPTH_USD` (the actual depth floor) — they are not the same.
+ */
+export const ESTIMATED_MID_MIN_LIQUIDITY = MIN_POOL_LIQUIDITY_L;
+
+/**
+ * Absolute USD floor on the DEPTH of the ranked reference pool.
+ *
+ * Trade-independent on purpose: two receipts on the same pair in the same block
+ * must get the same market price, which a notional-scaled floor would break (see
+ * the single-ruler spec). Calibrated against the frozen 62-row corpus on
+ * 2026-08-12 — every confirmed dust-ruler case measured <= $0.22, and the
+ * next-thinnest corpus pool is $177.63, so this sits in a 4,400x gap.
+ */
+export const MIN_REFERENCE_DEPTH_USD = 100;
+
+/**
+ * USD value of a `balanceOf(refToken)` depth, or `null` when `refToken` is not
+ * free-priceable. A null result means the check was NOT PERFORMED — callers must
+ * record that (DEPTH_UNVERIFIED) rather than treat it as having passed.
+ *
+ * ⚠️ `decimals` is a parameter, not an assumption: STABLECOINS holds DAI at 18
+ * decimals alongside USDC/USDbC at 6. Hardcoding 1e6 for "a stable" would
+ * overstate a DAI-referenced pool by 1e12 and silently defeat the floor.
+ */
+export function depthUsd(
+  refToken: string,
+  rawDepth: bigint,
+  wethUsd: number,
+  decimals: number,
+): number | null {
+  const t = refToken.toLowerCase();
+  if (isStable(t)) return Number(rawDepth) / 10 ** decimals;
+  if (isWeth(t) || isNative(t)) {
+    if (!Number.isFinite(wethUsd) || wethUsd <= 0) return null;
+    return (Number(rawDepth) / 10 ** decimals) * wethUsd;
+  }
+  return null;
+}
 
 /** Known decimals — avoid RPC for common tokens. */
 const KNOWN_DECIMALS: ReadonlyMap<string, number> = new Map([

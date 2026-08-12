@@ -6,7 +6,7 @@
  * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, midViaDeepest, type EstimatedMidReaders } from './tokenPricing.js';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getEstimatedMidAtBlock, midViaDeepest, depthUsd, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, type EstimatedMidReaders } from './tokenPricing.js';
 import { type PublicClient } from 'viem';
 
 // ── sqrtPriceX96ToPrice ─────────────────────────────────────────────────────
@@ -268,5 +268,53 @@ describe('midViaDeepest', () => {
     };
     const res = await midViaDeepest(readers as never, token0, token1, 100n);
     expect(res).toBeNull();
+  });
+});
+
+// ── depthUsd + the split floor constants ────────────────────────────────────
+
+describe('depthUsd', () => {
+  const USDC_A = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+  const DAI_A = '0x50c5725949a6f0c72e6c4a641f24049a917db0cb';
+  const WETH_A = '0x4200000000000000000000000000000000000006';
+  const BEAN_A = '0x5c72992b83e74c4d5200a8e8920fb946214a5a5d';
+
+  it('values a USDC reference at its 6-decimal face', () => {
+    expect(depthUsd(USDC_A, 1_500_000_000n, 1900, 6)).toBeCloseTo(1500, 6);
+  });
+
+  // The DAI trap: STABLECOINS holds USDC (6), USDbC (6) and DAI (18). Hardcoding
+  // 1e6 for "a stable" would overstate a DAI pool by 1e12 and defeat the floor.
+  it('uses the supplied decimals for an 18-decimal stable', () => {
+    expect(depthUsd(DAI_A, 1_500_000_000_000_000_000_000n, 1900, 18)).toBeCloseTo(1500, 6);
+  });
+
+  it('values a WETH reference through wethUsd', () => {
+    expect(depthUsd(WETH_A, 10n ** 18n, 1900, 18)).toBeCloseTo(1900, 6);
+  });
+
+  it('values native ETH like WETH', () => {
+    expect(depthUsd('native', 10n ** 18n, 1900, 18)).toBeCloseTo(1900, 6);
+  });
+
+  it('reproduces the measured BEAN dust pool', () => {
+    // 0x6945a4Bf held 115202102709082 wei WETH at wethUsd 1874.63 => $0.216
+    expect(depthUsd(WETH_A, 115202102709082n, 1874.63, 18)).toBeCloseTo(0.216, 3);
+  });
+
+  it('returns null for a volatile reference token — the check is NOT performed', () => {
+    expect(depthUsd(BEAN_A, 10n ** 18n, 1900, 18)).toBeNull();
+  });
+
+  it('returns null rather than NaN when wethUsd is unusable', () => {
+    expect(depthUsd(WETH_A, 10n ** 18n, 0, 18)).toBeNull();
+    expect(depthUsd(WETH_A, 10n ** 18n, Number.NaN, 18)).toBeNull();
+  });
+});
+
+describe('the split floor constants', () => {
+  it('keeps the L sanity check at 1n and the USD floor separate', () => {
+    expect(MIN_POOL_LIQUIDITY_L).toBe(1n);
+    expect(MIN_REFERENCE_DEPTH_USD).toBe(100);
   });
 });
