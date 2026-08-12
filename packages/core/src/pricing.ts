@@ -26,7 +26,7 @@ import {
   makeRpcDecimalsCache,
   sqrtPriceX96ToPrice,
   v2MidFromReserves,
-  getTokenUsdcValue,
+  getTokenUsdcValueGated,
   getEstimatedMidAtBlock,
   getEstimatedMidOutcome,
   midViaDeepest,
@@ -441,8 +441,16 @@ export function createDefaultPricingDeps(rpcUrl: string, pinPoolsAtBlock?: bigin
         blockNumber,
       );
     },
-    getUsdValue: (token, amountRaw, blockNumber, precomputedWethUsd) =>
-      getTokenUsdcValue(client, token, amountRaw, blockNumber, decCache, precomputedWethUsd),
+    // The notional rides the SAME ranked-and-floored apparatus as the ruler.
+    // A refusal surfaces as null so bestEffortNotional falls through to the
+    // other side — an anchored side keeps its number on a floored receipt.
+    getUsdValue: async (token, amountRaw, blockNumber, precomputedWethUsd) => {
+      const out = await getTokenUsdcValueGated(
+        bridgeReaders, token, amountRaw, blockNumber,
+        MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, precomputedWethUsd,
+      );
+      return out.usd;
+    },
     readDecimals: decCache,
     readSymbol,
   };

@@ -418,6 +418,30 @@ describe('priceReceipt', () => {
     expect(r.status).toBe('full');
     expect(r.marketMid).toBeCloseTo(0.5, 9);
   });
+
+  it('keeps the anchored side’s notional when the volatile side is refused', async () => {
+    // 0x7e21b6dc’s shape: a memecoin whose only pool is dust (gated to null),
+    // swapped for ETH. bestEffortNotional prefers the anchored side outright, so
+    // the receipt keeps its dollar figure even with the ruler floored. This is
+    // the assertion standing between the gate and deleting a correct number.
+    const MEME = '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07';
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: MEME, outputToken: 'native', inputAmountRaw: 10n ** 18n, outputAmountRaw: 10n ** 16n },
+      makeDeps({ getUsdValue: async (token) => (token.toLowerCase() === MEME ? null : 81.68) }),
+    );
+    expect(r.notionalUsd).toBeCloseTo(81.68, 6);
+  });
+
+  it('falls through to the other side when the first one is refused', async () => {
+    // Neither side anchors, so the input is tried first. Its pool is dust and
+    // gated to null; the output side clears the floor and supplies the notional.
+    // Collapsing the loop in bestEffortNotional to a single attempt fails here.
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B, inputAmountRaw: 1000n, outputAmountRaw: 5n },
+      makeDeps({ getUsdValue: async (token) => (token.toLowerCase() === EXOTIC_A ? null : 42) }),
+    );
+    expect(r.notionalUsd).toBeCloseTo(42, 6);
+  });
 });
 
 // ── defaultGetPairMid: direct test of the orientation + inversion math ──────

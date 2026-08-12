@@ -6,7 +6,7 @@
  *   - v2MidFromReserves(r0, r1, dec0, dec1)          — pure math
  *   - makeDecimalsCache(rpcReader)                     — cached decimals
  *   - getPairMidAtBlock(client, tokenA, tokenB, block) — RPC-backed mid price
- *   - getTokenUsdcValue(client, token, amountRaw, block) — token→USDC valuation
+ *   - getTokenUsdcValueGated(readers, token, amountRaw, block, …) — ranked, floored token→USDC valuation
  *
  * Generalizes `sqrtPriceX96ToUsdcPerWeth` from referencePrice.ts into a
  * decimal-parametric form. Uses the same all-bigint-then-cast technique
@@ -515,73 +515,5 @@ export async function getTokenUsdcValueGated(
     rejected: false,
     unverified: side.unverified,
   };
-}
-
-/**
- * Get the USDC value of a token amount at a given block.
- *
- * Priority:
- *   1. If token IS USDC → direct conversion (amountRaw / 10^6)
- *   2. If token IS native ETH → 1:1 with WETH, via WETH/USDC × amount
- *   3. If token IS WETH → getPairMidAtBlock(WETH, USDC, block) × amount
- *   4. token/USDC direct pair
- *   5. token/WETH × WETH/USDC (two-hop)
- *
- * Returns the USDC value or null if pricing fails.
- */
-export async function getTokenUsdcValue(
-  client: PublicClient,
-  token: string,
-  amountRaw: bigint,
-  blockNumber: bigint,
-  decimalsOf: (address: string) => Promise<number>,
-  precomputedWethUsd?: number,
-): Promise<number | null> {
-  const tokenLc = token.toLowerCase();
-
-  // Direct USDC
-  if (tokenLc === USDC) {
-    return Number(amountRaw) / 1e6;
-  }
-
-  // Native ETH: a synthetic endpoint with no contract to read `decimals()` from
-  // and no pool of its own. It is 1:1 with WETH (18 decimals), so value it via
-  // the WETH/USDC reference. This MUST run before the `decimalsOf` read below,
-  // which would revert on the "native" pseudo-address.
-  if (tokenLc === NATIVE) {
-    const humanEth = Number(amountRaw) / 1e18;
-    if (precomputedWethUsd != null) return humanEth * precomputedWethUsd;
-    const mid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
-    if (mid === null) return null;
-    return humanEth * mid.price;
-  }
-
-  const tokenDec = await decimalsOf(tokenLc);
-  const humanAmount = Number(amountRaw) / 10 ** tokenDec;
-
-  // Direct WETH → USDC
-  if (tokenLc === WETH) {
-    if (precomputedWethUsd != null) return humanAmount * precomputedWethUsd;
-    const mid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
-    if (mid === null) return null;
-    return humanAmount * mid.price;
-  }
-
-  // Try token/USDC direct
-  const directMid = await getPairMidAtBlock(client, tokenLc, USDC, blockNumber, decimalsOf);
-  if (directMid !== null && directMid.price > 0) {
-    return humanAmount * directMid.price;
-  }
-
-  // Try token/WETH → WETH/USDC (two-hop)
-  const tokenWethMid = await getPairMidAtBlock(client, tokenLc, WETH, blockNumber, decimalsOf);
-  if (tokenWethMid !== null && tokenWethMid.price > 0) {
-    const wethUsdcMid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
-    if (wethUsdcMid !== null && wethUsdcMid.price > 0) {
-      return humanAmount * tokenWethMid.price * wethUsdcMid.price;
-    }
-  }
-
-  return null;
 }
 

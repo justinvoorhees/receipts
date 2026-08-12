@@ -3,11 +3,10 @@
  *
  * Tests the pure-math functions: sqrtPriceX96ToPrice, v2MidFromReserves,
  * and decimals-cache behavior. RPC-dependent integration (getPairMidAtBlock,
- * getTokenUsdcValue) is validated via a separate tsx snippet, not here.
+ * getTokenUsdcValueGated) is validated via a separate tsx snippet, not here.
  */
-import { describe, expect, it, vi } from 'vitest';
-import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValue, getTokenUsdcValueGated, getEstimatedMidAtBlock, getEstimatedMidOutcome, midViaDeepest, depthUsd, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, type EstimatedMidReaders } from './tokenPricing.js';
-import { type PublicClient } from 'viem';
+import { describe, expect, it } from 'vitest';
+import { sqrtPriceX96ToPrice, v2MidFromReserves, makeDecimalsCache, getTokenUsdcValueGated, getEstimatedMidAtBlock, getEstimatedMidOutcome, midViaDeepest, depthUsd, MIN_POOL_LIQUIDITY_L, MIN_REFERENCE_DEPTH_USD, type EstimatedMidReaders } from './tokenPricing.js';
 
 // ── sqrtPriceX96ToPrice ─────────────────────────────────────────────────────
 
@@ -140,33 +139,6 @@ describe('makeDecimalsCache', () => {
     const dec = await cache('0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
     expect(dec).toBe(12);
     expect(rpcCalls).toBe(1); // only one RPC call despite different casing
-  });
-});
-
-// ── getTokenUsdcValue — precomputedWethUsd override ─────────────────────────
-
-describe('getTokenUsdcValue', () => {
-  it('uses precomputedWethUsd for WETH without any pool read', async () => {
-    const client = { readContract: vi.fn() } as unknown as PublicClient; // throws if used
-    const decimalsOf = async () => 18;
-    const WETH = '0x4200000000000000000000000000000000000006';
-    const oneWeth = 10n ** 18n;
-    const val = await getTokenUsdcValue(client, WETH, oneWeth, 100n, decimalsOf, 3000);
-    expect(val).toBeCloseTo(3000, 6);
-    expect((client.readContract as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
-  });
-
-  it('prices native ETH as WETH (1:1, 18 dec) without reading decimals("native")', async () => {
-    // A real decimals()/pool read on the "native" pseudo-address would revert.
-    // The decimalsOf fake throws to prove native is priced before any such read.
-    const client = { readContract: vi.fn() } as unknown as PublicClient;
-    const decimalsOf = async () => {
-      throw new Error('decimals("native") must not be called');
-    };
-    const halfEth = 5n * 10n ** 17n; // 0.5 ETH
-    const val = await getTokenUsdcValue(client, 'native', halfEth, 100n, decimalsOf, 3000);
-    expect(val).toBeCloseTo(1500, 6); // 0.5 × 3000
-    expect((client.readContract as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 });
 
