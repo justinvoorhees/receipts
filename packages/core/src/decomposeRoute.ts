@@ -816,10 +816,12 @@ export async function decomposeRoute(
 	const rollup = rollupLpFee(legFeeInputs, input.notionalUsdc);
 
 	// Step 7: Build per-leg LP contributions (priceImpactBps populated in Step 9)
-	const legsWithLp: (LegFeeInput & { lpFeeBps: number; priceImpactBps: number | null })[] =
+	const legsWithLp: (LegFeeInput & { lpFeeBps: number | null; priceImpactBps: number | null })[] =
 		legFeeInputs.map((lfi) => ({
 			...lfi,
-			lpFeeBps: (lfi.feeTierBps * lfi.notionalUsdc) / input.notionalUsdc,
+			lpFeeBps: input.notionalUsdc > 0
+				? (lfi.feeTierBps * lfi.notionalUsdc) / input.notionalUsdc
+				: null,
 			priceImpactBps: null,
 		}));
 
@@ -925,7 +927,7 @@ export async function decomposeRoute(
 		// An rfq leg's spread is real cost that per-leg PI cannot see; a residual
 		// would just re-absorb it and trigger a spurious RECON_LOW downgrade.
 		if (!hasNullMid && !hasRfqLeg && legsWithLp.some((l) => l.priceImpactBps !== null)) {
-			const sumLp = legsWithLp.reduce((s, l) => s + l.lpFeeBps, 0);
+			const sumLp = legsWithLp.reduce((s, l) => s + (l.lpFeeBps ?? 0), 0);
 			const sumImpact = legsWithLp.reduce((s, l) => s + (l.priceImpactBps ?? 0), 0);
 			reconResidualBps = input.allInCostBps - (sumLp + sumImpact + aggFeeBps);
 		}
@@ -944,9 +946,11 @@ export async function decomposeRoute(
 			confidence = 'medium';
 		}
 
-		// Per-leg LP sanity: if any leg's contribution exceeds 300 bps, flag
+		// Per-leg LP sanity: if any leg's contribution exceeds 300 bps, flag.
+		// A null lpFeeBps (zero-notional leg) is unresolved, not implausible —
+		// skip it here the same way it is already skipped everywhere else.
 		for (const lfi of legsWithLp) {
-			if (lfi.lpFeeBps > LEG_FEE_CAP_BPS) {
+			if (lfi.lpFeeBps !== null && lfi.lpFeeBps > LEG_FEE_CAP_BPS) {
 				routeFlags.push(
 					`LEG_FEE_IMPLAUSIBLE: leg ${lfi.leg.venue.slice(0, 10)} contributes ` +
 					`${lfi.lpFeeBps.toFixed(2)} bps (cap=${LEG_FEE_CAP_BPS})`,
