@@ -43,11 +43,19 @@ d('reference-pool depth floor e2e', () => {
 
 		// What the receipt KEEPS. Per-leg impact is measured against the leg's own
 		// pool mid at N-1, so a floored ruler must not touch it.
-		expect(r!.notionalUsd).toBeGreaterThan(50); // ~$81.68, off the anchored ETH side
+		//
+		// ~$81.56, off the anchored ETH side. Was ~$81.68 before the notional was
+		// rewired onto the SAME ranked-and-floored WETH/USDC apparatus the ruler
+		// uses (see notional-depth-gating Task 3): the ETH-side value used to come
+		// from a first-match WETH/USDC pool that could differ from the ruler's
+		// deepest one. weightedPriceImpactBps below normalizes by this whole-trade
+		// notional, so its ~0.1bps/~0.15 lpFeeBps drift is that same unification,
+		// not a new defect.
+		expect(r!.notionalUsd).toBeGreaterThan(50);
 		expect(r!.routeLegs!.length).toBeGreaterThan(0);
 		const leg = r!.routeLegs![0] as { priceImpactBps: number | null; lpFeeBps: number | null };
-		expect(leg.priceImpactBps).toBeCloseTo(61.14, 1);
-		expect(leg.lpFeeBps).toBeCloseTo(109.87, 1);
+		expect(leg.priceImpactBps).toBeCloseTo(61.23, 1);
+		expect(leg.lpFeeBps).toBeCloseTo(110.02, 1);
 	}, 120000);
 
 	// ⚠️ The NEGATIVE-sign instance. Both dust pools OVERPRICE the memecoin, so
