@@ -432,6 +432,17 @@ describe('priceReceipt', () => {
     expect(r.notionalUsd).toBeCloseTo(81.68, 6);
   });
 
+  it('falls through to the volatile side when the ANCHORED side is refused', async () => {
+    // The gap finding 1 lives in: bestEffortNotional tries the anchored side
+    // first, so a refusal THERE is the path no corpus receipt exercised.
+    const MEME = '0xd9159ad2d5fe625cd1f54f4d328fb19cb5262b07';
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: 'native', outputToken: MEME, inputAmountRaw: 10n ** 16n, outputAmountRaw: 10n ** 18n },
+      makeDeps({ getUsdValue: async (token) => (token.toLowerCase() === 'native' ? null : 42) }),
+    );
+    expect(r.notionalUsd).toBeCloseTo(42, 6);
+  });
+
   it('falls through to the other side when the first one is refused', async () => {
     // Neither side anchors, so the input is tried first. Its pool is dust and
     // gated to null; the output side clears the floor and supplies the notional.
