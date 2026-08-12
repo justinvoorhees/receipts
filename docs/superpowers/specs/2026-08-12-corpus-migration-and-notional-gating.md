@@ -145,4 +145,4 @@ Ranking is uncontroversial and ships regardless: first-match is strictly worse t
 - Golden diff, **captured serially** (`decodeGolden.mjs`) — concurrency produces false differences. Expect movement confined to non-anchored pairs. Check specifically for legs whose notional fell to 0 via the `notionalUsd ?? 0` path.
 - Assert `0x7e21b6dc` still shows `~$81.68` — it is the case the refinement exists to protect.
 - RPC e2e: pin a non-anchored pair whose notional currently comes from a first-match pool, and assert the ranked result differs.
-- Unit: `usdRefGated`-backed valuation returns null on a `rejected` side and a number on an `unverified` one — the two must not collapse.
+- Unit: the gated valuation returns null with `rejected: true` on a below-floor pool, and a number on one that clears it. ⚠️ `unverified` is **structurally unreachable** on this path — `usdRefGated` always prices against WETH, `pickReferenceToken(volatile, WETH)` always returns WETH, so `depthUsd` can only go null when `wethUsd` is invalid, which fails anchor resolution first. Plumb the field for parity with the ruler; do not write a test that has to defeat the types to fire it.
