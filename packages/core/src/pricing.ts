@@ -466,11 +466,17 @@ export function methodologyFor(mp: MarketPriceResult): string {
   // co-occurs with NO_LIQUIDITY by design (the reducer saw zero classes; the
   // merge explains why), so the specific reason has to win the race.
   //
+  // ⚠️ Gated on tier === 'none' as well as the flag. INSUFFICIENT_DEPTH only
+  // means "SOME class was floored out" — when another class survived and set the
+  // mid (0x30cada4e: a $0.00006 direct pool rejected, the bridged class fine),
+  // the receipt HAS a market price and must not be handed an "Unavailable"
+  // sentence. It falls through to the estimated/full copy below instead.
+  //
   // Deliberately does NOT state the threshold. Reporting the measured depth lets
   // the number speak; publishing "below the $100 minimum" would harden a tuning
   // constant into user-facing copy and invite an argument about the constant
   // rather than about the pool. Copy fixed by Figma 733:504.
-  if (mp.flags.includes('INSUFFICIENT_DEPTH')) {
+  if (mp.tier === 'none' && mp.flags.includes('INSUFFICIENT_DEPTH')) {
     const d = mp.referenceDepthUsd;
     // Sub-cent depths are the whole point of this branch — never round them to
     // $0.00, which would read as "free" rather than "empty".

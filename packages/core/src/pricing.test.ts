@@ -764,3 +764,18 @@ describe('methodologyFor — INSUFFICIENT_DEPTH', () => {
     expect(s).toContain('$0.0034');
   });
 });
+
+// A receipt that KEPT a market price must never be told it has none, even when
+// one of its classes was floored out. Real shape: 0x30cada4e.
+describe('methodologyFor — INSUFFICIENT_DEPTH alongside a surviving mid', () => {
+	it('does not claim unavailability when another class supplied the mid', () => {
+		const s = methodologyFor({
+			tier: 'estimated', marketMid: 1.9988, corroboratedBy: ['bridged'],
+			flags: ['SINGLE_SOURCE', 'INSUFFICIENT_DEPTH'],
+			referenceDepthUsd: 250_000, referencePoolAddress: '0xreal',
+		});
+		expect(s).not.toContain('Unavailable');
+		expect(s).not.toContain('No reliable market price');
+		expect(s).toContain('Estimated');
+	});
+});

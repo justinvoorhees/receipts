@@ -214,3 +214,37 @@ describe('getMarketPriceForPair — depth rejection side-channel', () => {
     expect(r.referencePoolAddress).toBeNull();
   });
 });
+
+// ── one class floored, another surviving ────────────────────────────────────
+// Real shape: 0x30cada4e (MOR->USDC). Its direct class is a $0.00006 pool and is
+// rejected; the bridged class is fine and sets the mid. Reporting the REJECTED
+// pool's depth there would tell the reader their ruler is dust when it is not.
+describe('getMarketPriceForPair — a rejected class alongside a surviving one', () => {
+	it('reports the SURVIVING ruler, not the pool that was thrown away', async () => {
+		const deps = makeMpDeps({
+			getDirectMid: async () => ({ price: null, rejected: true, depthUsd: 0.00006, poolAddress: '0xdust' }),
+			getBridgedMid: async () => ({ price: 2, depthUsd: 250_000, poolAddress: '0xreal' }),
+		});
+		const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+
+		expect(r.marketMid).toBe(2);
+		// The rejection still happened and is still reported...
+		expect(r.flags).toContain('INSUFFICIENT_DEPTH');
+		// ...but the depth fields describe the ruler actually in use.
+		expect(r.referencePoolAddress).toBe('0xreal');
+		expect(r.referenceDepthUsd).toBe(250_000);
+	});
+
+	it('falls back to the rejected pool only when nothing survived', async () => {
+		const deps = makeMpDeps({
+			getDirectMid: async () => ({ price: null, rejected: true, depthUsd: 0.5, poolAddress: '0xdustA' }),
+			getBridgedMid: async () => ({ price: null, rejected: true, depthUsd: 0.2, poolAddress: '0xdustB' }),
+		});
+		const r = await getMarketPriceForPair(deps, IN, OUT, 100n);
+
+		expect(r.tier).toBe('none');
+		// With no ruler at all, the refused pool IS the explanation — thinnest first.
+		expect(r.referencePoolAddress).toBe('0xdustB');
+		expect(r.referenceDepthUsd).toBe(0.2);
+	});
+});

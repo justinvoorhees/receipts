@@ -96,22 +96,22 @@ describe('toPersistedLeg', () => {
 	});
 
 	it('omits feeResolved when the fee tier resolved cleanly', () => {
-		const out = toPersistedLeg(leg({ feeResolved: true }) as never, undefined, true);
+		const out = toPersistedLeg(leg({ feeResolved: true }) as never, undefined);
 		expect('feeResolved' in out).toBe(false);
 	});
 
 	it('omits feeResolved when core did not record provenance at all (old shape)', () => {
-		const out = toPersistedLeg(leg() as never, undefined, true);
+		const out = toPersistedLeg(leg() as never, undefined);
 		expect('feeResolved' in out).toBe(false);
 	});
 
 	it('persists feeResolved:false when the fee tier could not be read', () => {
-		const out = toPersistedLeg(leg({ feeResolved: false }) as never, undefined, true);
+		const out = toPersistedLeg(leg({ feeResolved: false }) as never, undefined);
 		expect(out).toMatchObject({ feeResolved: false });
 	});
 
 	it('carries the leg fields through unchanged', () => {
-		const out = toPersistedLeg(leg({ feeResolved: false }) as never, ['0xrouter'], true);
+		const out = toPersistedLeg(leg({ feeResolved: false }) as never, ['0xrouter']);
 		expect(out).toMatchObject({
 			venue: '0xpool', type: 'univ3', tokenIn: '0xusdc', tokenOut: '0xweth',
 			feeTierBps: 30, notionalUsdc: 100, lpFeeBps: 30, priceImpactBps: 2,
@@ -119,9 +119,21 @@ describe('toPersistedLeg', () => {
 		});
 	});
 
-	it('nulls priceImpactBps when the mid was unreliable, independent of fee provenance', () => {
-		const out = toPersistedLeg(leg({ feeResolved: false }) as never, undefined, false);
-		expect(out.priceImpactBps).toBeNull();
+	/*
+	  Per-leg price impact is measured against the LEG'S OWN pool mid at N-1
+	  (decomposeRoute step 9) and never touches the market ruler, so an unreliable
+	  or absent reference mid says nothing about it. This used to null it, which
+	  silently discarded a measurement we had already made — 61.14bps on
+	  0x7e21b6dc, 0.34/20.05bps on 0x1955c578 — and made the whole Price Impact
+	  section unrenderable on any depth-floored receipt.
+
+	  The whole-trade quantities (allInCostBps, slippageBps, executionBps,
+	  reconResidualBps) DO stay gated on midReliable; they are measured against
+	  the ruler and genuinely die with it.
+	*/
+	it('keeps priceImpactBps regardless of the reference mid, which it does not depend on', () => {
+		const out = toPersistedLeg(leg({ feeResolved: false }) as never, undefined);
+		expect(out.priceImpactBps).toBe(2);
 		expect(out).toMatchObject({ feeResolved: false });
 	});
 });

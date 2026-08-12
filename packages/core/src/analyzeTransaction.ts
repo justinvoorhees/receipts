@@ -121,7 +121,6 @@ export function toPersistedLeg(
 		feeResolved?: boolean;
 	},
 	frameChain: string[] | undefined,
-	midReliable: boolean,
 ) {
 	return {
 		venue: l.leg.venue,
@@ -131,7 +130,23 @@ export function toPersistedLeg(
 		feeTierBps: l.feeTierBps,
 		notionalUsdc: l.notionalUsdc,
 		lpFeeBps: l.lpFeeBps,
-		priceImpactBps: midReliable ? l.priceImpactBps : null,
+		/*
+		  ⚠️ Deliberately NOT gated on `midReliable`, and there used to be a
+		  `midReliable ? … : null` here.
+
+		  Per-leg price impact is measured against the LEG'S OWN pool mid at N-1
+		  (decomposeRoute step 9) — it never touches the market ruler, so an absent
+		  or implausible reference mid says nothing about it. Nulling it here
+		  discarded a measurement already made and, because the value never reached
+		  the receipt, made the entire Price Impact section unrenderable on any
+		  depth-floored receipt no matter what the UI did. Caught by the RPC e2e:
+		  0x7e21b6dc lost a real 61.14bps, 0x1955c578 lost 0.34 and 20.05bps.
+
+		  The WHOLE-TRADE quantities stay gated on `midReliable` further down
+		  (allInCostBps, executionBps, slippageBps, reconResidualBps) — those really
+		  are measured against the ruler and must die with it.
+		*/
+		priceImpactBps: l.priceImpactBps,
 		...(frameChain ? { frameChain } : {}),
 		...(l.feeResolved === false ? { feeResolved: false as const } : {}),
 		// A synthesized V4 leg's `venue` is `v4:<poolId>`, which is not an address:
@@ -496,7 +511,7 @@ async function analyzeTransactionInSession(
 		const frameChains = extractFrameChains(trace, venueAddresses);
 
 		const routeLegsBase = route.legs.map((l) =>
-			toPersistedLeg(l, frameChains.get(frameKey(l)), midReliable),
+			toPersistedLeg(l, frameChains.get(frameKey(l))),
 		);
 
 		// Seeded with what costs no RPC: native, plus the endpoints pricing already

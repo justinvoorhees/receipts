@@ -178,11 +178,15 @@ export async function getMarketPriceForPair(
   if (d.rejected || b.rejected) flags.push('INSUFFICIENT_DEPTH');
   if (d.unverified || b.unverified) flags.push('DEPTH_UNVERIFIED');
 
-  // Report the thinnest pool we have evidence for — the binding constraint.
+  // These fields describe the ruler ACTUALLY IN USE, so a class that was floored
+  // out must not claim them while another class is setting the mid — that would
+  // tell the reader their benchmark is dust when it is not. Only when nothing
+  // survived does the refused pool become the answer, because then it IS the
+  // explanation for having no market price at all.
+  const thinnestOf = (xs: MidOutcome[]) =>
+    xs.length ? xs.reduce((lo, x) => ((x.depthUsd as number) < (lo.depthUsd as number) ? x : lo)) : null;
   const valued = [d, b].filter((x) => x.depthUsd != null);
-  const thinnest = valued.length
-    ? valued.reduce((lo, x) => ((x.depthUsd as number) < (lo.depthUsd as number) ? x : lo))
-    : null;
+  const thinnest = thinnestOf(valued.filter((x) => !x.rejected)) ?? thinnestOf(valued);
 
   return {
     ...base,
