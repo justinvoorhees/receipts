@@ -14,48 +14,30 @@ export const env = Object.fromEntries(
 );
 
 /**
- * The frozen receipt corpus (docs/qa/corpus.json), in the raw snake_case row
- * shape it was originally dumped in: snake_case keys, `numeric` columns as
- * strings. Identical to what `connect()` used to hand back, so callers
- * destructure exactly as before.
- *
- * Already ordered by id, so a `.filter()` preserves the old `order by id`.
- *
- * This is a FROZEN file, not a live table. It cannot tell you whether today's
- * code disagrees with today's chain — only whether today's code disagrees with
- * the code that produced this snapshot.
- */
-export function loadCorpus() {
-	return JSON.parse(
-		readFileSync(new URL('../../docs/qa/corpus.json', import.meta.url), 'utf8'),
-	);
-}
-
-/**
  * Interesting transactions, as HASHES ONLY (docs/qa/cases.json).
  *
- * The deliberate counterpart to loadCorpus(). That file stores decoded columns
- * and therefore rots the moment core changes — which is why the no-RPC scripts
- * reading it are always reading some past version of this codebase. A hash does
- * not rot: every script that needs a receipt re-decodes it against today's code
- * and today's chain.
+ * A hash does not rot: every script that needs a receipt re-decodes it against
+ * today's code and today's chain.
  *
- * So this is where a newly-interesting transaction goes. Do NOT append decoded
- * rows to corpus.json to grow a sample — mixing vintages there makes any
- * average across the set span two versions of core. If the stored columns ever
- * genuinely need to grow, re-decode the WHOLE set into a fresh snapshot
- * (serially — see decodeGolden.mjs) rather than appending to the old one.
+ * So this is where a newly-interesting transaction goes. Do NOT add decoded
+ * columns to an entry here to grow a sample — a hash-only entry cannot go
+ * stale, but a decoded one rots on every pricing change, which is exactly what
+ * docs/qa/corpus.json did before it was deleted. If a decoded snapshot is ever
+ * genuinely needed, generate it fresh into its own file (serially — see
+ * decodeGolden.mjs) rather than mixing decoded columns into this one.
  *
- * Entry shape differs by origin: the 7 hand-written entries are
- * { hash, chainId, added, tags[], why }, while the 61 migrated entries
- * additionally carry blockNumber, corpusId, and source: 'corpus-v1'.
- * `why` earns the entry its place — a hash with no explanation is impossible to
- * prune later.
+ * 68 entries total. 62 carry `corpusId` (source: 'corpus-v1') and additionally
+ * blockNumber; the other 6 are hand-written and carry neither. That is not a
+ * clean 61+7 split: one hand-written entry (corpus id 485) already existed in
+ * this file before the migration and gained a `corpusId` in place, while
+ * keeping its own hand-written `why` rather than the shared migrated one.
+ * `why` earns every entry its place — a hash with no explanation is impossible
+ * to prune later.
  *
- * ⚠️ Only the migrated entries carry blockNumber. A future consumer that pins
- * a decode to blockNumber would silently decode the hand-written entries
- * against current chain state while the migrated ones pin historically — a
- * divergence with no error signal.
+ * ⚠️ Only entries carrying `corpusId` also carry `blockNumber`. A future
+ * consumer that pins a decode to blockNumber would silently decode the 6
+ * hand-written entries against current chain state while the other 62 pin
+ * historically — a divergence with no error signal.
  */
 export function loadCases() {
 	return JSON.parse(
