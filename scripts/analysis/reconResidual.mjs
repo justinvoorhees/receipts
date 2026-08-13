@@ -23,9 +23,11 @@
  *
  *   node scripts/analysis/reconResidual.mjs
  */
-import { loadCorpus, num, quantile } from './_env.mjs';
+import { loadCasesDecoded, num, quantile } from './_env.mjs';
 
-const rows = loadCorpus().filter((r) => r.route_legs != null);
+const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
+const rows = (await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity }))
+	.filter((r) => r.route_legs != null);
 
 const withRecon = rows.filter((r) => r.recon_residual_bps != null);
 console.log(`receipts with legs: ${rows.length}`);

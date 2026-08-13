@@ -8,9 +8,10 @@
  *
  *   node scripts/analysis/coverageEstimate.mjs
  */
-import { loadCorpus, costedLegs, isFullyPriced, priceImpactCoverage, num } from './_env.mjs';
+import { loadCasesDecoded, costedLegs, isFullyPriced, priceImpactCoverage, num } from './_env.mjs';
 
-const rows = loadCorpus();
+const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
+const rows = await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity });
 
 const buckets = {
 	noLegs: [],        // no route_legs at all — gate cannot apply

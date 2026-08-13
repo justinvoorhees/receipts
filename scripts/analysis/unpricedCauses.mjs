@@ -22,9 +22,11 @@
  *
  *   node scripts/analysis/unpricedCauses.mjs
  */
-import { loadCorpus, costedLegs, num } from './_env.mjs';
+import { loadCasesDecoded, costedLegs, num } from './_env.mjs';
 
-const rows = loadCorpus().filter((r) => r.route_legs != null);
+const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
+const rows = (await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity }))
+	.filter((r) => r.route_legs != null);
 
 const RX = /MID_NULL|PI_IMPLAUSIBLE|RFQ_LEG|ROUTE_NOT_DECOMPOSED|LEG_FEE_IMPLAUSIBLE|AMOUNT_IN_ZERO/;
 const byCause = {};

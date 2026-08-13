@@ -23,9 +23,11 @@
  *
  *   node scripts/analysis/attributionCoverage.mjs
  */
-import { loadCorpus, costedLegs, priceImpactCoverage, num } from './_env.mjs';
+import { loadCasesDecoded, costedLegs, priceImpactCoverage, num } from './_env.mjs';
 
-const rows = loadCorpus().filter((r) => r.route_legs != null);
+const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
+const rows = (await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity }))
+	.filter((r) => r.route_legs != null);
 
 const pct = (v) => `${(100 * v).toFixed(0).padStart(3)}%`;
 const out = [];

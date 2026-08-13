@@ -21,7 +21,7 @@
  *
  *   node scripts/analysis/blastRadius.mjs
  */
-import { loadCorpus, costedLegs, num, quantile } from './_env.mjs';
+import { loadCasesDecoded, costedLegs, num, quantile } from './_env.mjs';
 
 const V4_POOLMANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
 const TWINS = new Set([
@@ -29,7 +29,9 @@ const TWINS = new Set([
 	'0xef05e733970c37b6a2f863de0db9378ea49447cc',
 ]);
 
-const rows = loadCorpus().filter((r) => r.route_legs != null);
+const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
+const rows = (await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity }))
+	.filter((r) => r.route_legs != null);
 
 // 1. Empirical prior: raw per-leg impact, recovered from the weighted values.
 const raws = [];
