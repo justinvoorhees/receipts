@@ -10,7 +10,7 @@ Two independent follow-ups. They share no code and should be two plans.
 
 ## Part A — migrate `corpus.json` into `cases.json`, rot-free
 
-**Shipped 2026-08-13, `dbbf1ed..f963319` (Tasks 1–4) plus the corpus-deletion commit (Task 5, SHA recorded in the follow-up doc commit).** `docs/qa/corpus.json` and `loadCorpus()` no longer exist; `loadCases()` / `loadCasesDecoded()` are the only loaders.
+**Shipped 2026-08-13, `dbbf1ed..37c7d12`** (`dbbf1ed..f963319` = Tasks 1–4, migration + script re-decode; `37c7d12` = Task 5, corpus deletion). `docs/qa/corpus.json` and `loadCorpus()` no longer exist; `loadCases()` / `loadCasesDecoded()` are the only loaders.
 
 **Decision: move all 62 corpus transactions into `docs/qa/cases.json`, shed every decoded column, keep only fields that cannot rot.**
 
