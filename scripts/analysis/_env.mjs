@@ -46,8 +46,16 @@ export function loadCorpus() {
  * genuinely need to grow, re-decode the WHOLE set into a fresh snapshot
  * (serially — see decodeGolden.mjs) rather than appending to the old one.
  *
- * Each entry: { hash, chainId, added, tags[], why }. `why` earns the entry its
- * place — a hash with no explanation is impossible to prune later.
+ * Entry shape differs by origin: the 7 hand-written entries are
+ * { hash, chainId, added, tags[], why }, while the 61 migrated entries
+ * additionally carry blockNumber, corpusId, and source: 'corpus-v1'.
+ * `why` earns the entry its place — a hash with no explanation is impossible to
+ * prune later.
+ *
+ * ⚠️ Only the migrated entries carry blockNumber. A future consumer that pins
+ * a decode to blockNumber would silently decode the hand-written entries
+ * against current chain state while the migrated ones pin historically — a
+ * divergence with no error signal.
  */
 export function loadCases() {
 	return JSON.parse(
