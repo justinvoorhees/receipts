@@ -33,13 +33,19 @@ reading `cases.json` directly should not expect string numerics.
 
 ⚠️ Five scripts (`attributionCoverage.mjs`, `blastRadius.mjs`,
 `reconResidual.mjs`, `unpricedCauses.mjs`, `coverageEstimate.mjs`) pass
-`filter: (c) => c.source === 'corpus-v1'` into `loadCasesDecoded()` on purpose,
+`filter: (c) => c.corpusId != null` into `loadCasesDecoded()` on purpose,
 to exclude the 6 hand-written diagnostic cases from the rates they report —
 those cases are curated pathologies (zero-leg routes, dust reference pools,
 truncated cyclic routes) and mixing them in biases every rate upward by
-changing the sample, not the code. A new transaction added to `cases.json`
-without `source: 'corpus-v1'` will correctly stay out of those five scripts'
-denominators; that is by design, not a bug to "fix" by tagging it.
+changing the sample, not the code. Test on `corpusId`, NOT `source`: entry
+485 was in the original corpus AND was already a hand-written case before
+the migration, so it carries a `corpusId` but no `source: 'corpus-v1'` tag —
+a `source`-based filter silently drops it and leaves the sample at 61
+instead of 62. That gap is exactly why the filter was corrected from
+`source` to `corpusId`; "simplifying" it back to `source` reintroduces the
+bug. A new transaction added to `cases.json` without a `corpusId` will
+correctly stay out of those five scripts' denominators; that is by design,
+not a bug to "fix" by tagging it.
 
 Some need `packages/core/dist` — run `npx tsc --build packages/core` first.
 ⚠️ Never `npm run build` while a dev server is running; it writes into the same
@@ -71,8 +77,9 @@ takes ~4 minutes; use `--limit=N` for a spot check while iterating.
 ## Baselines at 2026-07-30 (62 receipts with `route_legs`)
 
 Superseded 2026-08-06, and superseded again by the corpus→cases migration —
-re-measure against the corpus-v1 case set (`docs/qa/cases.json`, source:
-`'corpus-v1'`, via `loadCasesDecoded({ filter })`); the "62" below is a
+re-measure against the corpus set (`docs/qa/cases.json`, filtered on
+`corpusId != null` — NOT `source === 'corpus-v1'`, which matches only 61 of
+the 62 entries, via `loadCasesDecoded({ filter })`); the "62" below is a
 coincidence, not the same set. The old figures describe a 62-row live-table
 snapshot from 2026-07-30, not today's re-decoded set — do not quote this
 block as current.

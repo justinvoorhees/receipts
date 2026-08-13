@@ -26,11 +26,21 @@ export const env = Object.fromEntries(
  * genuinely needed, generate it fresh into its own file (serially — see
  * decodeGolden.mjs) rather than mixing decoded columns into this one.
  *
- * 68 entries total. 62 carry `corpusId` (source: 'corpus-v1') and additionally
- * blockNumber; the other 6 are hand-written and carry neither. That is not a
- * clean 61+7 split: one hand-written entry (corpus id 485) already existed in
- * this file before the migration and gained a `corpusId` in place, while
- * keeping its own hand-written `why` rather than the shared migrated one.
+ * 68 entries total. 62 carry `corpusId`; the other 6 are hand-written and
+ * carry neither. That is not a clean 61+7 split: one hand-written entry
+ * (corpus id 485) already existed in this file before the migration and
+ * gained a `corpusId` in place, while keeping its own hand-written `why`
+ * rather than the shared migrated one — and, because it was hand-written
+ * first, it never gained the `source: 'corpus-v1'` tag the other 61 migrated
+ * entries carry.
+ *
+ * `corpusId != null` is the correct test for "was in the original corpus"
+ * (62 entries — what the five analysis scripts' `loadCasesDecoded({ filter })`
+ * use). `source === 'corpus-v1'` is NOT an equivalent test — it matches only
+ * 61, silently dropping entry 485. That gap is exactly why the five scripts'
+ * filter was corrected from `source` to `corpusId`; a reader who
+ * "simplifies" it back to `source` reintroduces the bug.
+ *
  * `why` earns every entry its place — a hash with no explanation is impossible
  * to prune later.
  *

@@ -18,9 +18,10 @@
  *
  * Baseline at 2026-07-30 (62 receipts): LP fee 76.6%, price impact 83.5%,
  * 13 receipts with no leg priced, 7 partially priced (silently wrong), 42 clean.
- * Superseded 2026-08-06 — re-measure against the corpus-v1 case set
- * (docs/qa/cases.json, source: 'corpus-v1'); the old figures describe a
- * 62-row set that is NOT this one.
+ * Superseded 2026-08-06 — re-measure against the corpus set (docs/qa/cases.json,
+ * filtered on `corpusId != null` — NOT `source === 'corpus-v1'`, which matches
+ * only 61 of the 62 entries; see the `filter` below and `_env.mjs`); the old
+ * figures describe a 62-row set that is NOT this one.
  *
  *   node scripts/analysis/attributionCoverage.mjs
  */

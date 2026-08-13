@@ -16,9 +16,10 @@
  * projection as an order of magnitude, never a figure.
  *
  * Baseline 2026-07-30: 4 receipts / $2,913 can move, ~6.7 bps summed at median.
- * Superseded 2026-08-06 — re-measure against the corpus-v1 case set
- * (docs/qa/cases.json, source: 'corpus-v1'); the old figures describe a
- * 62-row set that is NOT this one.
+ * Superseded 2026-08-06 — re-measure against the corpus set (docs/qa/cases.json,
+ * filtered on `corpusId != null` — NOT `source === 'corpus-v1'`, which matches
+ * only 61 of the 62 entries; see the `filter` below and `_env.mjs`); the old
+ * figures describe a 62-row set that is NOT this one.
  *
  *   node scripts/analysis/blastRadius.mjs
  */

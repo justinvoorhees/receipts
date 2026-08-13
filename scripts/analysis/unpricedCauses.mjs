@@ -18,9 +18,10 @@
  *
  * ⚠️ Do NOT raise PI_IMPLAUSIBLE_CAP_BPS to "see the impact" — those values are
  * wrong, which is why the clamp fired. Fix the reader, then re-run this script
- * against the corpus-v1 case set (docs/qa/cases.json, source: 'corpus-v1') —
- * re-decoded live, since there is neither a frozen snapshot nor a live table
- * to repopulate anymore.
+ * against the corpus set (docs/qa/cases.json, filtered on `corpusId != null` —
+ * NOT `source === 'corpus-v1'`, which matches only 61 of the 62 entries; see
+ * the `filter` below and `_env.mjs`) — re-decoded live, since there is
+ * neither a frozen snapshot nor a live table to repopulate anymore.
  *
  *   node scripts/analysis/unpricedCauses.mjs
  */

@@ -17,9 +17,11 @@
  * reserves and amountIn). Do not "fix" the single market ruler.
  *
  * Baseline 2026-07-30: |recon| median 17.41 p90 183.75; |slippage| p90 183.68.
- * Superseded 2026-08-06 — re-measure against the corpus-v1 case set
- * (docs/qa/cases.json, source: 'corpus-v1'); this baseline was measured
- * against the live table at the time, a different row set than that.
+ * Superseded 2026-08-06 — re-measure against the corpus set (docs/qa/cases.json,
+ * filtered on `corpusId != null` — NOT `source === 'corpus-v1'`, which matches
+ * only 61 of the 62 entries; see the `filter` below and `_env.mjs`); this
+ * baseline was measured against the live table at the time, a different row
+ * set than that.
  *
  *   node scripts/analysis/reconResidual.mjs
  */
