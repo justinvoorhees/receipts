@@ -1,9 +1,9 @@
 /**
  * marketMidSnapshot.mjs — snapshot the computed Market Price for every distinct
- * (input_token, output_token, block) pair in the frozen QA corpus, to a JSON file.
+ * (input_token, output_token, block) pair across the QA case set, to a JSON file.
  *
- * Purpose: regression-gate a pricing/discovery change WITHOUT trusting the
- * corpus's own `market_mid` column — some rows store it in a display (inverted)
+ * Purpose: regression-gate a pricing/discovery change WITHOUT trusting any
+ * stored `market_mid` column — some rows store it in a display (inverted)
  * orientation, so it is not a clean baseline. Instead, snapshot the LIVE-computed
  * mid on two code versions and diff them (same orientation on both sides):
  *
@@ -22,11 +22,21 @@
  * and prints tier transitions so a drift that keeps oracle corroboration
  * (full->full) is distinguishable from one that does not.
  *
- * Reads TCA_RPC_URL from the repo-root .env and its pairs from the frozen
- * corpus (docs/qa/corpus.json). No writes, no database.
+ * Reads TCA_RPC_URL from the repo-root .env. Its pairs come from
+ * docs/qa/cases.json, which stores hashes only — the (input_token,
+ * output_token) pair is decoder output (the 7702/ERC-4337 anchoring work
+ * already changed which tokens a receipt calls in and out), so every case is
+ * re-decoded live to get it. That makes this slower than reading a frozen
+ * column would be; that is correct — a stale pair would silently snapshot the
+ * wrong pool. No writes to cases.json, no database.
+ *
+ *   node scripts/marketMidSnapshot.mjs <out.json> [--limit=N]
+ *   node scripts/marketMidSnapshot.mjs --diff <base.json> <after.json>
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { loadCorpus } from './analysis/_env.mjs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadCasesDecoded } from './analysis/_env.mjs';
 
 const env = Object.fromEntries(
 	readFileSync(new URL('../.env', import.meta.url), 'utf8')
@@ -57,19 +67,21 @@ function diff(basePath, afterPath) {
 	process.exit(lost > 0 ? 1 : 0);
 }
 
-async function snapshot(outPath) {
+async function snapshot(outPath, limit) {
 	const { createDefaultPricingDeps } = await import(new URL('../packages/core/dist/pricing.js', import.meta.url));
 	const deps = createDefaultPricingDeps(env.TCA_RPC_URL);
 	// Distinct (input_token, output_token, block_number) triples out of the
-	// frozen corpus — the same set `select distinct … from receipts` used to
-	// produce, just read from JSON instead of a live table.
+	// live-decoded case set. inputToken/outputToken are decoder output, so this
+	// re-decodes every case (loadCasesDecoded) rather than reading a column —
+	// slower than the old frozen-corpus version, and correctly so.
 	const seen = new Set();
 	const pairs = [];
-	for (const r of loadCorpus()) {
-		const key = `${r.input_token}|${r.output_token}|${r.block_number}`;
+	for (const r of await loadCasesDecoded({ limit })) {
+		const receipt = r._receipt;
+		const key = `${receipt.inputToken}|${receipt.outputToken}|${r.block_number}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
-		pairs.push({ input_token: r.input_token, output_token: r.output_token, block_number: r.block_number });
+		pairs.push({ input_token: receipt.inputToken, output_token: receipt.outputToken, block_number: r.block_number });
 	}
 	const res = {};
 	for (const r of pairs) {
@@ -85,14 +97,21 @@ async function snapshot(outPath) {
 	console.log(`wrote ${outPath}: ${Object.keys(res).length} pairs`);
 }
 
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+const limitFlag = rawArgs.find((a) => a.startsWith('--limit='));
+const limit = limitFlag ? Number(limitFlag.slice(8)) : Infinity;
+const args = rawArgs.filter((a) => !a.startsWith('--limit='));
+
 if (!env.TCA_RPC_URL) { console.error('Missing TCA_RPC_URL'); process.exit(1); }
 if (args[0] === '--diff') {
 	if (args.length !== 3) { console.error('usage: --diff <base.json> <after.json>'); process.exit(1); }
 	diff(args[1], args[2]);
-} else if (args.length === 1) {
-	await snapshot(args[0]);
+} else if (args.length <= 1) {
+	// No positional out path is fine for a --limit spot check — default to a
+	// scratch file so the run still produces a real, inspectable artifact.
+	const outPath = args[0] ?? join(tmpdir(), 'marketMidSnapshot.json');
+	await snapshot(outPath, limit);
 } else {
-	console.error('usage: marketMidSnapshot.mjs <out.json>  |  --diff <base.json> <after.json>');
+	console.error('usage: marketMidSnapshot.mjs <out.json> [--limit=N]  |  --diff <base.json> <after.json>');
 	process.exit(1);
 }

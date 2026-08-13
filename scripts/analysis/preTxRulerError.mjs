@@ -16,22 +16,22 @@
  * "your trade moved this pool X bps", and the post-tx price is FREE — every Swap
  * decoder already decodes sqrtPriceX96 and discards it (tradeDecoders.ts:71).
  *
- * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
- * (docs/qa/corpus.json); the figures above were measured over a ≤40-receipt
- * (75-leg) sample from the old default `--limit`, not the full 62-receipt
- * corpus this script now runs over by default.
+ * Superseded 2026-08-06 — re-measure against the full case set
+ * (docs/qa/cases.json); the figures above were measured over a ≤40-receipt
+ * (75-leg) sample from the old default `--limit`, not the full 62-case set
+ * this script now runs over by default.
  *
- * The corpus (docs/qa/corpus.json) is frozen — it no longer grows — so
- * --limit is now a convenience for spot checks rather than a bound on an
- * unbounded table. It defaults to the full corpus and, when set, takes the
- * most recent N rows by id.
+ * Every case is re-decoded live (docs/qa/cases.json is hashes only, not
+ * columns) — so --limit is a spot-check convenience, not a bound on an
+ * unbounded table. It defaults to every case and, when set, decodes the
+ * first N by corpusId.
  *
  *   node scripts/analysis/preTxRulerError.mjs [--limit=N]
  */
-import { loadCorpus, core, env, median } from './_env.mjs';
+import { loadCasesDecoded, core, env, median } from './_env.mjs';
 
-const CORPUS = loadCorpus();
-const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? `--limit=${CORPUS.length}`).slice(8));
+const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
+const limit = limitFlag ? Number(limitFlag.slice(8)) : Infinity;
 
 const UNI_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const PANCAKE_V3_SWAP = '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83';
@@ -44,7 +44,7 @@ const { base } = await import('viem/chains');
 const { readSlot0 } = await core('poolDiscovery.js');
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 
-const rows = limit === 0 ? [] : CORPUS.filter((r) => r.route_legs != null && r.block_number != null).slice(-limit);
+const rows = limit === 0 ? [] : (await loadCasesDecoded({ limit })).filter((r) => r.route_legs != null && r.block_number != null);
 
 const rulerErrs = [], footprints = [], flagged = [];
 let examined = 0, withNeighbours = 0;

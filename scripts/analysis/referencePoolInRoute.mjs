@@ -13,22 +13,22 @@
  *
  * ⚠️ Small samples. Raise --limit before quoting the percentages.
  *
- * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
- * (docs/qa/corpus.json); the figures above were measured over a 20-receipt
- * sample from the old default `--limit`, not the full 62-receipt corpus
- * this script now runs over by default.
+ * Superseded 2026-08-06 — re-measure against the full case set
+ * (docs/qa/cases.json); the figures above were measured over a 20-receipt
+ * sample from the old default `--limit`, not the full 62-case set this
+ * script now runs over by default.
  *
- * The corpus (docs/qa/corpus.json) is frozen — it no longer grows — so
- * --limit is now a convenience for spot checks rather than a bound on an
- * unbounded table. It defaults to the full corpus and, when set, takes the
- * most recent N qualifying rows by id.
+ * Every case is re-decoded live (docs/qa/cases.json is hashes only, not
+ * columns) — so --limit is a spot-check convenience, not a bound on an
+ * unbounded table. It defaults to every case and, when set, decodes the
+ * first N by corpusId.
  *
  *   node scripts/analysis/referencePoolInRoute.mjs [--limit=N]
  */
-import { loadCorpus, core, env, num } from './_env.mjs';
+import { loadCasesDecoded, core, env, num } from './_env.mjs';
 
-const CORPUS = loadCorpus();
-const limit = Number((process.argv.find((a) => a.startsWith('--limit=')) ?? `--limit=${CORPUS.length}`).slice(8));
+const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
+const limit = limitFlag ? Number(limitFlag.slice(8)) : Infinity;
 
 const { createPublicClient, http } = await import('viem');
 const { base } = await import('viem/chains');
@@ -37,7 +37,7 @@ const { getPairMidAtBlock, makeRpcDecimalsCache } = await core('tokenPricing.js'
 const client = createPublicClient({ chain: base, transport: http(env.TCA_RPC_URL) });
 const decimals = makeRpcDecimalsCache(client);
 
-const rows = limit === 0 ? [] : CORPUS.filter((r) => r.route_legs != null && r.block_number != null).slice(-limit);
+const rows = limit === 0 ? [] : (await loadCasesDecoded({ limit })).filter((r) => r.route_legs != null && r.block_number != null);
 
 let n = 0, hit = 0, multi = 0;
 const byShape = {};
@@ -47,7 +47,7 @@ for (const r of rows) {
 	const routePools = new Set((r.route_legs ?? []).map((l) => (l.venue ?? '').toLowerCase()).filter((v) => v.startsWith('0x')));
 	if (!routePools.size) continue;
 	let mid = null;
-	try { mid = await getPairMidAtBlock(client, r.input_token, r.output_token, BigInt(r.block_number) - 1n, decimals); }
+	try { mid = await getPairMidAtBlock(client, r._receipt.inputToken, r._receipt.outputToken, BigInt(r.block_number) - 1n, decimals); }
 	catch { /* unpriceable pair — not a finding, just skip */ }
 	if (!mid?.poolAddress?.startsWith('0x')) continue;
 

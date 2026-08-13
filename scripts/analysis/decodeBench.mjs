@@ -13,13 +13,13 @@
  *
  * The default set spans the shapes that cost different amounts: a 10-leg
  * aggregator route, a hard-to-price pair, a single hop, and the two anchoring
- * paths. `--corpus` runs the whole frozen corpus instead.
+ * paths. `--cases` runs the whole case list (docs/qa/cases.json) instead.
  *
  * Read-only. Writes nothing.
  *
- *   node scripts/analysis/decodeBench.mjs [--corpus] [--limit=N] [--label=TEXT]
+ *   node scripts/analysis/decodeBench.mjs [--cases] [--limit=N] [--label=TEXT]
  */
-import { env, core, loadCorpus, median } from './_env.mjs';
+import { env, core, loadCases, median } from './_env.mjs';
 
 /** Shapes chosen so a change that only helps one of them is visible as such. */
 const DEFAULT_SET = [
@@ -35,17 +35,17 @@ const flag = (name, dflt) => {
 	const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
 	return hit ? hit.slice(name.length + 3) : dflt;
 };
-const useCorpus = process.argv.includes('--corpus');
+const useCases = process.argv.includes('--cases');
 const limit = Number(flag('limit', Infinity));
-const label = flag('label', useCorpus ? 'frozen corpus' : 'default set');
+const label = flag('label', useCases ? 'case list' : 'default set');
 
 const rpcUrl = env.TCA_RPC_URL;
 if (!rpcUrl) throw new Error('TCA_RPC_URL missing from the repo-root .env');
 
 const { analyzeTransaction, enrichFeeSinkNames } = await core('index.js');
 
-const set = useCorpus
-	? loadCorpus().slice(0, limit).map((r) => [r.tx_hash.slice(0, 12), r.tx_hash])
+const set = useCases
+	? loadCases().slice(0, limit).map((c) => [c.hash.slice(0, 12), c.hash])
 	: DEFAULT_SET.slice(0, limit);
 
 console.log(`\n=== ${label} (${set.length} receipts, serial) ===`);

@@ -2,17 +2,16 @@
  * rpcProviderAB.mjs — do two RPC providers produce identical receipts?
  *
  * Written for the 2026-08-03 Alchemy → QuickNode migration, before the database
- * was removed. Re-analyzes every row in the frozen corpus (docs/qa/corpus.json)
- * TWICE on the SAME code — once per provider — and diffs the two computed
- * Receipts field by field.
+ * was removed. Re-analyzes every case in docs/qa/cases.json TWICE on the SAME
+ * code — once per provider — and diffs the two computed Receipts field by field.
  *
- * Why not just diff the frozen rows against a recompute? Because the frozen
- * corpus was dumped once and never updates, so that diff conflates every bit of
- * code drift since the freeze with provider behaviour. Only an A/B on identical
- * code, run twice back-to-back, isolates the provider. (See the README's
- * "Risks and accepted costs" note: this is now the ONLY corpus-wide regression
- * check left — it can A/B two providers, but it can no longer answer "does
- * today's code disagree with last month's.")
+ * Why not just diff a frozen dump against a recompute? Because a frozen dump is
+ * taken once and never updates, so that diff conflates every bit of code drift
+ * since the freeze with provider behaviour. Only an A/B on identical code, run
+ * twice back-to-back, isolates the provider. (See the README's "Risks and
+ * accepted costs" note: this is now the ONLY corpus-wide regression check left
+ * — it can A/B two providers, but it can no longer answer "does today's code
+ * disagree with last month's.")
  *
  * ⚠️ A raw A/B still over-reports: anything genuinely non-deterministic (a read
  * at head rather than at the trade's block, an upstream name lookup) shows up as
@@ -25,7 +24,7 @@
  *   node scripts/analysis/rpcProviderAB.mjs --control [--limit=N]
  *   node scripts/analysis/rpcProviderAB.mjs [--limit=N] [--ids=56,134]
  */
-import { env, loadCorpus, core } from './_env.mjs';
+import { env, loadCases, core } from './_env.mjs';
 
 const { analyzeTransaction } = await core('analyzeTransaction.js');
 
@@ -74,8 +73,8 @@ function diffReceipts(x, y) {
 	return diffs;
 }
 
-let rows = loadCorpus();
-if (IDS) rows = rows.filter((r) => IDS.has(r.id));
+let rows = loadCases();
+if (IDS) rows = rows.filter((r) => IDS.has(r.corpusId));
 if (LIMIT) rows = rows.slice(0, LIMIT);
 
 console.log(`${CONTROL ? 'CONTROL (A/A — measures noise)' : 'A/B (measures provider)'}`);
@@ -85,27 +84,31 @@ const fieldCounts = new Map(); // field path (index-stripped) → receipts affec
 let identical = 0, differing = 0, failed = 0;
 
 for (const row of rows) {
+	const label = row.corpusId ?? '·';
 	let ra, rb;
 	try {
 		// Sequential, not parallel: keeps each provider's load pattern comparable
 		// and avoids one side being rate-limited into a retry path the other never took.
-		ra = await analyzeTransaction(row.tx_hash, row.chain_id, { rpcUrl: left.url });
-		rb = await analyzeTransaction(row.tx_hash, row.chain_id, { rpcUrl: right.url });
+		ra = await analyzeTransaction(row.hash, row.chainId, { rpcUrl: left.url });
+		rb = await analyzeTransaction(row.hash, row.chainId, { rpcUrl: right.url });
 	} catch (e) {
-		console.log(`id ${String(row.id).padStart(3)}  ERROR ${e.message}`);
+		console.log(`id ${String(label).padStart(3)}  ERROR ${e.message}`);
 		failed++;
 		continue;
 	}
-	const pair = `${row.input_symbol}->${row.output_symbol}`;
+	// Symbols are decoder output, not a case field — take them from whichever
+	// side actually decoded rather than reintroducing them into cases.json.
+	const ref = ra ?? rb;
+	const pair = ref ? `${ref.inputSymbol}->${ref.outputSymbol}` : '?->?';
 	if (!ra || !rb) {
-		if (!ra && !rb) { console.log(`id ${String(row.id).padStart(3)}  ${pair.padEnd(16)} both null (unchanged)`); identical++; }
-		else { console.log(`id ${String(row.id).padStart(3)}  ${pair.padEnd(16)} ⚠ NULL ON ONE SIDE: ${left.name}=${ra ? 'ok' : 'null'} ${right.name}=${rb ? 'ok' : 'null'}`); differing++; }
+		if (!ra && !rb) { console.log(`id ${String(label).padStart(3)}  ${pair.padEnd(16)} both null (unchanged)`); identical++; }
+		else { console.log(`id ${String(label).padStart(3)}  ${pair.padEnd(16)} ⚠ NULL ON ONE SIDE: ${left.name}=${ra ? 'ok' : 'null'} ${right.name}=${rb ? 'ok' : 'null'}`); differing++; }
 		continue;
 	}
 	const diffs = diffReceipts(ra, rb);
 	if (!diffs.length) { identical++; continue; }
 	differing++;
-	console.log(`id ${String(row.id).padStart(3)}  ${pair.padEnd(16)} ${diffs.length} field(s) differ`);
+	console.log(`id ${String(label).padStart(3)}  ${pair.padEnd(16)} ${diffs.length} field(s) differ`);
 	for (const d of diffs.slice(0, 12)) {
 		console.log(`        ${d.field}:  ${left.name}=${d.a}  ${right.name}=${d.b}`);
 		const generic = d.field.replace(/\[\d+\]/g, '[]');
