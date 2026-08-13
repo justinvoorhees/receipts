@@ -55,6 +55,54 @@ export function loadCases() {
 	);
 }
 
+export { receiptToRow } from './_rowShape.mjs';
+import { receiptToRow } from './_rowShape.mjs';
+
+/**
+ * Every case, decoded against TODAY's code and TODAY's chain.
+ *
+ * The replacement for `loadCorpus()`. That returned a frozen snapshot and so
+ * could only tell you whether today's code disagreed with the code that produced
+ * the snapshot; this tells you what today's code actually does.
+ *
+ * SERIAL on purpose, and it must stay that way: concurrent decodes of the same
+ * transaction return different receipts with no flag, so a parallel version
+ * would produce numbers that change between runs.
+ *
+ * Costs roughly 3.5-4 minutes for the full 62. Pass `limit` while iterating.
+ * A transaction that fails to decode is REPORTED and skipped, never returned as
+ * a row of nulls — every script here filters on `route_legs != null`, so a null
+ * row would silently shrink the sample with nothing to show for it.
+ */
+export async function loadCasesDecoded({ limit = Infinity, filter } = {}) {
+	const { analyzeTransaction } = await core('index.js');
+	const rpcUrl = env.TCA_RPC_URL;
+	if (!rpcUrl) throw new Error('TCA_RPC_URL missing from the repo-root .env');
+
+	const cases = loadCases()
+		.filter((c) => (filter ? filter(c) : true))
+		.sort((a, b) => (a.corpusId ?? Infinity) - (b.corpusId ?? Infinity))
+		.slice(0, limit);
+
+	const rows = [];
+	const failures = [];
+	for (const [i, c] of cases.entries()) {
+		try {
+			const receipt = await analyzeTransaction(c.hash, c.chainId, { rpcUrl });
+			if (receipt) rows.push(receiptToRow(receipt, c.corpusId ?? null));
+			else failures.push([c.hash, 'null receipt']);
+		} catch (err) {
+			failures.push([c.hash, err.message]);
+		}
+		if ((i + 1) % 10 === 0) console.error(`  decoded ${i + 1}/${cases.length}`);
+	}
+	if (failures.length) {
+		console.error(`⚠️  ${failures.length} of ${cases.length} failed to decode:`);
+		for (const [hash, msg] of failures) console.error(`     ${hash.slice(0, 12)} ${msg}`);
+	}
+	return rows;
+}
+
 export const core = (file) =>
 	import(new URL(`../../packages/core/dist/${file}`, import.meta.url));
 
