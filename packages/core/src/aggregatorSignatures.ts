@@ -118,6 +118,48 @@ export const AGGREGATOR_SIGNATURES: Record<string, SettlementSignature> = {
 		eventTopics: ['0x1bb43f2da90e35f7b0cf38521ca95a49e68eb42fac49924930a5bd73cdf7576c'],
 		eventName: 'OrderRecord', detectBy: 'event_anywhere',
 	},
+	// UniswapV2Router02 emits NO events of its own — the settlement event lives on
+	// the pair, as `Swap(address,uint256,uint256,uint256,uint256,address)` =
+	// 0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822 (computed
+	// from the ABI signature, not recalled). That topic is deliberately NOT listed
+	// here, and this entry is 'none' rather than 'event_anywhere', for two reasons:
+	//
+	//   1. Router mode would look for a non-noise event FROM the router address and
+	//      never find one, flagging SETTLEMENT_EVENT_MISSING on every Uniswap trade.
+	//   2. The V2 Swap topic is shared by every V2 fork on Base (Aerodrome basic
+	//      pools, PancakeSwap V2, Sushi, …). Under 'event_anywhere' it would make
+	//      findAggregatorHints suggest 'uniswap' on any of their swaps. This repo
+	//      has been bitten by treating topic0 as identity before — QuickSwap/Algebra
+	//      had to be tagged by FACTORY for exactly this reason.
+	//
+	// Identity comes from `to` via resolveAggregator regardless, which is the tier
+	// this router is registered under. Same posture as 0x: not topic-detectable.
+	uniswap: {
+		aggregator: 'uniswap', settlementContract: '0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24',
+		eventTopics: [], eventName: null, detectBy: 'none',
+	},
+	// Spire's Base-side L2Bridge. Unlike Uniswap above it DOES emit its own events
+	// from its own address (the routers.json address is a minimal proxy, and
+	// delegatecall preserves the emitting address, so the proxy is the right
+	// settlementContract). Topics left empty: no sample tx in our dataset yet, so
+	// router mode falls back to "first non-noise event from this contract" — which
+	// is also how the real topic gets discovered, since matchSettlementEvent
+	// returns what actually fired. Same deferral as 1inch.
+	spire: {
+		aggregator: 'spire', settlementContract: '0x3348ca6e00224043ec20089fdadfafec2f5dc314',
+		eventTopics: [], eventName: null,
+	},
+	// ⚠️ Juicebox is NOT a swap router — see the _caveat on its routers.json entry.
+	// JBMultiTerminal is one shared address across every Juicebox project; pay()
+	// mints a project token and redeem() reclaims treasury surplus, neither of
+	// which is market-priced the way a router swap is. This entry exists so the
+	// tier-2 guard passes and so its events are recorded rather than flagged
+	// missing; it does not assert that cost analysis is meaningful on these txs.
+	// Topics empty for the same reason as spire — no sample tx yet.
+	juicebox: {
+		aggregator: 'juicebox', settlementContract: '0x2db6d704058e552defe415753465df8df0361846',
+		eventTopics: [], eventName: null,
+	},
 };
 
 export interface EmittedEvent { address: string; topic0: string; count: number }

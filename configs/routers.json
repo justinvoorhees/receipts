@@ -93,6 +93,31 @@
 			"_basescan_tag": "Basescan public name tag is 'deBridge: Crosschain Forwarder Proxy'. Noted 2026-07-28 — consistent with the DeBridge note above, but it means this address is deBridge's entry point, not a Nordstern-owned router. It also appears as the `recipient` argument of the payout adapter 0x9a972d8c… on cross-chain fills; see docs/positive-slippage-capture.md."
 		},
 		{
+			"name": "Uniswap",
+			"address": "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+			"version": "V2Router02",
+			"detection": "to_address",
+			"active": true,
+			"_verified": "eth_getCode: contract (17.9KB bytecode). Basescan getsourcecode (via Etherscan V2 API, chainid 8453) confirms verified contract 'UniswapV2Router02', not a proxy."
+		},
+		{
+			"name": "Spire",
+			"address": "0x3348cA6E00224043Ec20089fdadfafec2f5Dc314",
+			"version": "L2Bridge",
+			"detection": "to_address",
+			"active": true,
+			"_verified": "eth_getCode: contract (176 bytes — minimal proxy, itself unverified on Basescan). Implementation 0xa1adf0d568f8faf91b8896f02c0a957ca4eab014 is Basescan-verified as 'L2Bridge'; verified source names `security@spire.dev` as its security contact and matches Spire Labs' public Pylon docs (docs.spire.dev) describing a Base-side settlement bridge escrowing assets for based-L3 appchain mirrors. No Basescan public name tag exists for either address — identity rests on the source-code contact + doc match, not an official tag."
+		},
+		{
+			"name": "Juicebox",
+			"address": "0x2dB6d704058E552DeFE415753465df8dF0361846",
+			"version": "JBMultiTerminal",
+			"detection": "to_address",
+			"active": true,
+			"_verified": "eth_getCode: contract (23.98KB bytecode, not a proxy). Basescan getsourcecode confirms verified contract 'JBMultiTerminal' — Juicebox Protocol v4 (Bananapus)'s generic payment terminal.",
+			"_caveat": "NOT a swap router or bridge. This single address is shared across every Juicebox project (pay() mints a project's token for ETH/ERC-20 in, keyed by projectId in calldata; redeem() reclaims treasury surplus). to_address alone can't distinguish which project a trade touched, and pay/redeem isn't market-priced the way a router swap is — cost-analysis semantics built for aggregator legs likely don't apply cleanly here without reading projectId out of calldata."
+		},
+		{
 			"name": "Relay",
 			"address": "0xccc88a9d1b4ed6b0eaba998850414b24f1c315be",
 			"version": "RelayApprovalProxyV3",
