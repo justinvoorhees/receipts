@@ -5,49 +5,77 @@ here writes anywhere. They exist so the numbers in that document can be
 **re-measured rather than trusted** — several figures in there are from small
 samples.
 
-All read from the frozen QA corpus (`docs/qa/corpus.json`, via `loadCorpus()`
-in `_env.mjs`) rather than a live table — the database this was once dumped
-from is gone. `TCA_RPC_URL` is read the same way, from the repo-root `.env`
-directly, because `source .env` does not export by itself.
+All read from `docs/qa/cases.json` (via `loadCases()`/`loadCasesDecoded()` in
+`_env.mjs`) rather than a live table — the database this was once dumped from
+is gone, and so is the frozen `corpus.json` snapshot that briefly replaced it.
+`cases.json` stores **hashes only**; `loadCasesDecoded()` re-decodes every case
+live against today's code and today's chain, so nothing here can go stale the
+way a stored column could. That also means most of these scripts now need
+`TCA_RPC_URL`, read from the repo-root `.env` directly (`source .env` does not
+export by itself) — see the table below.
 
 ## Where a new transaction goes
 
 `docs/qa/cases.json` (via `loadCases()`) — **hashes only**, with a `why`.
 
-⚠️ Do **not** append decoded rows to `corpus.json` to grow a sample. Its
-columns were decoded by the code of 2026-08-07; appending today's decodes makes
-every no-RPC script above average across two versions of core. A hash never
-rots, because everything that needs a receipt re-decodes it. If the stored
-columns genuinely must grow, re-decode the WHOLE set into a fresh snapshot
-(serially — see `decodeGolden.mjs`), never append to the old one.
+⚠️ Do **not** append decoded columns to `cases.json` to grow a sample. A
+hash-only entry can never rot, because everything that needs a receipt
+re-decodes it against current code and chain state; a decoded column would rot
+on the very next pricing change, which is exactly what `docs/qa/corpus.json`
+did before it was deleted. If a decoded snapshot is ever genuinely needed,
+generate it fresh into its own file (serially — see `decodeGolden.mjs`) rather
+than mixing decoded columns into `cases.json`.
 
-⚠️ Numeric columns in `corpus.json` are **strings** (Postgres `numeric`); a
-fresh decode returns **numbers**. `num()` coerces both — new code must too.
+⚠️ `loadCasesDecoded()` returns fresh numbers, not the strings a Postgres
+`numeric` column would have given you back when this read from a database.
+`num()` still coerces either shape, so it is safe to keep using, but new code
+reading `cases.json` directly should not expect string numerics.
+
+⚠️ Five scripts (`attributionCoverage.mjs`, `blastRadius.mjs`,
+`reconResidual.mjs`, `unpricedCauses.mjs`, `coverageEstimate.mjs`) pass
+`filter: (c) => c.source === 'corpus-v1'` into `loadCasesDecoded()` on purpose,
+to exclude the 6 hand-written diagnostic cases from the rates they report —
+those cases are curated pathologies (zero-leg routes, dust reference pools,
+truncated cyclic routes) and mixing them in biases every rate upward by
+changing the sample, not the code. A new transaction added to `cases.json`
+without `source: 'corpus-v1'` will correctly stay out of those five scripts'
+denominators; that is by design, not a bug to "fix" by tagging it.
 
 Some need `packages/core/dist` — run `npx tsc --build packages/core` first.
 ⚠️ Never `npm run build` while a dev server is running; it writes into the same
 `.next` and the app renders unstyled.
 
-| script | needs RPC | answers |
-|---|:-:|---|
-| `attributionCoverage.mjs` | no | What fraction of each route did we actually price? Both dimensions, plus the `.some()`/`.every()` subtraction bug. **The prototype for worklist item 1.** |
-| `unpricedCauses.mjs` | no | *Why* is each leg unpriced? Splits RFQ / not-decomposed / clamped / unexplained, and groups unpriced legs by venue — this is what surfaced the V4 PoolManager reader bug. |
-| `reconResidual.mjs` | no | How far apart are the reference-pool and route-relative rulers, and why `reconResidualBps ≈ slippage_bps` is algebra rather than coincidence. |
-| `blastRadius.mjs` | no | If every fix on the worklist landed, how many bps actually move? (Answer: almost none.) |
-| `referencePoolInRoute.mjs` | **yes** | Is the Market Price ruler even measuring a pool this trade touched? |
-| `preTxRulerError.mjs` | **yes** | Is the N−1 block lag costing us anything (no), and what did the trade itself move (the free "own footprint" number)? |
-| `decodeProfile.mjs` | **yes** | Where does one decode's wall-clock go? Proxies the endpoint and reports total vs **distinct** calls, how much of the wall-clock had only one request in flight, and a timeline. The two numbers that matter: repeats are waste, and time-at-depth-1 is a serial loop. Needs no code change, so it profiles `main` as easily as a branch. |
-| `decodeBench.mjs` | **yes** | How long does a decode take, end to end, serially — the number a visitor to `/tx` actually waits for. ⚠️ Noisy; confirm any conclusion with `decodeProfile.mjs`'s exact call count. |
-| `decodeGolden.mjs` | **yes** | Does this refactor change any receipt? Captures all 62 corpus receipts to a file; run on two git refs and `diff` them. Fills the gap named below — `rpcProviderAB.mjs` A/Bs two *providers*, this A/Bs two *codebases*. ⚠️⚠️ Capture **serially** or the diff is fiction (see below). |
-| `rpcCapacity.mjs` | **yes** | Should this endpoint be talked to with concurrency or batching? ⚠️⚠️ Answers "concurrency, and **do not batch**" — re-run after any provider change. |
-| `rpcProviderAB.mjs` | **yes** | Do two RPC providers produce identical receipts? Re-analyzes the corpus twice on the SAME code, once per provider, and diffs the full `Receipt` — not just the watched columns. Run `--control` first: it A/As one provider against itself, so anything it flags is non-determinism rather than the provider. Needs `TCA_RPC_URL_PREV`. |
+All of the scripts below read `docs/qa/cases.json` via `loadCasesDecoded()`,
+which re-decodes every case live — so **every one of them needs `TCA_RPC_URL`**
+now, including the four that used to be pure arithmetic over a frozen file. A
+bare run without `TCA_RPC_URL` throws, and a full run over the corpus-v1 set
+takes ~4 minutes; use `--limit=N` for a spot check while iterating.
+
+| script | needs RPC | `--limit` | answers |
+|---|:-:|:-:|---|
+| `attributionCoverage.mjs` | **yes** | yes | What fraction of each route did we actually price? Both dimensions, plus the `.some()`/`.every()` subtraction bug. **The prototype for worklist item 1.** |
+| `unpricedCauses.mjs` | **yes** | yes | *Why* is each leg unpriced? Splits RFQ / not-decomposed / clamped / unexplained, and groups unpriced legs by venue — this is what surfaced the V4 PoolManager reader bug. |
+| `reconResidual.mjs` | **yes** | yes | How far apart are the reference-pool and route-relative rulers, and why `reconResidualBps ≈ slippage_bps` is algebra rather than coincidence. |
+| `blastRadius.mjs` | **yes** | yes | If every fix on the worklist landed, how many bps actually move? (Answer: almost none.) |
+| `coverageEstimate.mjs` | **yes** | yes | Scoping aid for worklist item 1: over EVERY case (not just those with legs), how many receipts would drop below 100% price-impact coverage and lose their bare Slippage number under the proposed gate? |
+| `referenceDepthDistribution.mjs` | **yes** | yes | How deep is the pool the Market Price ruler actually uses, across every case? Calibrated the `$100` reference-pool depth floor. |
+| `referencePoolInRoute.mjs` | **yes** | yes | Is the Market Price ruler even measuring a pool this trade touched? |
+| `preTxRulerError.mjs` | **yes** | yes | Is the N−1 block lag costing us anything (no), and what did the trade itself move (the free "own footprint" number)? |
+| `decodeProfile.mjs` | **yes** | no (single tx) | Where does one decode's wall-clock go? Proxies the endpoint and reports total vs **distinct** calls, how much of the wall-clock had only one request in flight, and a timeline. The two numbers that matter: repeats are waste, and time-at-depth-1 is a serial loop. Needs no code change, so it profiles `main` as easily as a branch. |
+| `decodeBench.mjs` | **yes** | yes | How long does a decode take, end to end, serially — the number a visitor to `/tx` actually waits for. ⚠️ Noisy; confirm any conclusion with `decodeProfile.mjs`'s exact call count. |
+| `decodeGolden.mjs` | **yes** | yes | Does this refactor change any receipt? Captures every case's receipt to a file; run on two git refs and `diff` them. Fills the gap named below — `rpcProviderAB.mjs` A/Bs two *providers*, this A/Bs two *codebases*. ⚠️⚠️ Capture **serially** or the diff is fiction (see below). |
+| `rpcCapacity.mjs` | **yes** | no | Should this endpoint be talked to with concurrency or batching? ⚠️⚠️ Answers "concurrency, and **do not batch**" — re-run after any provider change. |
+| `rpcProviderAB.mjs` | **yes** | yes | Do two RPC providers produce identical receipts? Re-analyzes the case set twice on the SAME code, once per provider, and diffs the full `Receipt` — not just the watched columns. Run `--control` first: it A/As one provider against itself, so anything it flags is non-determinism rather than the provider. Needs `TCA_RPC_URL_PREV`. |
+| `../marketMidSnapshot.mjs` (`scripts/`, not `scripts/analysis/`) | **yes** | yes | Snapshot the computed Market Price for every distinct (input, output, block) triple across the case set, to diff a pricing change across two git refs without trusting the stored `market_mid` orientation. Bare invocation with no arguments prints usage rather than starting a run. |
 
 ## Baselines at 2026-07-30 (62 receipts with `route_legs`)
 
-Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
-(`docs/qa/corpus.json`); the "62" below is a coincidence, not the same set.
-The old figures describe a 62-row live-table snapshot from 2026-07-30, not
-today's frozen file — do not quote this block as current.
+Superseded 2026-08-06, and superseded again by the corpus→cases migration —
+re-measure against the corpus-v1 case set (`docs/qa/cases.json`, source:
+`'corpus-v1'`, via `loadCasesDecoded({ filter })`); the "62" below is a
+coincidence, not the same set. The old figures describe a 62-row live-table
+snapshot from 2026-07-30, not today's re-decoded set — do not quote this
+block as current.
 
 ```
 coverage        LP fee 76.6% · price impact 83.5% (notional-weighted)
@@ -105,8 +133,8 @@ serially, on both refs, before believing it.
 
 - **Small samples — historically.** The reference-pool and pre-tx figures in
   the superseded baseline above came from 20-receipt and 75-leg samples, back
-  when `--limit` defaulted small. `--limit` now defaults to the full frozen
-  corpus (`referencePoolInRoute.mjs`, `preTxRulerError.mjs`), so a bare re-run
+  when `--limit` defaulted small. `--limit` now defaults to the full case set
+  (`referencePoolInRoute.mjs`, `preTxRulerError.mjs`), so a bare re-run
   measures everything; it is a convenience for spot checks, not something you
   need to raise before quoting a percentage.
 - **The tail is contaminated.** The worst rows are `conf=low` and several carry

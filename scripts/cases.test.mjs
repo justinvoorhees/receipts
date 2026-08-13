@@ -6,7 +6,7 @@ const cases = JSON.parse(
 );
 
 describe('the QA case list', () => {
-	it('holds the 7 hand-written cases plus the 62 migrated corpus transactions', () => {
+	it('holds 68 cases: 62 carry a corpusId (61 migrated plus hand-written entry 485), 6 are purely hand-written', () => {
 		expect(cases.length).toBe(68);
 		expect(cases.filter((c) => c.corpusId != null).length).toBe(62);
 	});

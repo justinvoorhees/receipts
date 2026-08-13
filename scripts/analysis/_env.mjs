@@ -34,10 +34,20 @@ export const env = Object.fromEntries(
  * `why` earns every entry its place — a hash with no explanation is impossible
  * to prune later.
  *
- * ⚠️ Only entries carrying `corpusId` also carry `blockNumber`. A future
- * consumer that pins a decode to blockNumber would silently decode the 6
- * hand-written entries against current chain state while the other 62 pin
- * historically — a divergence with no error signal.
+ * ⚠️ `blockNumber`, not `corpusId`, is the reliable signal for "migrated with a
+ * pinned block": the 61 migrated entries carry `blockNumber`, the 7
+ * hand-written ones do not — and entry 485 is the exception that breaks a
+ * `corpusId`-based check: it carries a `corpusId` (485) with NO `blockNumber`,
+ * because it was hand-written before the migration and only gained the id in
+ * place. A future consumer that gates on `corpusId != null` to decide whether
+ * to pin a decode to `blockNumber` would silently decode entry 485 against
+ * current chain state while believing it was pinned historically — a
+ * divergence with no error signal. Check `blockNumber` directly instead.
+ *
+ * ⚠️ There is no longer a $5 notional floor enforced on this list (that check
+ * lived in the old `corpus.test.mjs`, against `notional_usd`, which is decoder
+ * output and no longer lives in this file). Nothing stops a dust transaction
+ * from entering here and skewing a notional-weighted average computed over it.
  */
 export function loadCases() {
 	return JSON.parse(
