@@ -28,12 +28,21 @@ import { loadCasesDecoded, parseLimitFlag, costedLegs, num } from './_env.mjs';
 
 const decoded = await loadCasesDecoded({
 	limit: parseLimitFlag(),
-	// The v1 corpus set, and deliberately NOT the hand-written cases. Those are
-	// curated pathologies — zero-leg routes, dust reference pools, truncated
-	// cyclic routes — and this script measures the RATE of exactly those. Mixing
-	// them in moves every rate by changing the sample rather than the code, which
-	// is indistinguishable from a real regression in the output.
-	filter: (c) => c.source === 'corpus-v1',
+	// The original corpus set — every entry carrying a `corpusId` — and
+	// deliberately NOT the hand-written cases that were never part of it.
+	// Test on `corpusId`, not `source`: entry 485 was in the original corpus
+	// AND was already a hand-written case before the migration, so it carries
+	// a `corpusId` but no `source: 'corpus-v1'` tag. It IS itself a
+	// pathological case (tags no-route, relay, one-uncosted-leg), but it
+	// belongs in the sample because it was always in the corpus baseline —
+	// its inclusion is faithful, not a new bias. The bias being avoided is
+	// the other six hand-written cases, which were never in the corpus.
+	// Those are curated pathologies — zero-leg routes, dust reference pools,
+	// truncated cyclic routes — and this script measures the RATE of exactly
+	// those. Mixing them in moves every rate by changing the sample rather
+	// than the code, which is indistinguishable from a real regression in
+	// the output.
+	filter: (c) => c.corpusId != null,
 });
 console.log(`sample: ${decoded.length} corpus-v1 receipts decoded (hand-written diagnostic cases excluded)`);
 const rows = decoded.filter((r) => r.route_legs != null);
