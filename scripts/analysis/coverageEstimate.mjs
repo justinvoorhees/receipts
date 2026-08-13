@@ -8,10 +8,18 @@
  *
  *   node scripts/analysis/coverageEstimate.mjs
  */
-import { loadCasesDecoded, costedLegs, isFullyPriced, priceImpactCoverage, num } from './_env.mjs';
+import { loadCasesDecoded, parseLimitFlag, costedLegs, isFullyPriced, priceImpactCoverage, num } from './_env.mjs';
 
-const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
-const rows = await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity });
+const rows = await loadCasesDecoded({
+	limit: parseLimitFlag(),
+	// The v1 corpus set, and deliberately NOT the hand-written cases. Those are
+	// curated pathologies — zero-leg routes, dust reference pools, truncated
+	// cyclic routes — and this script measures the RATE of exactly those. Mixing
+	// them in moves every rate by changing the sample rather than the code, which
+	// is indistinguishable from a real regression in the output.
+	filter: (c) => c.source === 'corpus-v1',
+});
+console.log(`sample: ${rows.length} corpus-v1 receipts decoded (hand-written diagnostic cases excluded)`);
 
 const buckets = {
 	noLegs: [],        // no route_legs at all — gate cannot apply

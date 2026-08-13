@@ -18,16 +18,25 @@
  *
  * Baseline at 2026-07-30 (62 receipts): LP fee 76.6%, price impact 83.5%,
  * 13 receipts with no leg priced, 7 partially priced (silently wrong), 42 clean.
- * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
- * (docs/qa/corpus.json); the old figures describe a 62-row set that is NOT this one.
+ * Superseded 2026-08-06 — re-measure against the corpus-v1 case set
+ * (docs/qa/cases.json, source: 'corpus-v1'); the old figures describe a
+ * 62-row set that is NOT this one.
  *
  *   node scripts/analysis/attributionCoverage.mjs
  */
-import { loadCasesDecoded, costedLegs, priceImpactCoverage, num } from './_env.mjs';
+import { loadCasesDecoded, parseLimitFlag, costedLegs, priceImpactCoverage, num } from './_env.mjs';
 
-const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
-const rows = (await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity }))
-	.filter((r) => r.route_legs != null);
+const decoded = await loadCasesDecoded({
+	limit: parseLimitFlag(),
+	// The v1 corpus set, and deliberately NOT the hand-written cases. Those are
+	// curated pathologies — zero-leg routes, dust reference pools, truncated
+	// cyclic routes — and this script measures the RATE of exactly those. Mixing
+	// them in moves every rate by changing the sample rather than the code, which
+	// is indistinguishable from a real regression in the output.
+	filter: (c) => c.source === 'corpus-v1',
+});
+console.log(`sample: ${decoded.length} corpus-v1 receipts decoded (hand-written diagnostic cases excluded)`);
+const rows = decoded.filter((r) => r.route_legs != null);
 
 const pct = (v) => `${(100 * v).toFixed(0).padStart(3)}%`;
 const out = [];

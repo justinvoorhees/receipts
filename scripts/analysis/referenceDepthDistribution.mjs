@@ -35,7 +35,7 @@
  *   node scripts/analysis/referenceDepthDistribution.mjs [--limit=N] [--json=out.json]
  */
 import { writeFileSync } from 'node:fs';
-import { env, core, loadCasesDecoded } from './_env.mjs';
+import { env, core, loadCasesDecoded, parseLimitFlag } from './_env.mjs';
 
 const flag = (name, dflt) => {
 	const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -78,8 +78,9 @@ const depthUsd = (refToken, raw, wethUsd) => {
 
 const norm = (t) => (String(t).toLowerCase() === 'native' ? NATIVE : String(t).toLowerCase());
 
-const limit = Number(flag('limit', '1e9'));
-const rows = (await loadCasesDecoded({ limit })).filter((r) => r.block_number != null);
+const rows = (await loadCasesDecoded({ limit: parseLimitFlag() })).filter(
+	(r) => r.block_number != null && r._receipt?.inputToken && r._receipt?.outputToken,
+);
 
 const out = [];
 let n = 0;

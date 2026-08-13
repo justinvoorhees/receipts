@@ -17,17 +17,25 @@
  * reserves and amountIn). Do not "fix" the single market ruler.
  *
  * Baseline 2026-07-30: |recon| median 17.41 p90 183.75; |slippage| p90 183.68.
- * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
- * (docs/qa/corpus.json); this baseline was measured against the live table
- * at the time, a different row set than this frozen corpus.
+ * Superseded 2026-08-06 — re-measure against the corpus-v1 case set
+ * (docs/qa/cases.json, source: 'corpus-v1'); this baseline was measured
+ * against the live table at the time, a different row set than that.
  *
  *   node scripts/analysis/reconResidual.mjs
  */
-import { loadCasesDecoded, num, quantile } from './_env.mjs';
+import { loadCasesDecoded, parseLimitFlag, num, quantile } from './_env.mjs';
 
-const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
-const rows = (await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity }))
-	.filter((r) => r.route_legs != null);
+const decoded = await loadCasesDecoded({
+	limit: parseLimitFlag(),
+	// The v1 corpus set, and deliberately NOT the hand-written cases. Those are
+	// curated pathologies — zero-leg routes, dust reference pools, truncated
+	// cyclic routes — and this script measures the RATE of exactly those. Mixing
+	// them in moves every rate by changing the sample rather than the code, which
+	// is indistinguishable from a real regression in the output.
+	filter: (c) => c.source === 'corpus-v1',
+});
+console.log(`sample: ${decoded.length} corpus-v1 receipts decoded (hand-written diagnostic cases excluded)`);
+const rows = decoded.filter((r) => r.route_legs != null);
 
 const withRecon = rows.filter((r) => r.recon_residual_bps != null);
 console.log(`receipts with legs: ${rows.length}`);

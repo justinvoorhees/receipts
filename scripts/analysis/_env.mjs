@@ -93,6 +93,19 @@ export async function loadCasesDecoded({ limit = Infinity, filter } = {}) {
 	return rows;
 }
 
+/**
+ * Parse `--limit=N` out of argv. A typo'd or non-positive value (`--limit=abc`,
+ * `Number('abc')` is `NaN`) falls back to Infinity rather than being handed to
+ * `loadCasesDecoded`'s `.slice(0, limit)` as-is: `slice(0, NaN)` returns `[]`,
+ * silently turning a typo into an empty sample instead of the harmlessly full
+ * one you'd get from a missing flag.
+ */
+export function parseLimitFlag(argv = process.argv) {
+	const hit = argv.find((a) => a.startsWith('--limit='));
+	const parsed = hit ? Number(hit.slice(8)) : Infinity;
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : Infinity;
+}
+
 export const core = (file) =>
 	import(new URL(`../../packages/core/dist/${file}`, import.meta.url));
 

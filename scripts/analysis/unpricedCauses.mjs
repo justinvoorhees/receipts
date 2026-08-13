@@ -18,15 +18,25 @@
  *
  * ⚠️ Do NOT raise PI_IMPLAUSIBLE_CAP_BPS to "see the impact" — those values are
  * wrong, which is why the clamp fired. Fix the reader, then re-run this script
- * against the frozen corpus (there is no live table to repopulate anymore).
+ * against the corpus-v1 case set (docs/qa/cases.json, source: 'corpus-v1') —
+ * re-decoded live, since there is neither a frozen snapshot nor a live table
+ * to repopulate anymore.
  *
  *   node scripts/analysis/unpricedCauses.mjs
  */
-import { loadCasesDecoded, costedLegs, num } from './_env.mjs';
+import { loadCasesDecoded, parseLimitFlag, costedLegs, num } from './_env.mjs';
 
-const limitFlag = process.argv.find((a) => a.startsWith('--limit='));
-const rows = (await loadCasesDecoded({ limit: limitFlag ? Number(limitFlag.slice(8)) : Infinity }))
-	.filter((r) => r.route_legs != null);
+const decoded = await loadCasesDecoded({
+	limit: parseLimitFlag(),
+	// The v1 corpus set, and deliberately NOT the hand-written cases. Those are
+	// curated pathologies — zero-leg routes, dust reference pools, truncated
+	// cyclic routes — and this script measures the RATE of exactly those. Mixing
+	// them in moves every rate by changing the sample rather than the code, which
+	// is indistinguishable from a real regression in the output.
+	filter: (c) => c.source === 'corpus-v1',
+});
+console.log(`sample: ${decoded.length} corpus-v1 receipts decoded (hand-written diagnostic cases excluded)`);
+const rows = decoded.filter((r) => r.route_legs != null);
 
 const RX = /MID_NULL|PI_IMPLAUSIBLE|RFQ_LEG|ROUTE_NOT_DECOMPOSED|LEG_FEE_IMPLAUSIBLE|AMOUNT_IN_ZERO/;
 const byCause = {};

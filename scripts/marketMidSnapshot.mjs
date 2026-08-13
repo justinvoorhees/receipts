@@ -36,7 +36,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadCasesDecoded } from './analysis/_env.mjs';
+import { loadCasesDecoded, parseLimitFlag } from './analysis/_env.mjs';
 
 const env = Object.fromEntries(
 	readFileSync(new URL('../.env', import.meta.url), 'utf8')
@@ -98,12 +98,17 @@ async function snapshot(outPath, limit) {
 }
 
 const rawArgs = process.argv.slice(2);
-const limitFlag = rawArgs.find((a) => a.startsWith('--limit='));
-const limit = limitFlag ? Number(limitFlag.slice(8)) : Infinity;
+const limit = parseLimitFlag(rawArgs);
 const args = rawArgs.filter((a) => !a.startsWith('--limit='));
 
 if (!env.TCA_RPC_URL) { console.error('Missing TCA_RPC_URL'); process.exit(1); }
-if (args[0] === '--diff') {
+if (rawArgs.length === 0) {
+	// A truly bare invocation used to print usage. Without this check it now
+	// silently starts a full case-set decode (~4 minutes) writing into tmpdir(),
+	// which is not what "ran it with no arguments" should do.
+	console.error('usage: marketMidSnapshot.mjs <out.json> [--limit=N]  |  --diff <base.json> <after.json>');
+	process.exit(1);
+} else if (args[0] === '--diff') {
 	if (args.length !== 3) { console.error('usage: --diff <base.json> <after.json>'); process.exit(1); }
 	diff(args[1], args[2]);
 } else if (args.length <= 1) {
