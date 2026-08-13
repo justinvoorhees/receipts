@@ -21,6 +21,7 @@ import {
 	hasUnresolvedFee,
 	UNRESOLVED_FEE_TOOLTIP,
 	NULL_PRICE_TOOLTIP,
+	NULL_NOTIONAL_TOOLTIP,
 	NO_ROUTE_TOOLTIP,
 	beneficiaryAnchorNote,
 	isUniswapXFillerRow,
@@ -254,7 +255,10 @@ export function Receipt({
 				    Otherwise → the soft ~Size line for orientation (notionalUsd already
 				    prefers the USD-anchored side via pricing.ts bestEffortNotional). */}
 				{!anchored && (
-					<DetailRow label="Size">
+					<DetailRow
+						label="Size"
+						valueTooltip={row.notionalUsd == null ? NULL_NOTIONAL_TOOLTIP : undefined}
+					>
 						{row.notionalUsd == null ? UNAVAILABLE : `~${formatSubvalueUsd(Number(row.notionalUsd))}`}
 					</DetailRow>
 				)}

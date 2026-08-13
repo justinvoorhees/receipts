@@ -6,7 +6,7 @@
  *   - v2MidFromReserves(r0, r1, dec0, dec1)          — pure math
  *   - makeDecimalsCache(rpcReader)                     — cached decimals
  *   - getPairMidAtBlock(client, tokenA, tokenB, block) — RPC-backed mid price
- *   - getTokenUsdcValue(client, token, amountRaw, block) — token→USDC valuation
+ *   - getTokenUsdcValueGated(readers, token, amountRaw, block, …) — ranked, floored token→USDC valuation
  *
  * Generalizes `sqrtPriceX96ToUsdcPerWeth` from referencePrice.ts into a
  * decimal-parametric form. Uses the same all-bigint-then-cast technique
@@ -337,6 +337,41 @@ async function usdRefGated(
   return { price: m.price * wethUsd, usd, pool: disc.address, rejected: false, unverified };
 }
 
+/** The gated WETH/USDC anchor, plus the evidence behind a refusal. */
+interface AnchorOutcome {
+  wethUsd: number | null;
+  depthUsd: number | null;
+  poolAddress: string | null;
+  rejected: boolean;
+}
+
+/**
+ * USDC-per-WETH via the deepest WETH/USDC pool, with the depth floor applied.
+ *
+ * Not circular: the anchor's own reference token is USDC, a stable, so its depth
+ * is valued without needing `wethUsd`. Shared by the bridged estimator and the
+ * notional path so both gate the anchor by the same rule — if they diverged, the
+ * Market Price and Size rows could disagree about the same pool.
+ */
+async function resolveWethUsdGated(
+  readers: EstimatedMidReaders,
+  blockNumber: bigint,
+  minLiquidity: bigint,
+  minDepthUsd: number,
+): Promise<AnchorOutcome> {
+  const none: AnchorOutcome = { wethUsd: null, depthUsd: null, poolAddress: null, rejected: false };
+  const pool = await readers.getDeepestPoolWithDepth(WETH, USDC, blockNumber);
+  if (pool === null) return none;
+  const ref = pickReferenceToken(WETH, USDC); // USDC — a stable, so no wethUsd needed
+  const usd = depthUsd(ref, pool.depth, 0, await readers.readDecimals(ref));
+  if (usd !== null && usd < minDepthUsd) {
+    return { wethUsd: null, depthUsd: usd, poolAddress: pool.address, rejected: true };
+  }
+  const anchor = await midViaDeepest(readers, WETH, USDC, blockNumber); // USDC per WETH
+  if (anchor === null || anchor.price <= 0 || anchor.depth < minLiquidity) return none;
+  return { wethUsd: anchor.price, depthUsd: usd, poolAddress: pool.address, rejected: false };
+}
+
 /** The bridged estimator plus the evidence behind a refusal. */
 export interface EstimatedMidOutcome {
   mid: PairMidResult | null;
@@ -371,17 +406,12 @@ export async function getEstimatedMidOutcome(
     mid: null, depthUsd: null, poolAddress: null, rejected: false, unverified: false,
   };
 
-  const anchorPool = await readers.getDeepestPoolWithDepth(WETH, USDC, blockNumber);
-  if (anchorPool === null) return none;
-  const anchorRef = pickReferenceToken(WETH, USDC); // USDC — a stable, so no wethUsd needed
-  const anchorUsd = depthUsd(anchorRef, anchorPool.depth, 0, await readers.readDecimals(anchorRef));
-  if (anchorUsd !== null && anchorUsd < minDepthUsd) {
-    return { ...none, rejected: true, depthUsd: anchorUsd, poolAddress: anchorPool.address };
+  const anchor = await resolveWethUsdGated(readers, blockNumber, minLiquidity, minDepthUsd);
+  if (anchor.rejected) {
+    return { ...none, rejected: true, depthUsd: anchor.depthUsd, poolAddress: anchor.poolAddress };
   }
-
-  const anchor = await midViaDeepest(readers, WETH, USDC, blockNumber); // USDC per WETH
-  if (anchor === null || anchor.price <= 0 || anchor.depth < minLiquidity) return none;
-  const wethUsd = anchor.price;
+  if (anchor.wethUsd === null) return none;
+  const wethUsd = anchor.wethUsd;
 
   const [a, b] = await Promise.all([
     usdRefGated(readers, inputToken, blockNumber, wethUsd, minLiquidity, minDepthUsd),
@@ -423,71 +453,81 @@ export async function getEstimatedMidAtBlock(
   return out.mid;
 }
 
+/** A gated USD valuation, with the evidence behind a refusal. */
+export interface GatedUsdValue {
+  /** USD value of the amount, or null when no trustworthy pool priced it. */
+  usd: number | null;
+  /** A pool existed and was rejected for being below the USD depth floor. */
+  rejected: boolean;
+  /** Depth could not be valued, so the floor was not applied. */
+  unverified: boolean;
+}
+
 /**
- * Get the USDC value of a token amount at a given block.
+ * USD value of `amountRaw` of `token`, on the SAME ranked-and-floored apparatus
+ * the Market Price ruler uses.
  *
- * Priority:
- *   1. If token IS USDC → direct conversion (amountRaw / 10^6)
- *   2. If token IS native ETH → 1:1 with WETH, via WETH/USDC × amount
- *   3. If token IS WETH → getPairMidAtBlock(WETH, USDC, block) × amount
- *   4. token/USDC direct pair
- *   5. token/WETH × WETH/USDC (two-hop)
+ * The predecessor (`getTokenUsdcValue`) resolved mids through first-match
+ * `discoverPool` and preferred the direct token/USDC pool — the dead-pool trap
+ * that inflated a WARP->ETH notional ~7x. `usdRefGated` ranks by depth, prices
+ * only through token/WETH, and refuses a winner under `minDepthUsd`.
  *
- * Returns the USDC value or null if pricing fails.
+ * A refusal returns `usd: null`, which lets `bestEffortNotional` fall through to
+ * the other side. That fall-through is what keeps an anchored side's notional on
+ * receipts whose ruler was floored — the number there is independently derived
+ * and correct, and hiding it would discard a measurement we trust.
  */
-export async function getTokenUsdcValue(
-  client: PublicClient,
+export async function getTokenUsdcValueGated(
+  readers: EstimatedMidReaders,
   token: string,
   amountRaw: bigint,
   blockNumber: bigint,
-  decimalsOf: (address: string) => Promise<number>,
+  minLiquidity: bigint,
+  minDepthUsd: number,
   precomputedWethUsd?: number,
-): Promise<number | null> {
-  const tokenLc = token.toLowerCase();
+): Promise<GatedUsdValue> {
+  const t = token.toLowerCase();
 
-  // Direct USDC
-  if (tokenLc === USDC) {
-    return Number(amountRaw) / 1e6;
+  // USDC needs neither a pool, the anchor, nor a decimals() read — short-circuit
+  // before any RPC. A real decimals() read on USDC would cost nothing (it's
+  // pre-seeded in the production decimals cache), but keeping the literal here
+  // means this path stays free of a `readDecimals` call in every environment.
+  if (t === USDC) {
+    return { usd: Number(amountRaw) / 1e6, rejected: false, unverified: false };
   }
 
-  // Native ETH: a synthetic endpoint with no contract to read `decimals()` from
-  // and no pool of its own. It is 1:1 with WETH (18 decimals), so value it via
-  // the WETH/USDC reference. This MUST run before the `decimalsOf` read below,
-  // which would revert on the "native" pseudo-address.
-  if (tokenLc === NATIVE) {
-    const humanEth = Number(amountRaw) / 1e18;
-    if (precomputedWethUsd != null) return humanEth * precomputedWethUsd;
-    const mid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
-    if (mid === null) return null;
-    return humanEth * mid.price;
+  // Other stables need neither a pool nor the anchor, but decimals vary per
+  // token (DAI is 18; USDbC is 6), so read them. MUST cover the whole
+  // `anchorsToUsd` stable set (USDC, USDbC, DAI): `usdRefGated` would otherwise
+  // price DAI/USDbC as volatile tokens through a token/WETH pool and refuse
+  // them on the depth floor, losing a figure the first-match path used to
+  // produce via a direct token/USDC pool.
+  if (isStable(t)) {
+    const dec = await readers.readDecimals(t);
+    return { usd: Number(amountRaw) / 10 ** dec, rejected: false, unverified: false };
   }
 
-  const tokenDec = await decimalsOf(tokenLc);
-  const humanAmount = Number(amountRaw) / 10 ** tokenDec;
-
-  // Direct WETH → USDC
-  if (tokenLc === WETH) {
-    if (precomputedWethUsd != null) return humanAmount * precomputedWethUsd;
-    const mid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
-    if (mid === null) return null;
-    return humanAmount * mid.price;
-  }
-
-  // Try token/USDC direct
-  const directMid = await getPairMidAtBlock(client, tokenLc, USDC, blockNumber, decimalsOf);
-  if (directMid !== null && directMid.price > 0) {
-    return humanAmount * directMid.price;
-  }
-
-  // Try token/WETH → WETH/USDC (two-hop)
-  const tokenWethMid = await getPairMidAtBlock(client, tokenLc, WETH, blockNumber, decimalsOf);
-  if (tokenWethMid !== null && tokenWethMid.price > 0) {
-    const wethUsdcMid = await getPairMidAtBlock(client, WETH, USDC, blockNumber, decimalsOf);
-    if (wethUsdcMid !== null && wethUsdcMid.price > 0) {
-      return humanAmount * tokenWethMid.price * wethUsdcMid.price;
+  let wethUsd = precomputedWethUsd;
+  if (wethUsd == null) {
+    const anchor = await resolveWethUsdGated(readers, blockNumber, minLiquidity, minDepthUsd);
+    if (anchor.wethUsd === null) {
+      return { usd: null, rejected: anchor.rejected, unverified: false };
     }
+    wethUsd = anchor.wethUsd;
   }
 
-  return null;
+  const side = await usdRefGated(readers, t, blockNumber, wethUsd, minLiquidity, minDepthUsd);
+  if (side.price === null) {
+    return { usd: null, rejected: side.rejected, unverified: side.unverified };
+  }
+
+  // native is a synthetic endpoint with no contract to read decimals() from; it
+  // is 1:1 with WETH (18). This MUST precede the readDecimals call, which throws.
+  const dec = t === NATIVE ? 18 : await readers.readDecimals(t);
+  return {
+    usd: (Number(amountRaw) / 10 ** dec) * side.price,
+    rejected: false,
+    unverified: side.unverified,
+  };
 }
 

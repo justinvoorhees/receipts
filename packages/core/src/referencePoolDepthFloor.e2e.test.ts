@@ -4,9 +4,12 @@
  * Every other test in this feature runs on fakes. These three are the ones that
  * would actually have caught the bug, and the ones that will catch its return.
  *
- * ⚠️ Skips SILENTLY without TCA_RPC_URL, and `source .env` does not export by
- * itself. Run with:  set -a && source .env && set +a && npx vitest run …
- * A "skipped" result here proves nothing.
+ * ⚠️ This file imports `dotenv/config`, so it loads the repo-root `.env` itself
+ * under a root-cwd vitest run and does NOT need the `source .env` export
+ * ritual — verified by running it green without the export. Without
+ * TCA_RPC_URL set (in the environment or `.env`), it still skips SILENTLY.
+ * A "skipped" result here proves nothing. The other e2e files still need the
+ * ritual: only `beneficiaryAnchoring.e2e.test.ts` also imports `dotenv/config`.
  */
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
@@ -43,11 +46,19 @@ d('reference-pool depth floor e2e', () => {
 
 		// What the receipt KEEPS. Per-leg impact is measured against the leg's own
 		// pool mid at N-1, so a floored ruler must not touch it.
-		expect(r!.notionalUsd).toBeGreaterThan(50); // ~$81.68, off the anchored ETH side
+		//
+		// ~$81.56, off the anchored ETH side. Was ~$81.68 before the notional was
+		// rewired onto the SAME ranked-and-floored WETH/USDC apparatus the ruler
+		// uses (see notional-depth-gating Task 3): the ETH-side value used to come
+		// from a first-match WETH/USDC pool that could differ from the ruler's
+		// deepest one. weightedPriceImpactBps below normalizes by this whole-trade
+		// notional, so its ~0.1bps/~0.15 lpFeeBps drift is that same unification,
+		// not a new defect.
+		expect(r!.notionalUsd).toBeCloseTo(81.56, 1);
 		expect(r!.routeLegs!.length).toBeGreaterThan(0);
 		const leg = r!.routeLegs![0] as { priceImpactBps: number | null; lpFeeBps: number | null };
-		expect(leg.priceImpactBps).toBeCloseTo(61.14, 1);
-		expect(leg.lpFeeBps).toBeCloseTo(109.87, 1);
+		expect(leg.priceImpactBps).toBeCloseTo(61.23, 1);
+		expect(leg.lpFeeBps).toBeCloseTo(110.02, 1);
 	}, 120000);
 
 	// ⚠️ The NEGATIVE-sign instance. Both dust pools OVERPRICE the memecoin, so
@@ -106,5 +117,36 @@ d('reference-pool depth floor e2e', () => {
 		// Per-leg impact is untouched either way.
 		const legs = r!.routeLegs as { priceImpactBps: number | null }[];
 		expect(legs.some((l) => l.priceImpactBps != null)).toBe(true);
+	}, 120000);
+
+	/*
+	  Not a floor case -- the ranking half of this change. Neither KEYCAT nor
+	  AERO anchors, so before this change `bestEffortNotional` took the first
+	  matching pool: a thin direct KEYCAT/USDC pool that overstated the trade
+	  5.3x ($37,984.03). Ranked-and-floored discovery now prices through the
+	  deepest KEYCAT/WETH pool instead: $7,153.36.
+
+	  Trusted by cross-check against the receipt's OWN market mid, which this
+	  change does not touch (marketMid stays 0.00082548 AERO per KEYCAT,
+	  confirmed unmoved in the golden diff). The old notional implies AERO
+	  priced at $2.5563; the new one implies $0.4814. AERO did not trade at
+	  $2.56 on 2026-08-12 -- the old figure was the dead-pool trap from
+	  bestEffortNotional's docstring, caught here on a real receipt.
+	*/
+	it('reprices KEYCAT->AERO off the deepest pool instead of the first match', async () => {
+		const r = await analyzeTransaction(
+			'0x39a026fba042a6a937e7837cc3f6f132929fdc9bf7a30cce661a91d67c1cd2b6', CHAIN, { rpcUrl: RPC! },
+		);
+		expect(r).not.toBeNull();
+
+		// Wide bounds on purpose: this is a live-chain float, and the point is to
+		// fail loudly on a regression back toward the old $37,984 first-match
+		// figure, not to pin the exact cent.
+		expect(r!.notionalUsd).not.toBeNull();
+		expect(r!.notionalUsd!).toBeGreaterThan(5000);
+		expect(r!.notionalUsd!).toBeLessThan(10000);
+
+		// The ruler this change must not touch.
+		expect(r!.marketMid).toBeCloseTo(0.00082548, 6);
 	}, 120000);
 });

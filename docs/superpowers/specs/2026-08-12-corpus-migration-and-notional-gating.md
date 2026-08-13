@@ -120,7 +120,7 @@ Reuse what the depth floor already built. `usdRefGated` (`tokenPricing.ts:305`) 
 
 | receipt | notional source | `Size` |
 |---|---|---|
-| anchored side valued (`0x7e21b6dc`) | ETH via the WETH/USDC reference — trustworthy | **keep** `~$81.68` |
+| anchored side valued (`0x7e21b6dc`) | ETH via the WETH/USDC reference — trustworthy | **keep** `~$81.56` ⚠️ |
 | non-anchored, valued by a below-floor pool | the ungated pool — the actual risk | **refused in core → row shows the unavailable state** |
 | non-anchored, valued by a pool clearing the floor | ranked winner, floor passed | **keep** |
 
@@ -131,6 +131,38 @@ Reuse what the depth floor already built. `usdRefGated` (`tokenPricing.ts:305`) 
 ### Scope boundary
 
 Ranking is uncontroversial and ships regardless: first-match is strictly worse than deepest-wins with no product tradeoff. The floor is the decision, and it applies at the receipt notional. Per-leg valuation is out of scope because there is nothing there to change — see the correction above.
+
+### Measured result
+
+Golden diff, captured serially, `5f4da5e` (pre-change) vs `eaa0781` (post-change), 62 receipts each side, 0 errors either side.
+
+**35 of 62 notionals moved. Zero went null.** The depth floor never fired on this corpus — `bestEffortNotional`'s fall-through always found a side above the $100 floor. Every movement is the *ranking* change: the notional now prices through the deepest `token/WETH` pool instead of a first-match pool that often preferred a thin direct `token/USDC` pool. The plan expected at least one gated-to-null receipt and instructed pinning that case; there is none in this corpus, so the e2e pin below is the ranking correction instead.
+
+What did **not** move, confirming the ruler and the headline quality number are untouched:
+
+| field | receipts changed |
+|---|---|
+| `marketMid` | 0 |
+| `allInCostBps` | 0 |
+| `tier` | 0 |
+| `pricingStatus` | 0 |
+
+What moved besides the notional — all four are notional-normalized attribution components reached via `notionalUsd ?? 0` (`analyzeTransaction.ts:456`) into the coupling documented above (`decomposeRoute.ts:822`, `:908`); the total holds while the breakdown shifts:
+
+| field | receipts changed |
+|---|---|
+| `slippageBps` | 28 |
+| `lpFeeBps` | 27 |
+| `aggFeeBps` | 14 |
+| `executionBps` | 12 |
+
+31 of the 35 moved notionals shifted by under 1% — the WETH/USDC anchor-pool unification also seen in the `0x7e21b6dc` per-leg drift above. Three moved materially:
+
+- **`0x39a026fba0` (KEYCAT→AERO), 5.3x, the defect this change exists to fix**: `notionalUsd` $37,984.03 → $7,153.36. Cross-checked against the receipt's own `marketMid` (0.00082548 AERO/KEYCAT, unmoved by this change): the old notional implies AERO priced at $2.5563; the new one implies $0.4814. AERO did not trade at $2.56 on 2026-08-12 — the old figure is the dead-pool trap from `bestEffortNotional`'s docstring, caught here on a real receipt rather than constructed. Pinned in `referencePoolDepthFloor.e2e.test.ts`.
+- **`0xe4b9514743` (LFI→GITLAWB), 2.35x, direction unverifiable**: `notionalUsd` $637.35 → $1,495.44. Both sides are volatile memecoins, so the market mid relates them only to each other and cannot arbitrate the absolute value. The new figure is more trustworthy *by construction* — deepest pool beats first-match — but it is not independently confirmed. Recorded as measured, not claimed as verified.
+- **`0xd938438455` (Cake→cbBTC), small and independently corroborated**: `notionalUsd` $6.52 → $6.66. The cbBTC output side is 0.0001027 cbBTC, worth $6.16–$7.19 across a plausible $60k–$70k BTC price; the new figure sits mid-range.
+
+`0x7e21b6dc` (BEAN→ETH, floored ruler) — the case the change exists to protect — keeps its anchored-side notional (`~$81.68` → `~$81.56`, already accounted for above). It never loses the figure.
 
 ---
 
@@ -143,6 +175,6 @@ Ranking is uncontroversial and ships regardless: first-match is strictly worse t
 
 **Part B**
 - Golden diff, **captured serially** (`decodeGolden.mjs`) — concurrency produces false differences. Expect movement confined to non-anchored pairs. Check specifically for legs whose notional fell to 0 via the `notionalUsd ?? 0` path.
-- Assert `0x7e21b6dc` still shows `~$81.68` — it is the case the refinement exists to protect.
+- Assert `0x7e21b6dc` still shows a notional off its anchored ETH side — it is the case the refinement exists to protect. ⚠️ **Measured during implementation: the figure is `~$81.56`, not `~$81.68`.** Putting the ETH side on the ruler's ranked-deepest WETH/USDC pool instead of a first-match one picks a different pool at that block. Two pinned per-leg numbers in `referencePoolDepthFloor.e2e.test.ts` moved with it (`priceImpactBps` 61.14→61.23, `lpFeeBps` 109.87→110.02) because `decomposeRoute.ts:822` and `:908` normalize both by the whole-trade notional — a coupling the spec's "per-leg is out of scope" note did not anticipate.
 - RPC e2e: pin a non-anchored pair whose notional currently comes from a first-match pool, and assert the ranked result differs.
 - Unit: the gated valuation returns null with `rejected: true` on a below-floor pool, and a number on one that clears it. ⚠️ `unverified` is **structurally unreachable** on this path — `usdRefGated` always prices against WETH, `pickReferenceToken(volatile, WETH)` always returns WETH, so `depthUsd` can only go null when `wethUsd` is invalid, which fails anchor resolution first. Plumb the field for parity with the ruler; do not write a test that has to defeat the types to fire it.
