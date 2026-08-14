@@ -18,14 +18,35 @@
  *
  * Baseline at 2026-07-30 (62 receipts): LP fee 76.6%, price impact 83.5%,
  * 13 receipts with no leg priced, 7 partially priced (silently wrong), 42 clean.
- * Superseded 2026-08-06 — re-measure against the frozen 62-receipt corpus
- * (docs/qa/corpus.json); the old figures describe a 62-row set that is NOT this one.
+ * Superseded 2026-08-06 — re-measure against the corpus set (docs/qa/cases.json,
+ * filtered on `corpusId != null` — NOT `source === 'corpus-v1'`, which matches
+ * only 61 of the 62 entries; see the `filter` below and `_env.mjs`); the old
+ * figures describe a 62-row set that is NOT this one.
  *
  *   node scripts/analysis/attributionCoverage.mjs
  */
-import { loadCorpus, costedLegs, priceImpactCoverage, num } from './_env.mjs';
+import { loadCasesDecoded, parseLimitFlag, costedLegs, priceImpactCoverage, num } from './_env.mjs';
 
-const rows = loadCorpus().filter((r) => r.route_legs != null);
+const decoded = await loadCasesDecoded({
+	limit: parseLimitFlag(),
+	// The original corpus set — every entry carrying a `corpusId` — and
+	// deliberately NOT the hand-written cases that were never part of it.
+	// Test on `corpusId`, not `source`: entry 485 was in the original corpus
+	// AND was already a hand-written case before the migration, so it carries
+	// a `corpusId` but no `source: 'corpus-v1'` tag. It IS itself a
+	// pathological case (tags no-route, relay, one-uncosted-leg), but it
+	// belongs in the sample because it was always in the corpus baseline —
+	// its inclusion is faithful, not a new bias. The bias being avoided is
+	// the other six hand-written cases, which were never in the corpus.
+	// Those are curated pathologies — zero-leg routes, dust reference pools,
+	// truncated cyclic routes — and this script measures the RATE of exactly
+	// those. Mixing them in moves every rate by changing the sample rather
+	// than the code, which is indistinguishable from a real regression in
+	// the output.
+	filter: (c) => c.corpusId != null,
+});
+console.log(`sample: ${decoded.length} corpus-v1 receipts decoded (hand-written diagnostic cases excluded)`);
+const rows = decoded.filter((r) => r.route_legs != null);
 
 const pct = (v) => `${(100 * v).toFixed(0).padStart(3)}%`;
 const out = [];

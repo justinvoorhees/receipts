@@ -22,7 +22,7 @@ if (!base) {
 	process.exit(2);
 }
 
-// A hash from the frozen corpus (docs/qa/corpus.json) — any known-good hash
+// A hash from the QA case set (docs/qa/cases.json) — any known-good hash
 // works, since receipts are computed on demand now and nothing is cached.
 const KNOWN_HASH = '0xbdaa6662fa12410d329d8954e46ea611f8a3a2008426151cba1c37121edbc9ce';
 

@@ -10,6 +10,8 @@ Two independent follow-ups. They share no code and should be two plans.
 
 ## Part A — migrate `corpus.json` into `cases.json`, rot-free
 
+**Shipped 2026-08-13, `dbbf1ed..37c7d12`** (`dbbf1ed..f963319` = Tasks 1–4, migration + script re-decode; `37c7d12` = Task 5, corpus deletion). `docs/qa/corpus.json` and `loadCorpus()` no longer exist; `loadCases()` / `loadCasesDecoded()` are the only loaders.
+
 **Decision: move all 62 corpus transactions into `docs/qa/cases.json`, shed every decoded column, keep only fields that cannot rot.**
 
 ### Why
@@ -77,6 +79,14 @@ The failure mode here is a script that still runs and quietly reports on nothing
 1. Add the 61 entries + the 485 merge to `cases.json` **while `corpus.json` still exists**. Nothing breaks; the two files coexist.
 2. Migrate scripts one at a time, comparing each one's output before and after **on the same transactions**. Bucket 2 is where numbers will move — a re-decode at today's code is not obliged to reproduce a snapshot taken weeks ago, and where it differs, the difference is the rot this whole exercise is about. Record it, don't "fix" it.
 3. Only once every consumer is migrated: delete `corpus.json`, delete `loadCorpus()`, rewrite or delete `corpus.test.mjs`.
+
+### Measured result
+
+**All five Bucket 2 scripts changed output** when switched from `loadCorpus()` to `loadCasesDecoded()` — `reconResidual`, `blastRadius`, `attributionCoverage`, `coverageEstimate`, `unpricedCauses`, every one, on the same 62 corpus transactions plus the 6 hand-written cases layered on top. That drift is the argument for deleting the frozen file: it is direct proof the snapshot had already diverged from what today's code says about the same transactions, and once `corpus.json` is gone there is no other artifact left that can demonstrate it. Every difference traced to one of four causes — the larger case set, the already-shipped notional-depth-gating renormalization (Part B), `feeResolved` becoming a real boolean instead of `undefined` on every frozen leg, and defects/fixes in `main` becoming visible for the first time. None were unexplained.
+
+**The strongest single piece of evidence is corpus id 354** (`0xe9b8d646…`). Its frozen row in `corpus.json` showed one `rfq` leg at venue `0xb6f6dce6…` with `priceImpactBps: null`, plus the `COUNTERPARTY` and `BENEFICIARY_ANCHORED` flags. Re-decoded today, that RFQ leg does not exist — the route reconstructs to a `univ4` PoolManager leg (`0x498581ff…`, `priceImpactBps: 26.9`, notional $12.42), and neither flag fires. The cause is the beneficiary-anchoring fix (`dd831d6`): it changes which address the trade is anchored on, which changes how the whole route reconstructs, not merely how one leg prices. This was not a fresh discovery — memory `relay-7702-erc4337-anchoring` had already named ids **354 and 543** as receipts whose repopulation was never run after `dd831d6` landed. The frozen row had been known-stale for months, sitting in `corpus.json` unrepopulated, with nobody circling back to it.
+
+Deleting `corpus.json` therefore also retires that outstanding repopulation debt permanently: re-decoding every case live, on every run, means there is no snapshot left to go stale and nothing left to repopulate. The migration's own thesis lands on itself — id 354 is exactly the kind of silent drift the whole plan exists to eliminate, caught for free by no longer having a frozen copy to disagree with.
 
 ---
 

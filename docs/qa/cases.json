@@ -3,49 +3,702 @@
 		"hash": "0x78ed871b3f43ef921aeec50f541ac18dc2fff664593945b44632931bca4ac18f",
 		"chainId": 8453,
 		"added": "2026-08-11",
-		"tags": ["no-route", "relay", "solver-fill", "zero-legs"],
+		"tags": [
+			"no-route",
+			"relay",
+			"solver-fill",
+			"zero-legs"
+		],
 		"why": "Relay solver fill from inventory. buildRouteGraph returns ZERO legs (hopCount 0), so decomposition falls back to venuesToUncostedLegs and the only legs are a WETH9 wrap/unwrap pair that nets to nothing. Pricing is 'full' and allInCostBps is -16.31, so the whole-trade delta IS knowable while nothing per-leg is. Drove the no-route receipt state (c529ebe). The solver 0xc77c0f43… is still lost — recovering it as an rfq leg is the open coverage work."
 	},
 	{
 		"hash": "0x79854af2632cf45d8f7f53dfa8ef19b3b59bb4f249c99b06bb410bbbb0be1b71",
 		"chainId": 8453,
 		"added": "2026-08-11",
-		"tags": ["no-route", "relay", "one-uncosted-leg"],
-		"why": "The OTHER shape of un-reconstructed route, and the reason routeReconstructed exists as its own field: reconstructed=false, yet venuesToUncostedLegs still emitted one real aerodrome_cl leg. Any predicate of the form `legs.length > 0` calls this a decomposed route and is wrong. Corpus id 485; POD->USDC, pricingStatus 'estimated'."
+		"tags": [
+			"no-route",
+			"relay",
+			"one-uncosted-leg"
+		],
+		"why": "The OTHER shape of un-reconstructed route, and the reason routeReconstructed exists as its own field: reconstructed=false, yet venuesToUncostedLegs still emitted one real aerodrome_cl leg. Any predicate of the form `legs.length > 0` calls this a decomposed route and is wrong. Corpus id 485; POD->USDC, pricingStatus 'estimated'.",
+		"corpusId": 485
 	},
 	{
 		"hash": "0x30cada4e7725849ed3ea3b6995cda425cc7dfbb82eb24d73c6285c18a3cb6357",
 		"chainId": 8453,
 		"added": "2026-08-11",
-		"tags": ["reconstructed", "mixed-pool-and-maker", "v4-rescue", "curated-maker", "split-route", "wide-leg-coverage"],
+		"tags": [
+			"reconstructed",
+			"mixed-pool-and-maker",
+			"v4-rescue",
+			"curated-maker",
+			"split-route",
+			"wide-leg-coverage"
+		],
 		"why": "The counterpart to the two no-route cases: a route that DOES reconstruct, and the widest leg coverage available in one transaction. 13 legs / 11 costed across eight venue types — univ3, aerodrome, aerodrome_cl, hydrex, three synthesized univ4, three curated rfq makers, plus wrap/unwrap. MOR->USDC via Relay, shape 'split', pricingStatus 'estimated' (SINGLE_SOURCE). Exercises the V4 multi-pool rescue (V4_MULTIPOOL_LEGS synthesized 3 legs) and the curated-maker path (RFQ_LEG_CURATED x3) in one decode. Mixed pool+maker, so isFullyPriced=false at 74.0% coverage: the Slippage row must report coverage and NOT blame market-maker inventory, and Unattributed must render while Positive Slippage collapses away. The sum identity is exact and worth regressing on: 14.89 (agg) + 37.56 (LP) + 17.97 (SigmaPI) - 34.61 (unattributed) = 35.81 = allInCostBps. NOTE, unverified: normalizeFlags carries MULTI-HOP '... LP/slippage not separable' while slippageBps IS populated (-16.64) — the flag predates the V4 rescue that made the route reconstruct, so it may simply be stale. Worth confirming before trusting that flag anywhere."
 	},
 	{
 		"hash": "0x99ed929c406191c45f58d1ca2ff3d7a5cd5ad6bd1b09aa99d5aac63a8f2801e0",
 		"chainId": 8453,
 		"added": "2026-08-11",
-		"tags": ["reconstructed", "linear", "curve", "lp-side-sink", "memecoin"],
+		"tags": [
+			"reconstructed",
+			"linear",
+			"curve",
+			"lp-side-sink",
+			"memecoin"
+		],
 		"why": "Decoded 2026-08-11: an ordinary reconstructed route, useful as the control case. OFC->ETH via Relay, shape 'linear', hopCount 2, reconstructed=true, pricingStatus 'estimated' (SINGLE_SOURCE), allInCostBps 9065 on an $11 trade. Three legs — aerodrome_cl (OFC/USDC, 5.02bps) -> curve_stableng (USDC/WETH, 20.07bps) -> unwrap — so it is the only case here exercising curve_stableng. Also exercises LP_SIDE_SINK_DROPPED: the curve pool retained 0.0205 USDC, correctly counted as a pool fee rather than a third-party fee. The 9065bps is a memecoin pricing artifact, not a route defect; do not use this case to reason about cost magnitude."
 	},
 	{
 		"hash": "0xe770ac315c3e6010e74ea7a4611f5a1a20156d20b90727b8c8ce703517f6d7b6",
 		"chainId": 8453,
 		"added": "2026-08-12",
-		"tags": ["no-route", "cyclic-route", "leg-truncation", "split-route", "unknown-venue"],
+		"tags": [
+			"no-route",
+			"cyclic-route",
+			"leg-truncation",
+			"split-route",
+			"unknown-venue"
+		],
 		"why": "The cyclic-route case, and the one that proves routeLegs is TRUNCATED on the un-reconstructed path. KyberSwap cbBTC->WETH, block 49855393, $478.42, reconstructed=false, shape 'complex', hopCount 1. Five pools swap: four forward (0x22aee369 aerodrome_cl, 0xd800b7e8, 0x1d6cfee6, 0x7c7420dd) and ONE backwards — 0x3f9b863e buys 0.00296 cbBTC back with 0.1002 WETH to feed the others, so the pools take in 0.01046 cbBTC against the trader's 0.0075. That two-token cycle defeats reconstructDag, and chainLegs' best-effort ordering then slices the list at the first leg whose tokenOut is the output token: 5 legs in, 1 leg out, carrying $67.51 of $478.42 (14%). Proven by calling chainLegs directly — with the reverse leg: complex/false/1 leg; drop only it: split/true/4 legs. diagnoseBreak returns the useless generic 'unreconstructed' because it skips inputToken/outputToken and a cbBTC<->WETH cycle has no intermediate. Fee tiers read at the trade block are 0.85/3.56/1.00/0.85/0.86 bps, so the real LP fee is ~3.40bps versus the 0.12bps the surviving leg implies. Two venues (0xd800b7e8 factory 0xc5396866, 0x3f9b863e factory 0x36077d39) are unknown to the registry. Receipt mockups of the current and fixed states: https://claude.ai/code/artifact/62d01c4d-ef4e-4686-9d0a-8591eec7bd54"
 	},
 	{
 		"hash": "0x7e21b6dcc964e36ffb7921841d6c9bf00624dac086738843af561b7c7768b0ce",
 		"chainId": 8453,
 		"added": "2026-08-12",
-		"tags": ["depth-floor", "dust-reference-pool", "fictional-benchmark", "positive-delta", "univ4-liquidity", "bridged-class"],
+		"tags": [
+			"depth-floor",
+			"dust-reference-pool",
+			"fictional-benchmark",
+			"positive-delta",
+			"univ4-liquidity",
+			"bridged-class"
+		],
 		"why": "CONFIRMS the reference-pool depth floor (2026-08-11 spec), and does so on the SAME dust pool as the motivating tx. BEAN->native ETH, block 49825278, $81.68, reconstructed=true, shape 'single', hopCount 1, tier 'estimated', flags SINGLE_SOURCE. Reports allInCostBps +9798.9 / slippageBps +9689.0 against a real cost of roughly 171bps — its one univ4 leg (0x498581ff PoolManager, BEAN->WETH) measures priceImpactBps 61.14 and lpFeeBps 109.87. The ruler is pool 0x6945a4Bf3E7A68D86c4BFd863c6d664575D81545 (univ3, BEAN/WETH) at rawDepth 115202102709082 wei WETH = $0.216 — byte-identical depth to the pool in the spec's 0x537a3c55 case, so this is the same dust pool poisoning a second receipt. It prices BEAN at $54.07 while the realized price implies $1.09, a 49.7x overstatement. marketMid 0.02884488 reproduces midViaDeepest(BEAN,WETH)=0.02884488171999806 exactly. Two things this adds beyond 0x537a3c55: the notional is $81.68, 41x the spec's $1.98, so the defect is NOT confined to trivially small trades; and the direct BEAN/native class is null (no pool discovered), so only the BRIDGED gate is exercised here. Verified serially, twice, byte-stable."
 	},
 	{
 		"hash": "0x1955c578dab4a6dff4ca51e9bc5b7d164049868fb224dcd5aa32bb031365dcfa",
 		"chainId": 8453,
 		"added": "2026-08-12",
-		"tags": ["depth-floor", "dust-reference-pool", "fictional-benchmark", "negative-delta", "univ4-liquidity", "both-classes-dust"],
+		"tags": [
+			"depth-floor",
+			"dust-reference-pool",
+			"fictional-benchmark",
+			"negative-delta",
+			"univ4-liquidity",
+			"both-classes-dust"
+		],
 		"why": "CONFIRMS the reference-pool depth floor, and is the case that proves the defect has BOTH SIGNS. USDC->ClawBank (0x16332535), block 49668931, $6.91, reconstructed=true, shape 'linear', hopCount 2, tier 'estimated', flags SINGLE_SOURCE. Reports allInCostBps -16960.7 / slippageBps -17130.7 — the receipt claims the trader captured a ~170% WINDFALL — against a real cost of roughly 120bps (legs: aerodrome_cl 0xdbc69982 USDC->WETH PI 0.34 / lpFee 0.79, then univ4 0x498581ff WETH->ClawBank PI 20.05 / lpFee 99.29). Ruler is 0x4321d5b02eEc7Ed2Aa485988b68EE3c97E106374 (univ3, ClawBank/WETH) holding 5898458697761 wei WETH = $0.0113, 19x thinner than the BEAN pool. marketMid reproduces exactly: 1.2528715445e-8 x 1910.0797388961523 = 0.00002393084552588979 vs reported 0.00002393. THE SIGN LESSON: both dust pools OVERPRICE the memecoin, so the sign of the fictional delta is set purely by trade DIRECTION — selling the overpriced token (0x7e21b6dc) reads as a catastrophic loss, buying it reads as a windfall. Any screen of the form 'allInCostBps > N' therefore misses half this population; it must be |allInCostBps|. SECOND FINDING, relevant to spec component 3: the DIRECT pool 0x408D2b48a05dd5CAA98595Ab053ACDE494Ada8Ba is ALSO dust ($0.0107 of USDC, rawDepth 10726) but drops out for an unrelated reason — slot0 is non-zero (353072120245665575317) while liquidity() is 0n, so it fails the existing L check at pricing.ts:207. So neither this tx nor 0x7e21b6dc exercises the direct-path gate, and that gate would ship without a live witness. It also shows the L check is actively load-bearing, reinforcing that ESTIMATED_MID_MIN_LIQUIDITY must be SPLIT, not raised. Verified serially, twice, byte-stable."
+	},
+	{
+		"hash": "0xbdaa6662fa12410d329d8954e46ea611f8a3a2008426151cba1c37121edbc9ce",
+		"chainId": 8453,
+		"blockNumber": 47475913,
+		"added": "2026-06-30",
+		"corpusId": 36,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xa86c70f29b212dc6beebd3ce1ef9c57415aa0701ec78d08e2fb75cf082d9a078",
+		"chainId": 8453,
+		"blockNumber": 47273631,
+		"added": "2026-06-30",
+		"corpusId": 52,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xb169b2e5b0ef710bc32be123260e2eaf3263636839bf3abcd3c2a57e9b8bf536",
+		"chainId": 8453,
+		"blockNumber": 47243184,
+		"added": "2026-06-30",
+		"corpusId": 53,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xfbbba7914210b4f473132d0f68987efe5f198aac88806bbf7c86fef65c0cd91f",
+		"chainId": 8453,
+		"blockNumber": 47051218,
+		"added": "2026-06-30",
+		"corpusId": 54,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x5bd00e22bab13fdf083525bb68633e6bf5dd581ae00a0f8b89329ada7065c2e9",
+		"chainId": 8453,
+		"blockNumber": 46975353,
+		"added": "2026-06-30",
+		"corpusId": 55,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xbc853779e6c5f846a08917a1afc710e17181fd0a31983723e15080497f63fe54",
+		"chainId": 8453,
+		"blockNumber": 46842721,
+		"added": "2026-06-30",
+		"corpusId": 56,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xd7fc72398891a5b40fd267293d4fdf15e116e6ebcd6f2e95e3df872b4e811046",
+		"chainId": 8453,
+		"blockNumber": 46435607,
+		"added": "2026-06-30",
+		"corpusId": 58,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xe4b9514743e4f211b456f14c69fd3c4abddf68a620becbdcb1ffa7771c42f4b7",
+		"chainId": 8453,
+		"blockNumber": 46386347,
+		"added": "2026-06-30",
+		"corpusId": 59,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x89628ee8e6b3a1b7c4c8ab8af5a5752c6de2ba7024ea0ff78a155a044c59aa8c",
+		"chainId": 8453,
+		"blockNumber": 47205551,
+		"added": "2026-07-07",
+		"corpusId": 75,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xd7fdac7dc0ebb071be9d19329b057b6cf8a18cdb3bc2ed35870c7a1083ad700e",
+		"chainId": 8453,
+		"blockNumber": 46312740,
+		"added": "2026-07-07",
+		"corpusId": 78,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xa21e4d82b961726614ce6f310e30e29a4b55b8eca1d6a46621c3adaf8edf6ab1",
+		"chainId": 8453,
+		"blockNumber": 48378459,
+		"added": "2026-07-10",
+		"corpusId": 117,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x1bc9fb0965659a9768c3f71f7ea57bbe41a25682416dcfc3652baf5b10364e69",
+		"chainId": 8453,
+		"blockNumber": 47491621,
+		"added": "2026-07-10",
+		"corpusId": 118,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x173e019d69ff3bf642ca4024241aa9a9fe241f80dc24f262bf7ccd2c4ef76918",
+		"chainId": 8453,
+		"blockNumber": 48600840,
+		"added": "2026-07-14",
+		"corpusId": 134,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x16e782f7a9dfefc3b84054ec81a366efbd603aea745ee5373ec005568adb360f",
+		"chainId": 8453,
+		"blockNumber": 48601527,
+		"added": "2026-07-14",
+		"corpusId": 135,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xb2697ab6a002a46ce2a80c703cf91f920b2fa5966e5906151826f369c31e985d",
+		"chainId": 8453,
+		"blockNumber": 48648341,
+		"added": "2026-07-15",
+		"corpusId": 173,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xb02037466b0756a3972f77d674413a0d7468663aca62e8c6eb757f15ced59e26",
+		"chainId": 8453,
+		"blockNumber": 48672606,
+		"added": "2026-07-15",
+		"corpusId": 189,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x0e3c5863fbc21e13fc15d76fed5fafb657db08ff4864437ddb9843ebfacb1511",
+		"chainId": 8453,
+		"blockNumber": 48673203,
+		"added": "2026-07-15",
+		"corpusId": 190,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x96eed18882441ce691734829f0e6e2de0e9038c621feb40d7eb285f9e9bce2c0",
+		"chainId": 8453,
+		"blockNumber": 48657554,
+		"added": "2026-07-16",
+		"corpusId": 197,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x451f2b5c0ba2b0983e5e68332c07f18f3d9caa6c869500503b5a3df513a2a2f0",
+		"chainId": 8453,
+		"blockNumber": 46301995,
+		"added": "2026-07-16",
+		"corpusId": 208,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xc8078a93d1ccfe88e9fc78ed1d1a4feaf9485f71d9fd91189cf2081d6dd365c8",
+		"chainId": 8453,
+		"blockNumber": 48715213,
+		"added": "2026-07-16",
+		"corpusId": 209,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xd70ceeca0b18e9d6a7c30355ed3f611f6ac20f1406b355c086401de89c9a5fbd",
+		"chainId": 8453,
+		"blockNumber": 48714558,
+		"added": "2026-07-16",
+		"corpusId": 210,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x16ea386ea5e01abf07d9a6de98919b45b7f8925cb84699c7fa91451a788ac0ee",
+		"chainId": 8453,
+		"blockNumber": 48665418,
+		"added": "2026-07-16",
+		"corpusId": 211,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x300819e78f9326c44397180b1087499a1c1a791023fa4fb79d490ee81f686999",
+		"chainId": 8453,
+		"blockNumber": 48719852,
+		"added": "2026-07-16",
+		"corpusId": 215,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xc46c08eb1dc1cc11be1766c0fc735c74698ced373a30e37d8bfea15ba4dbebd3",
+		"chainId": 8453,
+		"blockNumber": 48728822,
+		"added": "2026-07-17",
+		"corpusId": 216,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xfb5b940bc1249ca6771913e8a05cfe1a6916b04e46e6924d41695596622627b6",
+		"chainId": 8453,
+		"blockNumber": 48718450,
+		"added": "2026-07-17",
+		"corpusId": 217,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xc878361b595170f9b1d68de6cf7be107a79f7e246910d141a3e3161e37e0761c",
+		"chainId": 8453,
+		"blockNumber": 48728848,
+		"added": "2026-07-17",
+		"corpusId": 219,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x7169fbb33878b9f01123ecaa92f7de297e4eac124e88fb588dec6c39c7763084",
+		"chainId": 8453,
+		"blockNumber": 48675757,
+		"added": "2026-07-17",
+		"corpusId": 220,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x68e24c583836ddfdd90af01dee349158f5e9b9939ae622d1d853f420de16512f",
+		"chainId": 8453,
+		"blockNumber": 48756441,
+		"added": "2026-07-17",
+		"corpusId": 236,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x569622468dba4cfcdbdd7d64b03d444447006a43dc0a9b44a4e925742d134b05",
+		"chainId": 8453,
+		"blockNumber": 48761445,
+		"added": "2026-07-18",
+		"corpusId": 248,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x422c175c930764bc5fee73fabef6494a22d9a6326049307d7dc8e424fbce7295",
+		"chainId": 8453,
+		"blockNumber": 48769963,
+		"added": "2026-07-18",
+		"corpusId": 249,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x9c53d5ec5a1d34e3b9f3da9b181cbe47b67e6bc198c42a1f55eddf4f0e9dccaf",
+		"chainId": 8453,
+		"blockNumber": 48769866,
+		"added": "2026-07-18",
+		"corpusId": 250,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xa40549f30d224da2a05f7bc69f7cb48daac96639d84203641720e3e1229157dd",
+		"chainId": 8453,
+		"blockNumber": 48766584,
+		"added": "2026-07-18",
+		"corpusId": 251,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x510ed021874a6214ce08b030fdd22b5c101d11dbf9057b27f30a3ea2ffe4ae00",
+		"chainId": 8453,
+		"blockNumber": 48778410,
+		"added": "2026-07-18",
+		"corpusId": 252,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x39a026fba042a6a937e7837cc3f6f132929fdc9bf7a30cce661a91d67c1cd2b6",
+		"chainId": 8453,
+		"blockNumber": 48879840,
+		"added": "2026-07-20",
+		"corpusId": 253,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x021f814d6ee757fc771f3fc27b282112faad751aa9160b5f6b707aabd7e44d1d",
+		"chainId": 8453,
+		"blockNumber": 48886604,
+		"added": "2026-07-20",
+		"corpusId": 254,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x783f45fec72a79ff3d54cf9897274604a70dc039eef4e257cc8117c65654f5fd",
+		"chainId": 8453,
+		"blockNumber": 48721454,
+		"added": "2026-07-22",
+		"corpusId": 307,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x958b85849f9a01a07a9b208f382f10dff0ceae9439c74422ba3a8a4b2dd4cad4",
+		"chainId": 8453,
+		"blockNumber": 49021711,
+		"added": "2026-07-24",
+		"corpusId": 319,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x379f4a80fb0e33c56368d1902fb644a7210a683900ddc03d03bf1a0f469140f5",
+		"chainId": 8453,
+		"blockNumber": 49033607,
+		"added": "2026-07-24",
+		"corpusId": 323,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xa218f228520dd065b16095e50608909721a5e573aa5dd9df052738a6f5e53c5c",
+		"chainId": 8453,
+		"blockNumber": 49033604,
+		"added": "2026-07-24",
+		"corpusId": 324,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x42fab3cdcd675ff50236d8f59555ae2dab4b088521ed1a173d23b735499869a5",
+		"chainId": 8453,
+		"blockNumber": 49064094,
+		"added": "2026-07-24",
+		"corpusId": 328,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x073e4ead461d054462b2cd80b5961c074c5ab147e275da7b7900d263cb3886a8",
+		"chainId": 8453,
+		"blockNumber": 44461161,
+		"added": "2026-07-24",
+		"corpusId": 329,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x8209aeadd875a02a12327215b85de9415af74d5a9ff50b8b51ab2e276213e699",
+		"chainId": 8453,
+		"blockNumber": 44457881,
+		"added": "2026-07-24",
+		"corpusId": 330,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x19c4f3349a6a62923037ea9768603972f306253b1ccc40164add3d1a99b90f6d",
+		"chainId": 8453,
+		"blockNumber": 49039476,
+		"added": "2026-07-24",
+		"corpusId": 332,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xe9b8d6466949eda8b2f663bde33e8eec9c79a7d7ddbc0db1486bec1c4ec5d25b",
+		"chainId": 8453,
+		"blockNumber": 49234605,
+		"added": "2026-07-28",
+		"corpusId": 354,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x01ab238aa7efbddcb4eb02b6b0b6fa2804d64e079a4268657a8661beddf50d36",
+		"chainId": 8453,
+		"blockNumber": 49249248,
+		"added": "2026-07-29",
+		"corpusId": 371,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xa57fa01b1b1832cbcf47ac2152a1d75536dd520c9b5de4e0c1b39055af6e6244",
+		"chainId": 8453,
+		"blockNumber": 49108400,
+		"added": "2026-07-29",
+		"corpusId": 398,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x9207b2849512655019de51a11819635885579a8aa8ace75a96da58c98e39ce34",
+		"chainId": 8453,
+		"blockNumber": 49274877,
+		"added": "2026-07-29",
+		"corpusId": 399,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xbd42e5390010579d504683d827cdd4acf30afe605bf0b2207cf9a70f3e07f3c3",
+		"chainId": 8453,
+		"blockNumber": 49275715,
+		"added": "2026-07-29",
+		"corpusId": 402,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x32b6fdfb3351304de58a8c3eedd0a7e0c1820d4505ea5bdb5d8cdbe764aede68",
+		"chainId": 8453,
+		"blockNumber": 49058598,
+		"added": "2026-07-30",
+		"corpusId": 408,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x1b62fc46c0e6ffe2436849f54f7f2bddfd11a3b96feb1c8fc152e0f3a4417ce4",
+		"chainId": 8453,
+		"blockNumber": 49358999,
+		"added": "2026-07-31",
+		"corpusId": 445,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xa5b5b5d7ae955caad63cb42e37c8e1179e39409f7c594f2346408b23614ccaa3",
+		"chainId": 8453,
+		"blockNumber": 49504619,
+		"added": "2026-08-04",
+		"corpusId": 486,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xd9384384553b658089807cf96dc72e450412f182618473a2286589ff5352251c",
+		"chainId": 8453,
+		"blockNumber": 49545306,
+		"added": "2026-08-04",
+		"corpusId": 503,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x230e0613bc80a9e4f5fc73c9b55afa9bda709720de95ee6ff50c04c1db5fef9a",
+		"chainId": 8453,
+		"blockNumber": 49440681,
+		"added": "2026-08-05",
+		"corpusId": 534,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x7a61ac9a43b09bf3b2dbe4698c860da62549d28c3c466596ca1a66be8808ddcb",
+		"chainId": 8453,
+		"blockNumber": 49479721,
+		"added": "2026-08-05",
+		"corpusId": 535,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x2c78f5e76d434f4f2007662a23b9f83ec6cc15a34d964b5bf8957d6bf4cb58d8",
+		"chainId": 8453,
+		"blockNumber": 49427307,
+		"added": "2026-08-05",
+		"corpusId": 536,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xedc31752575a508302c9c3f7c1905dcb5d703641dbf87e5ff25e2f78dcffe9a1",
+		"chainId": 8453,
+		"blockNumber": 49312037,
+		"added": "2026-08-05",
+		"corpusId": 538,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xf6d1bfab17ff765bf7fe7c87ab6a32ee3e60a01c4caf541b9c3560c4792f9fbc",
+		"chainId": 8453,
+		"blockNumber": 49284892,
+		"added": "2026-08-05",
+		"corpusId": 539,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0xec31741eb82ddca70b77fb223f450806838e803ebaee2f4fd02878a43ad47e84",
+		"chainId": 8453,
+		"blockNumber": 49579930,
+		"added": "2026-08-05",
+		"corpusId": 540,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x16f1cbcc1048274f51adf6e8d8d155321588ca3b1e0f4251aee3eede715703e9",
+		"chainId": 8453,
+		"blockNumber": 49567969,
+		"added": "2026-08-05",
+		"corpusId": 542,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x4e51ce6c292c3ab50809b9d95ee5dac72240a64343625e697513f9cb8ebd6e92",
+		"chainId": 8453,
+		"blockNumber": 49580041,
+		"added": "2026-08-05",
+		"corpusId": 543,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
+	},
+	{
+		"hash": "0x30e83971b863bdebc7541c57612d3b68dbb968d2fc73e1757e5842339e0d6025",
+		"chainId": 8453,
+		"blockNumber": 49579974,
+		"added": "2026-08-06",
+		"corpusId": 555,
+		"source": "corpus-v1",
+		"tags": [],
+		"why": "Migrated from the v1 analysis corpus (corpus-v1), the frozen 62-transaction sweep set the analysis scripts ran against. Bulk-curated as a batch for shape coverage, not individually justified — unlike the hand-written entries in this file, this one carries no per-transaction rationale."
 	}
 ]

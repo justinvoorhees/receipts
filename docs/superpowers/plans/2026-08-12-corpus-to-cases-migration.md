@@ -331,6 +331,7 @@ export function receiptToRow(receipt, corpusId) {
 		_receipt: receipt,
 	};
 }
+```
 
 Then add the live loader to `scripts/analysis/_env.mjs`, below `loadCases()`, re-exporting the leaf so callers have one import site:
 

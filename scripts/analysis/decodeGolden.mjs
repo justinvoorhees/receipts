@@ -31,7 +31,7 @@
  *   node scripts/analysis/decodeGolden.mjs diff <before.json> <after.json>
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { env, core, loadCorpus } from './_env.mjs';
+import { env, core, loadCases } from './_env.mjs';
 
 const [mode, ...rest] = process.argv.slice(2);
 const flag = (name, dflt) => {
@@ -60,7 +60,7 @@ async function capture(outFile) {
 	}
 
 	const { analyzeTransaction, enrichFeeSinkNames } = await core('index.js');
-	const rows = loadCorpus().slice(0, limit).map((r) => ({ hash: r.tx_hash, chainId: r.chain_id ?? 8453 }));
+	const rows = loadCases().slice(0, limit).map((c) => ({ hash: c.hash, chainId: c.chainId ?? 8453 }));
 
 	const results = {};
 	let done = 0;
