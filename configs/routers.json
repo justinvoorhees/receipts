@@ -148,6 +148,14 @@
 			"detection": "to_address",
 			"active": true,
 			"_verified": "IDENTITY verified, LIVENESS not. Basescan directory labels it 'OKX: DEX Router (ExactOut)'; getsourcecode confirms verified contract 'DexRouterExactOut' (14314 bytes). But it emitted ZERO logs in ~9000 blocks, so unlike every other entry here its settlement event is unconfirmed — no sample existed to observe. Kept active because identity is solid and `to` is what labels: a trade here is an OKX trade. If it wakes up, expect a correct OKX label; SETTLEMENT_EVENT_SEEN depends on it emitting OrderRecord like DexRouter, which is an assumption, not an observation."
+		},
+		{
+			"name": "fly.trade",
+			"address": "0x5E766616AaBFB588E23a8EA854e9dbd1042afFD3",
+			"version": "MagpieRouterV3_1",
+			"detection": "to_address",
+			"active": true,
+			"_verified": "eth_getCode: contract (non-empty bytecode, not a proxy). Basescan getsourcecode confirms verified contract 'MagpieRouterV3_1'. fly.trade is Magpie's rebranded front-end; DefiLlama tracks it under module 'magpie'."
 		}
 	]
 }
