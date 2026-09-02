@@ -70,6 +70,7 @@ takes ~4 minutes; use `--limit=N` for a spot check while iterating.
 | `decodeProfile.mjs` | **yes** | no (single tx) | Where does one decode's wall-clock go? Proxies the endpoint and reports total vs **distinct** calls, how much of the wall-clock had only one request in flight, and a timeline. The two numbers that matter: repeats are waste, and time-at-depth-1 is a serial loop. Needs no code change, so it profiles `main` as easily as a branch. |
 | `decodeBench.mjs` | **yes** | yes | How long does a decode take, end to end, serially — the number a visitor to `/tx` actually waits for. ⚠️ Noisy; confirm any conclusion with `decodeProfile.mjs`'s exact call count. |
 | `decodeGolden.mjs` | **yes** | yes | Does this refactor change any receipt? Captures every case's receipt to a file; run on two git refs and `diff` them. Fills the gap named below — `rpcProviderAB.mjs` A/Bs two *providers*, this A/Bs two *codebases*. ⚠️⚠️ Capture **serially** or the diff is fiction (see below). |
+| `frameProbe.mjs` | **yes** | n/a | How many qualifying trades does each aggregator actually produce in a 6h window? ⚠️ **Does NOT read `cases.json`** — it scans blocks and screens candidates on `eth_getTransactionReceipt` alone, no decode. The gating measurement for any corpus sampling design. `--anchor=` replays a run exactly. |
 | `rpcCapacity.mjs` | **yes** | no | Should this endpoint be talked to with concurrency or batching? ⚠️⚠️ Answers "concurrency, and **do not batch**" — re-run after any provider change. |
 | `rpcProviderAB.mjs` | **yes** | yes | Do two RPC providers produce identical receipts? Re-analyzes the case set twice on the SAME code, once per provider, and diffs the full `Receipt` — not just the watched columns. Run `--control` first: it A/As one provider against itself, so anything it flags is non-determinism rather than the provider. Needs `TCA_RPC_URL_PREV`. |
 | `../marketMidSnapshot.mjs` (`scripts/`, not `scripts/analysis/`) | **yes** | yes | Snapshot the computed Market Price for every distinct (input, output, block) triple across the case set, to diff a pricing change across two git refs without trusting the stored `market_mid` orientation. Bare invocation with no arguments prints usage rather than starting a run. |
@@ -93,6 +94,52 @@ ruler error     median 0.00 bps (the N−1 lag is NOT the problem)
 own footprint   median 2.96 bps, max 586.7
 reference pool  in the route only ~20% of the time
 ```
+
+## Aggregator frame, 2026-09-02
+
+`frameProbe.mjs --anchor=50791395 --seed=1 --windows=3 --hours=6 --threshold=100`
+— 3x 6h windows, 32,400 blocks, 7,326,510 transactions, 97,146 RPC calls, zero
+unread blocks. Re-measure; Base's aggregator mix moves fast (see below).
+
+Qualifying (>=$100) per **6h window**, mean of 3:
+
+```
+Uniswap 2048 · KyberSwap 1526 · Relay 1421 · Velora 228 · LI.FI 197
+1inch 146 · 0x 98 · Nordstern 36 · OpenOcean 19 · Fabric 0
+OKX / Juicebox / Odos / Spire / fly.trade — no candidates at all
+```
+
+Aggregators reaching n>=100 in ONE 6h window, by threshold:
+`>=$10 → 8/15 · >=$100 → 6/15 · >=$250 → 5/15 · >=$1k → 3/15 · >=$10k → 0/15`
+
+⚠️⚠️ **`docs/decision-large-trade-scarcity.md`'s frame (2026-06-18) is superseded.**
+It missed the two largest participants entirely — **Uniswap** (~223k calls/wk) and
+**0x** (~25k/wk) — plus LI.FI. Its "0x — 0 (inactive at registered Base address)"
+was an artifact of scanning `0xdef1c0de…` , the RETIRED ExchangeProxy; 0x resolves
+through the 57 Deployer settlers and is very much alive. Velora fell 73% from #1,
+Odos went to zero, Nordstern rose ~4x.
+
+⚠️ **Fabric is dust-only on Base**: 118 candidates in 18h, **zero** above $100. It
+cannot enter a >=$100 comparison at any window width.
+
+⚠️ June's ">=$10k is empirically dead on Base" is CONFIRMED and strengthened on
+all-pairs data — no aggregator reaches 100 large trades in 6h (best: KyberSwap 41).
+
+Two findings nothing else measures:
+
+- **Revert rates vary hugely** — 1inch **21.7%**, OpenOcean 12.1%, Velora 10.1%
+  vs Uniswap 4.5%, 0x 2.4%, LI.FI 2.0%.
+- **`no_anchor` is 4.0% overall but concentrated** — LI.FI **28.8%**, 1inch 11.2%,
+  vs Uniswap 0.2%. Any LI.FI number carries a ~29% unsizeable hole.
+
+⚠️ Size is a **max-anchor proxy** biased to over-estimate, so every count is an
+UPPER bound until an agreement study against real decodes calibrates it.
+
+⚠️⚠️ **Concurrency 10, not 20.** This endpoint rate-limits full-block fetches with
+**HTTP 429** at concurrency 20 (34/120 lost) and 40 (73/120). A 429 body carries
+neither `result` nor `error`, so a client that skips `res.ok` reads it as "block
+has no transactions" — silent data loss. `rpcCapacity.mjs`'s "concurrency 20-40"
+finding measured cheap `eth_call`s and **does not generalize across methods**.
 
 ## Decode performance, 2026-08-10
 
