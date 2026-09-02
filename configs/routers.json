@@ -156,6 +156,14 @@
 			"detection": "to_address",
 			"active": true,
 			"_verified": "eth_getCode: contract (non-empty bytecode, not a proxy). Basescan getsourcecode confirms verified contract 'MagpieRouterV3_1'. fly.trade is Magpie's rebranded front-end; DefiLlama tracks it under module 'magpie'."
+		},
+		{
+			"name": "LI.FI",
+			"address": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+			"version": "LiFiDiamond",
+			"detection": "to_address",
+			"active": true,
+			"_verified": "eth_getCode: contract (5.2KB bytecode, EIP-2535 diamond proxy). Basescan getsourcecode confirms verified contract 'LiFiDiamond' (Proxy: 1, Implementation 0xad3f1634a917924cbb54a0f76e43ca035d2b6bcd). Same address is LI.FI's canonical diamond across every chain it deploys to."
 		}
 	]
 }
