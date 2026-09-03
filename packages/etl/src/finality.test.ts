@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRange } from './finality.js';
+import { classifyRange, rpcCall } from './finality.js';
+
+describe('rpcCall', () => {
+	it('never lets a malformed RPC URL leak its secret through a fetch rejection', async () => {
+		// No scheme, so fetch() throws at URL-parse time rather than returning a
+		// response — Node's parse-time TypeError echoes the whole input string
+		// back in its .message, which is exactly where the API key lives.
+		const secret = 'sk_live_TESTSECRET';
+		const malformedUrl = `rpc.example.invalid/v2/${secret}`;
+
+		let caught: unknown;
+		try {
+			await rpcCall(malformedUrl, 'eth_blockNumber', []);
+		} catch (err) {
+			caught = err;
+		}
+
+		expect(caught).toBeInstanceOf(Error);
+		expect((caught as Error).message).not.toContain(secret);
+	});
+});
 
 describe('classifyRange', () => {
 	it('admits a range entirely at or below the finalized head', () => {

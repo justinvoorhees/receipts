@@ -14,11 +14,20 @@ import type { Finality } from './schema.js';
  */
 
 export async function rpcCall<T>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
-	const response = await fetch(rpcUrl, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-	});
+	let response: Response;
+	try {
+		response = await fetch(rpcUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+		});
+	} catch {
+		// The URL carries an API key. A malformed URL (e.g. a missing scheme)
+		// makes fetch() reject at parse time with a message that echoes the
+		// whole input string back — so the original error must never surface,
+		// whether as this message or as a `cause`.
+		throw new Error(`RPC ${method} failed: network error`);
+	}
 	if (!response.ok) {
 		// The URL carries an API key, so it must never reach an error message.
 		throw new Error(`RPC ${method} failed: HTTP ${response.status}`);
