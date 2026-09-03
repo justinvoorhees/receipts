@@ -1,4 +1,5 @@
 import { DuckDBInstance } from '@duckdb/node-api';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { seedColumnSpec, type SeedRow } from './schema.js';
@@ -37,7 +38,10 @@ export async function writeSeedParquet(rows: SeedRow[], outPath: string): Promis
 
 	// Both temps live beside the target: rename is only atomic within one
 	// filesystem, and the OS temp directory is frequently a different mount.
-	const stamp = `${process.pid}.${Date.now()}`;
+	// Uniqueness must not depend on the clock: two concurrent writes into the
+	// same directory landing in the same millisecond would otherwise share a
+	// stamp and clobber each other's temp files mid-flight.
+	const stamp = `${process.pid}.${randomUUID()}`;
 	const ndjsonPath = join(dir, `.${stamp}.ndjson.tmp`);
 	const parquetTmp = join(dir, `.${stamp}.parquet.tmp`);
 
@@ -60,7 +64,19 @@ export async function writeSeedParquet(rows: SeedRow[], outPath: string): Promis
 		return rows.length;
 	} finally {
 		// A failure must not litter one temp pair per attempt beside the archive.
-		rmSync(ndjsonPath, { force: true });
-		rmSync(parquetTmp, { force: true });
+		// Nested try/catch, mirroring atomicWrite.ts: a cleanup failure (EACCES,
+		// EBUSY — anything other than "already gone", which { force: true }
+		// already absorbs) must never replace whatever error is already in
+		// flight from the try block above.
+		try {
+			rmSync(ndjsonPath, { force: true });
+		} catch {
+			// Best-effort cleanup; the original error (or success) still wins.
+		}
+		try {
+			rmSync(parquetTmp, { force: true });
+		} catch {
+			// Best-effort cleanup; the original error (or success) still wins.
+		}
 	}
 }

@@ -82,9 +82,22 @@ describe('writeSeedParquet', () => {
 
 	it('sorts rows by (block_number, block_position) regardless of input order', async () => {
 		const path = join(dir, 'sorted.parquet');
-		await writeSeedParquet([row(2), row(0), row(1)], path);
+		// block_position values (20, 21, 22) are already ascending, so an
+		// ORDER BY with the columns swapped — (block_position, block_number) —
+		// would reproduce this exact physical order too, since block_position
+		// alone already fully determines it. block_number is scrambled
+		// independently of block_position so the assertion below only holds
+		// when block_number is genuinely the OUTER sort key, not merely present.
+		await writeSeedParquet(
+			[
+				row(0, { block_number: 300, block_position: 20 }),
+				row(1, { block_number: 100, block_position: 21 }),
+				row(2, { block_number: 200, block_position: 22 }),
+			],
+			path,
+		);
 		const rows = await read(path, `SELECT block_position FROM read_parquet('$PATH')`);
-		expect(rows.map((r) => r.block_position)).toEqual([0, 1, 2]);
+		expect(rows.map((r) => r.block_position)).toEqual([21, 22, 20]);
 	});
 
 	it('returns the number of rows written', async () => {
