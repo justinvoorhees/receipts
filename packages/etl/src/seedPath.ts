@@ -11,18 +11,27 @@ import { join } from 'node:path';
  *
  * 2. Finalized and unfinalized files are separated PHYSICALLY, not by a flag
  *    someone has to remember to check. `data/seeds/*.parquet` is by
- *    construction the canonical archive, because the non-recursive glob cannot
- *    see into `provisional/`.
+ *    construction the canonical archive, ONLY for well-formed chain names.
+ *    The non-recursive glob cannot see into `provisional/` as long as the chain
+ *    parameter is validated to contain no path separators or traversal sequences.
  */
 
 const PAD = 10;
+const CHAIN_PATTERN = /^[a-z0-9_-]+$/;
+
+function validateChain(chain: string): void {
+	if (!CHAIN_PATTERN.test(chain)) {
+		throw new Error(`Chain name must match [a-z0-9_-]+, got "${chain}"`);
+	}
+}
 
 function pad(block: number): string {
 	if (!Number.isInteger(block) || block < 0) {
 		throw new Error(`Block number must be a non-negative integer, got ${block}`);
 	}
 	const text = String(block);
-	if (text.length > PAD) {
+	// Reject exponential notation (e.g. "1e+21") and any non-numeric string
+	if (!/^\d+$/.test(text) || text.length > PAD) {
 		throw new Error(`Block ${block} exceeds ten digits; the naming convention needs widening`);
 	}
 	return text.padStart(PAD, '0');
@@ -30,6 +39,7 @@ function pad(block: number): string {
 
 /** `traces.base.0050830910-0050831209.parquet` — bounds inclusive. */
 export function seedFileName(chain: string, fromBlock: number, toBlock: number): string {
+	validateChain(chain);
 	if (toBlock < fromBlock) {
 		throw new Error(`Range is inverted: ${fromBlock} > ${toBlock}`);
 	}

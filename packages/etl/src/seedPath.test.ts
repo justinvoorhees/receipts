@@ -24,6 +24,14 @@ describe('seedFileName', () => {
 	it('rejects an inverted range', () => {
 		expect(() => seedFileName('base', 500, 499)).toThrow(/inverted/);
 	});
+
+	it('rejects a malformed chain that contains path traversal', () => {
+		expect(() => seedFileName('/../provisional/x', 100, 399)).toThrow(/Chain name must match/);
+	});
+
+	it('rejects block numbers at extreme magnitudes that convert to exponential notation', () => {
+		expect(() => seedFileName('base', 1e21, 1e21 + 299)).toThrow(/exceeds ten digits/);
+	});
 });
 
 describe('seedFilePath', () => {
@@ -39,5 +47,17 @@ describe('seedFilePath', () => {
 		expect(seedFilePath({ ...base, finalized: false })).toBe(
 			'/repo/data/seeds/provisional/traces.base.0000000100-0000000399.parquet',
 		);
+	});
+
+	it('rejects a malformed chain via path traversal that would escape into provisional', () => {
+		expect(() =>
+			seedFilePath({
+				dataDir: '/repo/data',
+				chain: '/../provisional/x',
+				fromBlock: 100,
+				toBlock: 399,
+				finalized: true,
+			}),
+		).toThrow(/Chain name must match/);
 	});
 });
