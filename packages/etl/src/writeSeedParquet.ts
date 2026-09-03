@@ -1,7 +1,9 @@
 import { DuckDBInstance } from '@duckdb/node-api';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { Readable, type Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { seedColumnSpec, type SeedRow } from './schema.js';
 
 /**
@@ -28,6 +30,33 @@ function sqlLiteral(value: string): string {
 	return `'${value.replace(/'/g, "''")}'`;
 }
 
+/** One NDJSON line per row, produced lazily so the whole batch is never held as one string. */
+function* ndjsonLines(rows: SeedRow[]): Generator<string> {
+	for (const row of rows) {
+		yield `${JSON.stringify(row)}\n`;
+	}
+}
+
+/**
+ * Stream rows into a writable sink one line at a time, instead of building one
+ * monolithic `rows.map(...).join('\n')` string.
+ *
+ * A single JS string is capped at `buffer.constants.MAX_STRING_LENGTH` (512
+ * MiB on Node 20), and a full ingest batch measures well past that — the
+ * `join('\n')` approach threw `RangeError: Invalid string length` on a real
+ * 300-block pilot before this fix. The row ARRAY itself is fine (it already
+ * fit in memory to get here); only the serialization step needed to change.
+ *
+ * `pipeline` gets backpressure and error handling for free: it only pulls the
+ * next line from the generator once the sink's internal buffer has drained,
+ * and it propagates the sink's own error (not a wrapped or generic one) while
+ * destroying both ends — a mid-write failure surfaces as the real error
+ * rather than an unhandled 'error' event or a hang.
+ */
+export function writeNdjsonLines(rows: SeedRow[], sink: Writable): Promise<void> {
+	return pipeline(Readable.from(ndjsonLines(rows)), sink);
+}
+
 export async function writeSeedParquet(rows: SeedRow[], outPath: string): Promise<number> {
 	if (rows.length === 0) {
 		throw new Error(`Refusing to write ${outPath}: no rows. An empty Seed file is never correct.`);
@@ -46,7 +75,7 @@ export async function writeSeedParquet(rows: SeedRow[], outPath: string): Promis
 	const parquetTmp = join(dir, `.${stamp}.parquet.tmp`);
 
 	try {
-		writeFileSync(ndjsonPath, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+		await writeNdjsonLines(rows, createWriteStream(ndjsonPath));
 
 		const instance = await DuckDBInstance.create(':memory:');
 		const connection = await instance.connect();

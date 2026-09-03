@@ -2,9 +2,10 @@ import { DuckDBInstance } from '@duckdb/node-api';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Writable } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
 import { SCHEMA_VERSION, type SeedRow } from './schema.js';
-import { writeSeedParquet } from './writeSeedParquet.js';
+import { writeNdjsonLines, writeSeedParquet } from './writeSeedParquet.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'etl-parquet-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -121,5 +122,59 @@ describe('writeSeedParquet', () => {
 		const path = join(dir, 'clean.parquet');
 		await writeSeedParquet([row(0)], path);
 		expect(readdirSync(dir).filter((f) => f.includes('.tmp'))).toEqual([]);
+	});
+
+	describe('writeNdjsonLines (serialization sink)', () => {
+		// A collecting Writable stands in for the real fs write stream so the
+		// test can see exactly how many times — and with how much data — the
+		// sink was written to, without touching disk.
+		function collectingSink(): { sink: Writable; chunks: Buffer[] } {
+			const chunks: Buffer[] = [];
+			const sink = new Writable({
+				write(chunk, _encoding, callback) {
+					chunks.push(Buffer.from(chunk));
+					callback();
+				},
+			});
+			return { sink, chunks };
+		}
+
+		it('streams the NDJSON payload as many chunked writes, not one monolithic string', async () => {
+			const rows = Array.from({ length: 500 }, (_, i) => row(i));
+			const { sink, chunks } = collectingSink();
+
+			await writeNdjsonLines(rows, sink);
+
+			// This is the property the pilot's RangeError depended on: a
+			// `rows.map(...).join('\n')` regression would land here as ONE
+			// chunk holding the entire payload. Streaming lands one chunk per
+			// row (or close to it) and no chunk holds more than a couple of
+			// rows' worth of bytes.
+			expect(chunks.length).toBeGreaterThan(1);
+			expect(chunks.length).toBe(rows.length);
+			const totalBytes = chunks.reduce((sum, c) => sum + c.length, 0);
+			const largestChunk = Math.max(...chunks.map((c) => c.length));
+			expect(largestChunk).toBeLessThan(totalBytes / 10);
+		});
+
+		it('propagates a mid-stream write error rather than swallowing or hanging on it', async () => {
+			const rows = Array.from({ length: 50 }, (_, i) => row(i));
+			const boom = new Error('disk full (simulated)');
+			let writes = 0;
+			const failingSink = new Writable({
+				write(_chunk, _encoding, callback) {
+					writes += 1;
+					if (writes === 5) {
+						callback(boom);
+						return;
+					}
+					callback();
+				},
+			});
+
+			await expect(writeNdjsonLines(rows, failingSink)).rejects.toBe(boom);
+			// It failed partway through, not after every row was attempted.
+			expect(writes).toBeLessThan(rows.length);
+		});
 	});
 });
