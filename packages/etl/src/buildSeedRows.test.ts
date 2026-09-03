@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildSeedRows, type BlockPayloads, type IngestMeta } from './buildSeedRows.js';
+import type { TraceEntry } from './rpcTypes.js';
 
 // Read rather than `import ... with { type: 'json' }`: under NodeNext ESM the
 // import attribute is required at runtime but handled differently by vitest's
@@ -56,9 +57,23 @@ describe('buildSeedRows', () => {
 
 	it('takes block_position from the receipt, not from array order', () => {
 		const p = payloads();
-		p.receipts.reverse();
+		// Reverse traceBlock itself, not receipts. The prior version of this
+		// test only reversed `receipts`, which never disturbs the loop order
+		// (the loop walks `traceBlock`) — a mutant that used the loop counter
+		// as block_position produced [0,1,2] after the final sort regardless,
+		// so the assertion held for BOTH the faithful and the broken
+		// implementation. Reversing traceBlock makes the loop order diverge
+		// from the true position order, and comparing each row's position
+		// against its OWN receipt (looked up by hash, independent of any
+		// array order) is what a loop-counter implementation cannot satisfy.
+		p.traceBlock.reverse();
 		const rows = buildSeedRows(p, META);
-		expect(rows.map((r) => r.block_position)).toEqual([0, 1, 2]);
+		const truePositionByHash = new Map(
+			p.receipts.map((r) => [r.transactionHash.toLowerCase(), Number.parseInt(r.transactionIndex, 16)]),
+		);
+		for (const row of rows) {
+			expect(row.block_position).toBe(truePositionByHash.get(row.tx_hash));
+		}
 	});
 
 	it('returns no rows for an empty block without treating it as an error', () => {
@@ -81,6 +96,93 @@ describe('buildSeedRows', () => {
 		expect(() => buildSeedRows(p, META)).toThrow(/no receipt/i);
 	});
 
+	describe('duplicate transaction hashes (equal counts can still hide a mispair)', () => {
+		it('aborts when a receipt hash is duplicated within the receipts payload', () => {
+			const p = payloads();
+			// Counts stay 3/3/3 — only a duplicate CHECK, not a length check,
+			// can catch this. The duplicated hash also silently drops the
+			// receipt whose hash it overwrote from the effective set.
+			p.receipts[1]!.transactionHash = p.receipts[0]!.transactionHash;
+			expect(() => buildSeedRows(p, META)).toThrow(/duplicate/i);
+		});
+
+		it('aborts when a tx hash is duplicated within the block payload', () => {
+			const p = payloads();
+			(p.block.transactions[1] as Record<string, unknown>).hash = p.block.transactions[0]!.hash;
+			expect(() => buildSeedRows(p, META)).toThrow(/duplicate/i);
+		});
+
+		it('aborts when a trace hash is duplicated within the traceBlock payload', () => {
+			const p = payloads();
+			p.traceBlock[1]!.txHash = p.traceBlock[0]!.txHash;
+			expect(() => buildSeedRows(p, META)).toThrow(/duplicate/i);
+		});
+	});
+
+	describe('block_position validation', () => {
+		it('aborts when a hex quantity field cannot be parsed', () => {
+			const p = payloads();
+			p.receipts[0]!.transactionIndex = 'not-hex';
+			// Asserting on the parse-guard's own wording, not just the field
+			// name: a malformed receipt.transactionIndex ALSO trips the
+			// receipt-vs-tx cross-check (its message happens to contain
+			// "transactionIndex" too, since NaN !== a real number), so a
+			// generic /transactionIndex/i regex would still pass with the
+			// parse guard itself deleted. "Expected a hex quantity" is the
+			// guard's own text and nothing else produces it.
+			expect(() => buildSeedRows(p, META)).toThrow(/expected a hex quantity for receipt\.transactionIndex/i);
+		});
+
+		it('aborts when transactionIndex is missing rather than silently sorting as NaN', () => {
+			const p = payloads();
+			delete (p.receipts[0] as Record<string, unknown>).transactionIndex;
+			expect(() => buildSeedRows(p, META)).toThrow(/expected a hex quantity for receipt\.transactionIndex/i);
+		});
+
+		it('aborts when two rows would share the same block_position', () => {
+			const p = payloads();
+			const dupIndex = p.receipts[1]!.transactionIndex;
+			p.receipts[0]!.transactionIndex = dupIndex;
+			// Keep the tx envelope's own transactionIndex in agreement with its
+			// receipt, so the collision check — not the cross-check below — is
+			// what actually fires here.
+			(p.block.transactions[0] as Record<string, unknown>).transactionIndex = dupIndex;
+			expect(() => buildSeedRows(p, META)).toThrow(/block_position/i);
+		});
+
+		it('aborts when receipt.transactionIndex disagrees with the tx envelope', () => {
+			const p = payloads();
+			(p.block.transactions[0] as Record<string, unknown>).transactionIndex = '0x63';
+			expect(() => buildSeedRows(p, META)).toThrow(/transactionIndex/i);
+		});
+	});
+
+	it('aborts when a trace entry has no result', () => {
+		const p = payloads();
+		delete (p.traceBlock[0] as Partial<TraceEntry>).result;
+		expect(() => buildSeedRows(p, META)).toThrow(/result/i);
+	});
+
+	describe('cross-payload block identity', () => {
+		it('aborts when a receipt reports a different block hash than the block payload', () => {
+			const p = payloads();
+			p.receipts[0]!.blockHash = '0x' + 'ab'.repeat(32);
+			expect(() => buildSeedRows(p, META)).toThrow(/block/i);
+		});
+
+		it('aborts when a receipt reports a different block number than the block payload', () => {
+			const p = payloads();
+			p.receipts[0]!.blockNumber = '0x1';
+			expect(() => buildSeedRows(p, META)).toThrow(/block/i);
+		});
+
+		it('aborts when a tx envelope reports a different block hash than the block payload', () => {
+			const p = payloads();
+			(p.block.transactions[0] as Record<string, unknown>).blockHash = '0x' + 'ab'.repeat(32);
+			expect(() => buildSeedRows(p, META)).toThrow(/block/i);
+		});
+	});
+
 	it('strips the transaction list out of block_json and keeps the rest', () => {
 		const [row] = buildSeedRows(payloads(), META);
 		const header = JSON.parse(row!.block_json);
@@ -91,10 +193,25 @@ describe('buildSeedRows', () => {
 
 	it('records tx_to as NULL for a contract creation', () => {
 		const p = payloads();
-		delete (p.block.transactions[0] as Record<string, unknown>).to;
 		p.receipts[0]!.to = null;
 		const [row] = buildSeedRows(p, META);
 		expect(row!.tx_to).toBeNull();
+	});
+
+	it('takes tx_to from the receipt, not the tx envelope, when they disagree', () => {
+		const p = payloads();
+		(p.block.transactions[0] as Record<string, unknown>).to =
+			'0x1111111111111111111111111111111111111111';
+		p.receipts[0]!.to = '0x2222222222222222222222222222222222222222';
+		const [row] = buildSeedRows(p, META);
+		expect(row!.tx_to).toBe('0x2222222222222222222222222222222222222222');
+	});
+
+	it('does not coerce an empty-string receipt.to into NULL', () => {
+		const p = payloads();
+		p.receipts[0]!.to = '';
+		const [row] = buildSeedRows(p, META);
+		expect(row!.tx_to).toBe('');
 	});
 
 	it('lowercases the promoted address and hash columns', () => {
@@ -138,6 +255,14 @@ describe('buildSeedRows', () => {
 		const original = payloads();
 		const hash = row!.tx_hash;
 		const srcReceipt = original.receipts.find((r) => r.transactionHash.toLowerCase() === hash);
-		expect(JSON.parse(row!.receipt_json)).toEqual(srcReceipt);
+		const srcTx = original.block.transactions.find((t) => t.hash.toLowerCase() === hash);
+		const { transactions: _omitted, ...srcHeader } = original.block;
+		// `.toBe` on the serialized string, not `.toEqual` on the parsed
+		// object: `toEqual` compares structurally and would pass even if key
+		// order were scrambled during assembly, but the payload standard
+		// forbids exactly that — reordering keys is still a transformation.
+		expect(row!.receipt_json).toBe(JSON.stringify(srcReceipt));
+		expect(row!.tx_json).toBe(JSON.stringify(srcTx));
+		expect(row!.block_json).toBe(JSON.stringify(srcHeader));
 	});
 });

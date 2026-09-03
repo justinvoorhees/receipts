@@ -13,7 +13,15 @@ import type { RawBlock, RawReceipt, RawTx, TraceEntry } from './rpcTypes.js';
  * The assembly is keyed on TRANSACTION HASH, never on array index. A row that
  * paired one transaction's trace with another's receipt would be undetectable
  * downstream and trusted completely, so a disagreement between the payloads
- * aborts the whole block rather than emitting a plausible-looking row.
+ * aborts the whole block rather than emitting a plausible-looking row. That
+ * standard extends past "does every hash resolve": equal array lengths plus
+ * full membership only imply the same SET of hashes if none of the three
+ * payloads contains a duplicate, so duplicates are checked explicitly; the
+ * three payloads must also agree they describe the SAME block (blockHash +
+ * blockNumber), not just the same transaction count, since a reorg between
+ * RPC round-trips can hand back three internally-consistent payloads for
+ * different blocks; and every promoted, load-bearing column (block_position
+ * chief among them) is validated rather than trusted to parse cleanly.
  */
 
 export interface BlockPayloads {
@@ -33,9 +41,20 @@ export interface IngestMeta {
 
 const lower = (value: string): string => value.toLowerCase();
 
-/** Hex quantity → number. Used only for values known to be small (index, block, timestamp). */
-function hexToNumber(hex: string): number {
-	return Number.parseInt(hex, 16);
+/**
+ * Hex quantity → number. Used only for values known to be small (index,
+ * block, timestamp). `Number.parseInt` returns `NaN` rather than throwing on
+ * a malformed or missing input, and `NaN` would otherwise flow silently into
+ * a `block_position`/`block_number` column and serialize as JSON `null` — so
+ * this rejects a non-finite result itself, naming the field and the raw
+ * value that produced it.
+ */
+function hexToNumber(hex: string, field: string): number {
+	const n = Number.parseInt(hex, 16);
+	if (!Number.isFinite(n)) {
+		throw new Error(`Expected a hex quantity for ${field}, got ${JSON.stringify(hex)}`);
+	}
+	return n;
 }
 
 export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRow[] {
@@ -49,36 +68,122 @@ export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRo
 		);
 	}
 
+	// Equal lengths only imply the same SET of hashes across all three
+	// payloads if none of them repeats a hash internally. Check that first —
+	// a duplicate hash paired with a length-only check lets one real
+	// transaction silently vanish while another is emitted twice.
 	const receiptByHash = new Map<string, RawReceipt>(
 		receipts.map((r) => [lower(r.transactionHash), r]),
 	);
+	if (receiptByHash.size !== receipts.length) {
+		throw new Error(`Duplicate transactionHash among receipts in block ${block.number}`);
+	}
 	const txByHash = new Map<string, RawTx>(txs.map((t) => [lower(t.hash), t]));
+	if (txByHash.size !== txs.length) {
+		throw new Error(`Duplicate hash among transactions in block ${block.number}`);
+	}
+	const traceHashSet = new Set(traceBlock.map((e) => lower(e.txHash)));
+	if (traceHashSet.size !== traceBlock.length) {
+		throw new Error(`Duplicate txHash among trace entries in block ${block.number}`);
+	}
 
 	// The header travels on every row so a single row is self-sufficient. Its
-	// `transactions` key is dropped because those transactions ARE the rows —
-	// this is the only field-level transformation anywhere in the Seed layer.
+	// `transactions` key is dropped because those transactions ARE the rows.
+	// This and the trace-entry unwrap below (`entry.result`, not `entry`
+	// itself, becomes `trace_json`) are the only two field-level
+	// transformations anywhere in the Seed layer — both are lossless because
+	// the dropped wrapper key (`transactions`, `txHash`) is already promoted
+	// to its own column elsewhere on the row.
 	const { transactions: _dropped, ...header } = block;
 	const blockJson = JSON.stringify(header);
 	const blockHash = lower(block.hash);
-	const blockNumber = hexToNumber(block.number);
-	const blockTimestamp = new Date(hexToNumber(block.timestamp) * 1000).toISOString();
+	const blockNumber = hexToNumber(block.number, 'block.number');
+	const blockTimestamp = new Date(
+		hexToNumber(block.timestamp, 'block.timestamp') * 1000,
+	).toISOString();
+
+	// The three payloads must describe the SAME block, not merely agree on
+	// transaction count and hashes. Three independently-fetched RPC responses
+	// spanning a reorg could each be internally consistent and still describe
+	// different blocks; every receipt and tx carries its own blockHash and
+	// blockNumber, so check them against the block header rather than assume.
+	for (const r of receipts) {
+		const rHash = lower(r.transactionHash);
+		if (lower(r.blockHash) !== blockHash) {
+			throw new Error(
+				`Receipt ${rHash} blockHash ${lower(r.blockHash)} does not match block ` +
+					`${block.number}'s hash ${blockHash} — payloads may span a reorg`,
+			);
+		}
+		const rBlockNumber = hexToNumber(r.blockNumber, `receipt.blockNumber for ${rHash}`);
+		if (rBlockNumber !== blockNumber) {
+			throw new Error(
+				`Receipt ${rHash} blockNumber ${rBlockNumber} does not match block ` +
+					`${blockNumber} — payloads may span a reorg`,
+			);
+		}
+	}
+	for (const t of txs) {
+		const tHash = lower(t.hash);
+		if (lower(t.blockHash) !== blockHash) {
+			throw new Error(
+				`Transaction ${tHash} blockHash ${lower(t.blockHash)} does not match block ` +
+					`${block.number}'s hash ${blockHash} — payloads may span a reorg`,
+			);
+		}
+		const tBlockNumber = hexToNumber(t.blockNumber, `tx.blockNumber for ${tHash}`);
+		if (tBlockNumber !== blockNumber) {
+			throw new Error(
+				`Transaction ${tHash} blockNumber ${tBlockNumber} does not match block ` +
+					`${blockNumber} — payloads may span a reorg`,
+			);
+		}
+	}
 
 	const rows: SeedRow[] = [];
+	const seenPositions = new Set<number>();
 	for (const entry of traceBlock) {
 		const hash = lower(entry.txHash);
 		const receipt = receiptByHash.get(hash);
 		if (!receipt) throw new Error(`Trace for ${hash} has no receipt in block ${block.number}`);
 		const tx = txByHash.get(hash);
 		if (!tx) throw new Error(`Trace for ${hash} has no transaction in block ${block.number}`);
+		if (entry.result === undefined) {
+			throw new Error(`Trace for ${hash} has no result in block ${block.number}`);
+		}
+
+		// block_position is a promoted, load-bearing ordering column. Read it
+		// from the receipt, but cross-check it against the tx envelope's own
+		// transactionIndex (a second, independent source for the same fact)
+		// and reject a collision with a position already assigned this block —
+		// both are free correctness checks the payloads already carry.
+		const receiptPosition = hexToNumber(
+			receipt.transactionIndex,
+			`receipt.transactionIndex for ${hash}`,
+		);
+		const txPosition = hexToNumber(tx.transactionIndex, `tx.transactionIndex for ${hash}`);
+		if (receiptPosition !== txPosition) {
+			throw new Error(
+				`receipt.transactionIndex (${receiptPosition}) disagrees with tx.transactionIndex ` +
+					`(${txPosition}) for ${hash} in block ${block.number}`,
+			);
+		}
+		if (seenPositions.has(receiptPosition)) {
+			throw new Error(`Duplicate block_position ${receiptPosition} in block ${block.number}`);
+		}
+		seenPositions.add(receiptPosition);
 
 		rows.push({
 			chain_id: meta.chainId,
 			block_number: blockNumber,
-			block_position: hexToNumber(receipt.transactionIndex),
+			block_position: receiptPosition,
 			tx_hash: hash,
 			block_timestamp: blockTimestamp,
 			tx_from: lower(receipt.from),
-			tx_to: receipt.to ? lower(receipt.to) : null,
+			// Explicit null check: `receipt.to ? … : null` would coerce an
+			// empty string to null too, silently mistaking it for a
+			// contract-creation transaction.
+			tx_to: receipt.to === null ? null : lower(receipt.to),
 			tx_status: receipt.status === '0x1',
 			block_hash: blockHash,
 			trace_json: JSON.stringify(entry.result),
