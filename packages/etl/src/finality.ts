@@ -13,23 +13,92 @@ import type { Finality } from './schema.js';
  * unfinalized, which is exactly the mistake this gate exists to refuse.
  */
 
-export async function rpcCall<T>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
-	let response: Response;
-	try {
-		response = await fetch(rpcUrl, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-		});
-	} catch {
-		// The URL carries an API key. A malformed URL (e.g. a missing scheme)
-		// makes fetch() reject at parse time with a message that echoes the
-		// whole input string back — so the original error must never surface,
-		// whether as this message or as a `cause`.
-		throw new Error(`RPC ${method} failed: network error`);
+/**
+ * Minimal shape `rpcCall` needs from a fetch response, so a test double doesn't
+ * have to construct a real `Response`. The global `fetch` satisfies this
+ * structurally.
+ */
+export interface RpcResponseLike {
+	readonly ok: boolean;
+	readonly status: number;
+	readonly headers: { get(name: string): string | null };
+	json(): Promise<unknown>;
+}
+
+/** The test seam: a fake `fetchFn`/`delayFn` pair lets retry+backoff run instantly, with no network. */
+export interface RpcCallDeps {
+	fetchFn: (url: string, init: RequestInit) => Promise<RpcResponseLike>;
+	delayFn: (ms: number) => Promise<void>;
+}
+
+const defaultDeps: RpcCallDeps = {
+	fetchFn: (url, init) => fetch(url, init),
+	delayFn: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+/** Total attempts, including the first — 1 initial try plus up to 3 retries. */
+const MAX_ATTEMPTS = 4;
+const BASE_DELAY_MS = 250;
+/** Clamp for both computed backoff and a server-supplied `Retry-After`, so neither can hang the run. */
+const MAX_DELAY_MS = 8_000;
+
+function isRetryableStatus(status: number): boolean {
+	return status === 429 || (status >= 500 && status <= 599);
+}
+
+/**
+ * Exponential backoff with full jitter: the delay is drawn uniformly from
+ * `[0, cap]` rather than always equal to `cap`, so callers that all started
+ * retrying at once — up to 3N of them, see `fetchBlockPayloads` — don't
+ * resynchronize into the very burst that triggered the 429s.
+ */
+function backoffMs(attempt: number): number {
+	const cap = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** (attempt - 1));
+	return Math.random() * cap;
+}
+
+/** Parse a `Retry-After` header (delay-seconds or an HTTP-date) and clamp it to `MAX_DELAY_MS`. */
+function retryAfterMs(header: string | null): number | null {
+	if (!header) return null;
+	const seconds = Number(header);
+	if (Number.isFinite(seconds)) return Math.max(0, Math.min(seconds * 1000, MAX_DELAY_MS));
+	const at = Date.parse(header);
+	if (Number.isNaN(at)) return null;
+	return Math.max(0, Math.min(at - Date.now(), MAX_DELAY_MS));
+}
+
+export async function rpcCall<T>(
+	rpcUrl: string,
+	method: string,
+	params: unknown[],
+	deps: RpcCallDeps = defaultDeps,
+): Promise<T> {
+	const { fetchFn, delayFn } = deps;
+	let response!: RpcResponseLike;
+	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+		try {
+			response = await fetchFn(rpcUrl, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+			});
+		} catch {
+			// The URL carries an API key. A malformed URL (e.g. a missing scheme)
+			// makes fetch() reject at parse time with a message that echoes the
+			// whole input string back — so the original error must never surface,
+			// whether as this message or as a `cause`. Not retried: a rejection
+			// with no response carries no status to make a retry decision on.
+			throw new Error(`RPC ${method} failed: network error`);
+		}
+		if (!isRetryableStatus(response.status) || attempt === MAX_ATTEMPTS) break;
+		// Only 429/5xx reach here, only when attempts remain: back off and retry.
+		// A server-supplied Retry-After wins over the computed backoff.
+		const delayMs = retryAfterMs(response.headers.get('retry-after')) ?? backoffMs(attempt);
+		await delayFn(delayMs);
 	}
 	if (!response.ok) {
-		// The URL carries an API key, so it must never reach an error message.
+		// The URL carries an API key, so it must never reach an error message —
+		// including after every retry attempt is spent.
 		throw new Error(`RPC ${method} failed: HTTP ${response.status}`);
 	}
 	const body = (await response.json()) as { result?: T; error?: { message?: string } };

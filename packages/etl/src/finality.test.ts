@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RpcResponseLike } from './finality.js';
 import { classifyRange, rpcCall } from './finality.js';
 
 describe('rpcCall', () => {
@@ -18,6 +19,112 @@ describe('rpcCall', () => {
 
 		expect(caught).toBeInstanceOf(Error);
 		expect((caught as Error).message).not.toContain(secret);
+	});
+});
+
+describe('rpcCall retry with backoff', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	/** A fake `RpcResponseLike` — no real `Response` construction needed. */
+	function fakeResponse(
+		status: number,
+		body: unknown,
+		headers: Record<string, string> = {},
+	): RpcResponseLike {
+		return {
+			ok: status >= 200 && status < 300,
+			status,
+			headers: { get: (name) => headers[name.toLowerCase()] ?? null },
+			json: async () => body,
+		};
+	}
+
+	// A secret-bearing URL is reused across these tests: the point of retry is
+	// that it happens on the URL a real caller would use, key and all.
+	const secret = 'sk_live_TESTSECRET';
+	const secretUrl = `https://rpc.example.invalid/v2/${secret}`;
+
+	it('retries a 429 and succeeds once the server recovers, with the correct result', async () => {
+		const responses = [fakeResponse(429, {}), fakeResponse(200, { result: 42 })];
+		const fetchFn = vi.fn(async () => responses.shift()!);
+		const delayFn = vi.fn(async () => {});
+
+		const result = await rpcCall<number>(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn });
+
+		expect(result).toBe(42);
+		expect(fetchFn).toHaveBeenCalledTimes(2);
+		expect(delayFn).toHaveBeenCalledTimes(1);
+	});
+
+	it('stops retrying at the attempt cap and reports a sanitized error', async () => {
+		const fetchFn = vi.fn(async () => fakeResponse(429, {}));
+		const delayFn = vi.fn(async () => {});
+
+		await expect(
+			rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn }),
+		).rejects.toThrow(/^RPC eth_blockNumber failed: HTTP 429$/);
+		// 1 initial attempt + 3 retries = 4 total; one fewer delay than attempts.
+		expect(fetchFn).toHaveBeenCalledTimes(4);
+		expect(delayFn).toHaveBeenCalledTimes(3);
+	});
+
+	it('does not retry a plain 4xx — a 400 is deterministic, not transient', async () => {
+		const fetchFn = vi.fn(async () => fakeResponse(400, {}));
+		const delayFn = vi.fn(async () => {});
+
+		await expect(rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn })).rejects.toThrow(
+			/HTTP 400/,
+		);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+		expect(delayFn).not.toHaveBeenCalled();
+	});
+
+	it('honours a Retry-After header over the computed backoff', async () => {
+		const responses = [
+			fakeResponse(429, {}, { 'retry-after': '2' }),
+			fakeResponse(200, { result: 'ok' }),
+		];
+		const fetchFn = vi.fn(async () => responses.shift()!);
+		const delayFn = vi.fn(async () => {});
+
+		await rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn });
+
+		expect(delayFn).toHaveBeenCalledWith(2000);
+	});
+
+	it('grows the backoff delay between successive retries', async () => {
+		// Full jitter draws from [0, cap]; pin Math.random at its max so the
+		// observed delay equals the cap exactly, making growth deterministic.
+		vi.spyOn(Math, 'random').mockReturnValue(1);
+		const fetchFn = vi.fn(async () => fakeResponse(429, {}));
+		const delayFn = vi.fn(async (_ms: number) => {});
+
+		await expect(rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn })).rejects.toThrow();
+
+		const delays: number[] = delayFn.mock.calls.map(([ms]) => ms);
+		expect(delays.length).toBeGreaterThanOrEqual(2);
+		delays.slice(1).forEach((delay, i) => {
+			expect(delay).toBeGreaterThan(delays[i]!);
+		});
+	});
+
+	it('never lets the planted secret reach the error message on the exhausted-retry path', async () => {
+		const fetchFn = vi.fn(async () => fakeResponse(500, {}));
+		const delayFn = vi.fn(async () => {});
+
+		let caught: unknown;
+		try {
+			await rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn });
+		} catch (err) {
+			caught = err;
+		}
+
+		expect(caught).toBeInstanceOf(Error);
+		expect((caught as Error).message).not.toContain(secret);
+		expect((caught as Error).message).not.toContain('rpc.example.invalid');
+		expect((caught as Error).cause).toBeUndefined();
 	});
 });
 
