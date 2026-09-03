@@ -5,7 +5,8 @@ were taken against Base mainnet via the QuickNode archive endpoint on
 2026-09-02/03 around block 50.83M and will drift; re-measure before relying on a
 number.
 
-**Goal:** build a small, durable, local copy of exactly what Base told us,
+**Goal:** build a small, durable, local copy of exactly what *finalized* Base
+told us,
 transaction by transaction, performing *no* blockchain analysis while creating
 it. Once that archive is trustworthy, all Fabric/TCA work becomes disposable
 transformations on top of it.
@@ -137,7 +138,7 @@ the test to apply to any future proposal to add a column.
 ## 5. Naming and layout
 
 ```
-data/seeds/traces.base.0050795900-0050796199.parquet
+data/seeds/traces.base.0050830910-0050831209.parquet
                        └────┬───┘ └────┬───┘
                           from       to (inclusive)
 ```
@@ -162,9 +163,25 @@ safe       50831750   ←  29 blocks behind  (~58s)
 finalized  50831209   ← 570 blocks behind  (~19 min)
 ```
 
-Base `finalized` lags head by **~570 blocks**. The v0.1 pilot range is
-`head-300 → head-1`, which sits *entirely* inside the unfinalized window —
-**100% of pilot rows are non-canonical by policy**, not a fraction of them.
+Base `finalized` lags head by **~570 blocks**. A pilot anchored to `head` would
+therefore sit *entirely* inside the unfinalized window — 100% of its rows
+non-canonical by policy, not a fraction of them.
+
+**So the pilot anchors to `finalized`, not to `head`:**
+
+> Pilot range = `[F - 299, F]`, where
+> `F = eth_getBlockByNumber('finalized').number`, resolved **once** at ingest
+> start and pinned for the whole run.
+
+This satisfies the admission rule by construction, so the pilot lands in
+`data/seeds/` as a first-class member of the canonical archive rather than in
+`provisional/`. Every row carries `finality = 'finalized'`.
+
+⚠️ `F` advances continuously, so re-running the pilot with no arguments produces
+a *different* 300-block range and a different filename — it is not idempotent
+across time. Explicit `--from`/`--to` arguments are the reproducible path, and
+the range actually ingested is recorded in the filename. Once the pilot has run,
+pin its concrete range here.
 
 **Admission rule for the permanent Seed layer:**
 
@@ -186,8 +203,12 @@ canonical archive. The non-recursive glob is the guarantee.
 
 **Ingest gates by default.** Ingesting a block above the finalized head requires
 an explicit `--allow-unfinalized`, which also forces the output into
-`provisional/` and stamps `finality` accordingly. The v0.1 pilot uses this flag
-and is honestly labelled by it.
+`provisional/` and stamps `finality` accordingly.
+
+**The v0.1 pilot does not use this flag.** The gate and the `provisional/` path
+are built and tested in v0.1, but nothing in the pilot exercises them — they
+exist so that the first unfinalized ingest is refused by default rather than
+discovered later.
 
 **Repair pass — specified here, built in v0.2.** For a given file: re-fetch
 canonical block hashes across its range, compare against stored `block_hash`,
@@ -207,7 +228,7 @@ exists in the repo).
 COPY (SELECT * FROM read_json('seed.ndjson', columns := {...},
                               format := 'newline_delimited')
       ORDER BY block_number, block_position)
-TO 'traces.base.0050795900-0050796199.parquet'
+TO 'traces.base.0050830910-0050831209.parquet'
   (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 4096);
 ```
 
@@ -288,6 +309,10 @@ reports roughly half the suite.
 
 No Derived files, no manifest, no repair pass implementation, no multi-chain, no
 incremental or resumable ingest, no promotion of `provisional/` files.
+
+The `provisional/` path and the `--allow-unfinalized` gate *are* built in v0.1,
+but only the gate's refusal behaviour is exercised — the pilot itself is
+finalized-only.
 
 The first Derived file — flattened call frames addressed by `trace_address` — is
 v0.2, and it validates the Seed by being the first thing to consume it.
