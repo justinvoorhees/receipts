@@ -180,8 +180,34 @@ This satisfies the admission rule by construction, so the pilot lands in
 ⚠️ `F` advances continuously, so re-running the pilot with no arguments produces
 a *different* 300-block range and a different filename — it is not idempotent
 across time. Explicit `--from`/`--to` arguments are the reproducible path, and
-the range actually ingested is recorded in the filename. Once the pilot has run,
-pin its concrete range here.
+the range actually ingested is recorded in the filename.
+
+**Pilot range as actually run (2026-09-03):** blocks 50842630–50842929 (300
+distinct blocks, `to - from == 299`), 155,732 rows, 145 MB, ingested in 37.0s
+at `--concurrency 4` from `quicknode-base-mainnet`. Block timestamps span
+2026-09-03T22:30:07Z–2026-09-03T22:40:05Z. `finality` is `finalized` on every
+row (`count(DISTINCT finality) = 1`).
+File: `data/seeds/traces.base.0050842630-0050842929.parquet`.
+
+⚠️ The row count is materially higher than the ~34,000 estimated from the
+2026-09-02/03 measurement of ~113 tx/block — this range averaged ~519
+tx/block instead. That estimate was a rough measurement taken on different
+blocks at a different time, not a target; the actual number is simply what
+Base's transaction volume was during this range. File size (145 MB) came in
+under a proportional scale-up of the original 50–80 MB estimate, since
+average bytes/row (~945) is lower than the estimate implied — worth watching
+if it recurs, but not adjusted here.
+
+This was also the third pilot attempt. The first died writing the Parquet
+file (`rows.map(...).join('\n')` exceeded Node's 512 MiB max string length —
+fixed in `bb1fa3c` by streaming the NDJSON instead of building one monolithic
+string). The second died on an `HTTP 429` from the RPC endpoint at block
+50/300, because the default `--concurrency 8` sustains ~24 simultaneous RPC
+calls (3 per block) — fixed in `5a1ef6f` by adding bounded retry with
+jittered backoff to `rpcCall`, and this run was additionally made at
+`--concurrency 4` to halve the sustained request rate. Both fixes are
+upstream of this task's file list; this run is the first to reach a written
+file.
 
 **Admission rule for the permanent Seed layer:**
 
