@@ -1,16 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import { mapWithConcurrency } from './ingest.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ingestRange, mapWithConcurrency } from './ingest.js';
 
 /**
- * ingest.test.ts — coverage for `mapWithConcurrency` only.
+ * ingest.test.ts — coverage for `mapWithConcurrency`, plus the
+ * `concurrency` validation guard that also lives in `ingestRange`.
  *
- * `ingestRange` itself is exercised end-to-end by Task 7's live pilot test,
- * which is the right place to prove the whole pipeline wires together against
- * a real RPC endpoint. But an e2e test cannot observe internal properties like
- * "was the concurrency limit actually respected" or "were results placed by
- * index rather than pushed as they completed" — a live test would pass either
- * way. Those two properties are pinned here instead, with deterministic,
- * artificially-ordered completion timing so a broken implementation cannot
+ * `ingestRange`'s end-to-end behavior (RPC calls, row assembly, the write) is
+ * exercised by Task 7's live pilot test, which is the right place to prove
+ * the whole pipeline wires together against a real RPC endpoint. But an e2e
+ * test cannot observe internal properties like "was the concurrency limit
+ * actually respected", "were results placed by index rather than pushed as
+ * they completed", or "did a bad --concurrency value avoid making any RPC
+ * call at all" — a live test would pass or coincidentally look fine either
+ * way. Those properties are pinned here instead, with deterministic,
+ * artificially-ordered completion timing (for the first two) and a stubbed
+ * global `fetch` (for the third) so a broken implementation cannot
  * accidentally produce the right answer by luck.
  */
 
@@ -77,5 +81,78 @@ describe('mapWithConcurrency', () => {
 		);
 		expect(calls).toHaveLength(3);
 		expect(calls[calls.length - 1]).toEqual([3, 3]);
+	});
+});
+
+describe('mapWithConcurrency — concurrency limit validation', () => {
+	it('rejects a zero limit', async () => {
+		await expect(mapWithConcurrency([1, 2, 3], 0, async (item) => item)).rejects.toThrow(
+			'concurrency limit must be a positive integer, got 0',
+		);
+	});
+
+	it('rejects a negative limit', async () => {
+		await expect(mapWithConcurrency([1, 2, 3], -2, async (item) => item)).rejects.toThrow(
+			'concurrency limit must be a positive integer, got -2',
+		);
+	});
+
+	it('rejects a non-integer limit', async () => {
+		await expect(mapWithConcurrency([1, 2, 3], 1.5, async (item) => item)).rejects.toThrow(
+			'concurrency limit must be a positive integer, got 1.5',
+		);
+	});
+
+	it('rejects a NaN limit (e.g. from an unvalidated Number(flag) upstream)', async () => {
+		const badLimit = Number('not-a-number');
+		await expect(mapWithConcurrency([1, 2, 3], badLimit, async (item) => item)).rejects.toThrow(
+			'concurrency limit must be a positive integer, got NaN',
+		);
+	});
+});
+
+describe('ingestRange — concurrency validation happens before any RPC call', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	// A bad `concurrency` used to launch zero workers silently (Array.from
+	// treats a non-positive-integer length as 0) rather than throw, so the
+	// only observable symptom was an empty result days later. These pin both
+	// that the guard throws AND that it throws BEFORE `finalizedHead()`'s
+	// fetch — moving the check to after that RPC call would still throw (a
+	// different, unrelated error) but would fail the `fetchSpy` assertion.
+	function baseOpts(concurrency: number) {
+		return {
+			rpcUrl: 'https://rpc.example.invalid/should-never-be-called',
+			chain: 'base',
+			chainId: 8453,
+			fromBlock: 100,
+			toBlock: 100,
+			dataDir: '/tmp/ingest-test-should-not-be-used',
+			source: 'test',
+			allowUnfinalized: false,
+			concurrency,
+		};
+	}
+
+	it('rejects concurrency: 0 without calling fetch', async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal('fetch', fetchSpy);
+
+		await expect(ingestRange(baseOpts(0))).rejects.toThrow(
+			'concurrency must be a positive integer, got 0',
+		);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('rejects a fractional concurrency without calling fetch', async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal('fetch', fetchSpy);
+
+		await expect(ingestRange(baseOpts(2.5))).rejects.toThrow(
+			'concurrency must be a positive integer, got 2.5',
+		);
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 });

@@ -49,6 +49,23 @@ export async function finalizedWindow(
 }
 
 /**
+ * `Array.from({ length })` silently treats any non-positive-integer `length`
+ * (0, a negative number, NaN, a fraction) as an empty array — it does not
+ * throw. A bad `concurrency` value would therefore launch ZERO workers,
+ * `worker` would never run, and `mapWithConcurrency` would quietly return a
+ * same-length-but-all-holes array that `.flat()` elides into nothing,
+ * spending zero RPC calls and producing no signal pointing at the cause. This
+ * is the one check both `mapWithConcurrency` and `ingestRange` share, so a
+ * bad value is rejected the moment it is known rather than laundered into a
+ * silently-empty result somewhere downstream.
+ */
+function assertPositiveInteger(value: number, label: string): void {
+	if (!Number.isInteger(value) || value < 1) {
+		throw new Error(`${label} must be a positive integer, got ${value}`);
+	}
+}
+
+/**
  * Run `worker` over `items` with at most `limit` in flight at once, returning
  * results in INPUT order regardless of completion order.
  *
@@ -62,6 +79,7 @@ export async function mapWithConcurrency<T>(
 	worker: (item: number) => Promise<T>,
 	onDone?: (done: number, total: number) => void,
 ): Promise<T[]> {
+	assertPositiveInteger(limit, 'concurrency limit');
 	const results = new Array<T>(items.length);
 	let next = 0;
 	let done = 0;
@@ -80,6 +98,11 @@ export async function ingestRange(opts: IngestOptions): Promise<IngestResult> {
 	if (opts.toBlock < opts.fromBlock) {
 		throw new Error(`Range is inverted: ${opts.fromBlock} > ${opts.toBlock}`);
 	}
+	// Validated here too, ahead of the finalizedHead() RPC call below, so a
+	// programmatic caller (ingestRange is exported from index.ts, not just
+	// reachable through the CLI's own --concurrency parsing) fails before
+	// spending any RPC calls rather than after.
+	assertPositiveInteger(opts.concurrency, 'concurrency');
 
 	const head = await finalizedHead(opts.rpcUrl);
 	const finality = classifyRange(opts.toBlock, head, opts.allowUnfinalized);

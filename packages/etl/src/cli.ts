@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
 import { Command } from 'commander';
 import { resolve } from 'node:path';
+import { assertFromToPaired, parseNonNegativeInt, parsePositiveInt } from './cliValidation.js';
 import { finalizedWindow, ingestRange } from './ingest.js';
 
 /**
@@ -32,10 +33,19 @@ program
 		const rpcUrl = process.env.TCA_RPC_URL;
 		if (!rpcUrl) throw new Error('TCA_RPC_URL is not set (export it or put it in .env)');
 
+		// Every check below runs before any RPC call — a bad flag should name
+		// itself immediately, not after eth_getBlockByNumber has already gone
+		// out, and never by silently substituting a different range.
+		assertFromToPaired(options.from, options.to);
 		const explicit = options.from !== undefined && options.to !== undefined;
+		const concurrency = parsePositiveInt(options.concurrency, '--concurrency');
+
 		const { fromBlock, toBlock } = explicit
-			? { fromBlock: Number(options.from), toBlock: Number(options.to) }
-			: await finalizedWindow(rpcUrl, Number(options.span));
+			? {
+					fromBlock: parseNonNegativeInt(options.from, '--from'),
+					toBlock: parseNonNegativeInt(options.to, '--to'),
+				}
+			: await finalizedWindow(rpcUrl, parsePositiveInt(options.span, '--span'));
 
 		if (!explicit) {
 			console.log(
@@ -54,7 +64,7 @@ program
 			dataDir: resolve(process.cwd(), options.dataDir),
 			source: options.source,
 			allowUnfinalized: Boolean(options.allowUnfinalized),
-			concurrency: Number(options.concurrency),
+			concurrency,
 			onProgress: (done, total) => {
 				if (done % 25 === 0 || done === total) console.log(`  blocks ${done}/${total}`);
 			},
