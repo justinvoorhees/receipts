@@ -115,7 +115,13 @@ describe('buildSeedRows', () => {
 		it('aborts when a trace hash is duplicated within the traceBlock payload', () => {
 			const p = payloads();
 			p.traceBlock[1]!.txHash = p.traceBlock[0]!.txHash;
-			expect(() => buildSeedRows(p, META)).toThrow(/duplicate/i);
+			// Anchored on the trace guard's OWN wording. A duplicated trace hash
+			// also trips the block_position collision check further down (both
+			// entries resolve to the same receipt), whose message likewise
+			// contains "Duplicate" — so a loose /duplicate/i passed with the
+			// trace-duplicate guard deleted, which is exactly the mutant this
+			// test exists to catch.
+			expect(() => buildSeedRows(p, META)).toThrow(/duplicate txHash among trace entries/i);
 		});
 	});
 
@@ -222,11 +228,75 @@ describe('buildSeedRows', () => {
 		expect(row!.tx_from).toBe(row!.tx_from.toLowerCase());
 	});
 
-	it('maps receipt status 0x1 to true and 0x0 to false', () => {
+	describe('tx_status — the one boolean PRUNING column', () => {
+		it('maps receipt status 0x1 to true and 0x0 to false', () => {
+			const p = payloads();
+			p.receipts[0]!.status = '0x0';
+			const rows = buildSeedRows(p, META);
+			expect(rows[0]!.tx_status).toBe(false);
+			expect(rows[1]!.tx_status).toBe(true);
+		});
+
+		// A zero-padded status is a real cross-client variation. Read as
+		// `status === '0x1'` it silently marks EVERY transaction in an
+		// immutable file as reverted, with no error anywhere.
+		it('accepts a zero-padded status rather than reading 0x01 as a revert', () => {
+			const p = payloads();
+			p.receipts[0]!.status = '0x01';
+			expect(buildSeedRows(p, META)[0]!.tx_status).toBe(true);
+		});
+
+		it('accepts a zero-padded failure status', () => {
+			const p = payloads();
+			p.receipts[0]!.status = '0x00';
+			expect(buildSeedRows(p, META)[0]!.tx_status).toBe(false);
+		});
+
+		it('accepts an upper-case hex status', () => {
+			const p = payloads();
+			p.receipts[0]!.status = '0X1';
+			expect(buildSeedRows(p, META)[0]!.tx_status).toBe(true);
+		});
+
+		it('aborts on a missing status instead of recording a silent false', () => {
+			const p = payloads();
+			delete (p.receipts[0] as Record<string, unknown>).status;
+			expect(() => buildSeedRows(p, META)).toThrow(/receipt\.status to be 0x1 or 0x0/i);
+		});
+
+		it('aborts on a status it does not understand rather than guessing', () => {
+			const p = payloads();
+			p.receipts[0]!.status = '0x2';
+			expect(() => buildSeedRows(p, META)).toThrow(/receipt\.status to be 0x1 or 0x0/i);
+		});
+
+		it('aborts on a non-string status (a pre-Byzantium root, say)', () => {
+			const p = payloads();
+			(p.receipts[0] as Record<string, unknown>).status = 1;
+			expect(() => buildSeedRows(p, META)).toThrow(/receipt\.status to be 0x1 or 0x0/i);
+		});
+	});
+
+	// `result: null` used to pass the `=== undefined` guard and serialize as the
+	// four-character string "null", which downstream cannot tell apart from a
+	// genuine null trace: absent read as measured, permanently.
+	it('aborts when a trace entry result is explicitly null', () => {
 		const p = payloads();
-		p.receipts[0]!.status = '0x0';
-		const rows = buildSeedRows(p, META);
-		expect(rows[0]!.tx_status).toBe(false);
+		p.traceBlock[0]!.result = null;
+		expect(() => buildSeedRows(p, META)).toThrow(/has no result/i);
+	});
+
+	describe('missing promoted string fields name themselves', () => {
+		it.each([
+			['from', /receipt\.from/],
+			['to', /receipt\.to/],
+			['blockHash', /receipt\.blockHash/],
+		])('names receipt.%s rather than throwing on undefined.toLowerCase', (field, pattern) => {
+			const p = payloads();
+			delete (p.receipts[0] as Record<string, unknown>)[field];
+			expect(() => buildSeedRows(p, META)).toThrow(pattern);
+			expect(() => buildSeedRows(p, META)).not.toThrow(/Cannot read properties/);
+		});
 	});
 
 	/**

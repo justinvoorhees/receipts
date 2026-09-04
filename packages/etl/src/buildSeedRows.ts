@@ -39,7 +39,42 @@ export interface IngestMeta {
 	source: string;
 }
 
-const lower = (value: string): string => value.toLowerCase();
+/**
+ * Lowercase a promoted string column, naming the field if it is not a string.
+ *
+ * Every hash and address column goes through here, and a payload missing one
+ * of them used to surface as `Cannot read properties of undefined (reading
+ * 'toLowerCase')` — a message that names neither the field nor the block, so
+ * an operator staring at an aborted ingest has nothing to go on. The abort
+ * itself was always correct; only the diagnosis was missing.
+ */
+const lower = (value: unknown, field: string): string => {
+	if (typeof value !== 'string') {
+		throw new Error(`Expected a string for ${field}, got ${JSON.stringify(value)}`);
+	}
+	return value.toLowerCase();
+};
+
+/**
+ * `receipt.status` → `tx_status`, the Seed's one boolean PRUNING column:
+ * downstream queries filter on it, so a wrong value is silently load-bearing
+ * in an immutable file. It used to be `receipt.status === '0x1'`, which turns
+ * every value that is not exactly that four-character string — a missing
+ * field, or the zero-padded `'0x01'` some clients emit — into `false`, i.e.
+ * marks every transaction in the archive as REVERTED, permanently and without
+ * an error. Accept `0x0`/`0x1` case- and pad-insensitively; refuse anything
+ * else rather than guess.
+ */
+function parseTxStatus(status: unknown, field: string): boolean {
+	if (typeof status === 'string') {
+		const normalized = status.toLowerCase();
+		if (/^0x0*1$/.test(normalized)) return true;
+		if (/^0x0*0$/.test(normalized)) return false;
+	}
+	throw new Error(
+		`Expected receipt.status to be 0x1 or 0x0 for ${field}, got ${JSON.stringify(status)}`,
+	);
+}
 
 /**
  * Hex quantity → number. Used only for values known to be small (index,
@@ -73,16 +108,16 @@ export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRo
 	// a duplicate hash paired with a length-only check lets one real
 	// transaction silently vanish while another is emitted twice.
 	const receiptByHash = new Map<string, RawReceipt>(
-		receipts.map((r) => [lower(r.transactionHash), r]),
+		receipts.map((r) => [lower(r.transactionHash, 'receipt.transactionHash'), r]),
 	);
 	if (receiptByHash.size !== receipts.length) {
 		throw new Error(`Duplicate transactionHash among receipts in block ${block.number}`);
 	}
-	const txByHash = new Map<string, RawTx>(txs.map((t) => [lower(t.hash), t]));
+	const txByHash = new Map<string, RawTx>(txs.map((t) => [lower(t.hash, 'tx.hash'), t]));
 	if (txByHash.size !== txs.length) {
 		throw new Error(`Duplicate hash among transactions in block ${block.number}`);
 	}
-	const traceHashSet = new Set(traceBlock.map((e) => lower(e.txHash)));
+	const traceHashSet = new Set(traceBlock.map((e) => lower(e.txHash, 'trace.txHash')));
 	if (traceHashSet.size !== traceBlock.length) {
 		throw new Error(`Duplicate txHash among trace entries in block ${block.number}`);
 	}
@@ -96,7 +131,7 @@ export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRo
 	// to its own column elsewhere on the row.
 	const { transactions: _dropped, ...header } = block;
 	const blockJson = JSON.stringify(header);
-	const blockHash = lower(block.hash);
+	const blockHash = lower(block.hash, 'block.hash');
 	const blockNumber = hexToNumber(block.number, 'block.number');
 	const blockTimestamp = new Date(
 		hexToNumber(block.timestamp, 'block.timestamp') * 1000,
@@ -108,10 +143,11 @@ export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRo
 	// different blocks; every receipt and tx carries its own blockHash and
 	// blockNumber, so check them against the block header rather than assume.
 	for (const r of receipts) {
-		const rHash = lower(r.transactionHash);
-		if (lower(r.blockHash) !== blockHash) {
+		const rHash = lower(r.transactionHash, 'receipt.transactionHash');
+		const rBlockHash = lower(r.blockHash, `receipt.blockHash for ${rHash}`);
+		if (rBlockHash !== blockHash) {
 			throw new Error(
-				`Receipt ${rHash} blockHash ${lower(r.blockHash)} does not match block ` +
+				`Receipt ${rHash} blockHash ${rBlockHash} does not match block ` +
 					`${block.number}'s hash ${blockHash} — payloads may span a reorg`,
 			);
 		}
@@ -124,10 +160,11 @@ export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRo
 		}
 	}
 	for (const t of txs) {
-		const tHash = lower(t.hash);
-		if (lower(t.blockHash) !== blockHash) {
+		const tHash = lower(t.hash, 'tx.hash');
+		const tBlockHash = lower(t.blockHash, `tx.blockHash for ${tHash}`);
+		if (tBlockHash !== blockHash) {
 			throw new Error(
-				`Transaction ${tHash} blockHash ${lower(t.blockHash)} does not match block ` +
+				`Transaction ${tHash} blockHash ${tBlockHash} does not match block ` +
 					`${block.number}'s hash ${blockHash} — payloads may span a reorg`,
 			);
 		}
@@ -143,12 +180,16 @@ export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRo
 	const rows: SeedRow[] = [];
 	const seenPositions = new Set<number>();
 	for (const entry of traceBlock) {
-		const hash = lower(entry.txHash);
+		const hash = lower(entry.txHash, 'trace.txHash');
 		const receipt = receiptByHash.get(hash);
 		if (!receipt) throw new Error(`Trace for ${hash} has no receipt in block ${block.number}`);
 		const tx = txByHash.get(hash);
 		if (!tx) throw new Error(`Trace for ${hash} has no transaction in block ${block.number}`);
-		if (entry.result === undefined) {
+		// `== null` on purpose: a trace entry whose `result` is explicitly null
+		// would otherwise serialize as the four-character string "null", which is
+		// indistinguishable downstream from a genuine null trace — absent read as
+		// measured, in a file that can never be rewritten.
+		if (entry.result == null) {
 			throw new Error(`Trace for ${hash} has no result in block ${block.number}`);
 		}
 
@@ -179,12 +220,12 @@ export function buildSeedRows(payloads: BlockPayloads, meta: IngestMeta): SeedRo
 			block_position: receiptPosition,
 			tx_hash: hash,
 			block_timestamp: blockTimestamp,
-			tx_from: lower(receipt.from),
+			tx_from: lower(receipt.from, `receipt.from for ${hash}`),
 			// Explicit null check: `receipt.to ? … : null` would coerce an
 			// empty string to null too, silently mistaking it for a
 			// contract-creation transaction.
-			tx_to: receipt.to === null ? null : lower(receipt.to),
-			tx_status: receipt.status === '0x1',
+			tx_to: receipt.to === null ? null : lower(receipt.to, `receipt.to for ${hash}`),
+			tx_status: parseTxStatus(receipt.status, hash),
 			block_hash: blockHash,
 			trace_json: JSON.stringify(entry.result),
 			receipt_json: JSON.stringify(receipt),
