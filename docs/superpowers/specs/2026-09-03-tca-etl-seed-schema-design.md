@@ -205,7 +205,9 @@ string). The second died on an `HTTP 429` from the RPC endpoint at block
 50/300, because the default `--concurrency 8` sustains ~24 simultaneous RPC
 calls (3 per block) — fixed in `5a1ef6f` by adding bounded retry with
 jittered backoff to `rpcCall`, and this run was additionally made at
-`--concurrency 4` to halve the sustained request rate. Both fixes are
+`--concurrency 4` to halve the sustained request rate — now the default, since
+the value that failed had no business remaining the one you get by not
+choosing. Both fixes are
 upstream of this task's file list; this run is the first to reach a written
 file.
 
@@ -230,6 +232,18 @@ canonical archive. The non-recursive glob is the guarantee.
 **Ingest gates by default.** Ingesting a block above the finalized head requires
 an explicit `--allow-unfinalized`, which also forces the output into
 `provisional/` and stamps `finality` accordingly.
+
+**The rule is a property of the ROW, so it is checked on the DELIVERED block.**
+The range check compares the REQUESTED range against the finalized head, but
+`block_number` is derived from the RESPONSE, and a tag is only a request: an
+endpoint answering every request with the same block would otherwise yield a
+correctly-named, `finalized`-stamped file whose rows had never been tested
+against the head at all. Ingest therefore reconciles the two, aborting the run
+when a delivered block is not the one asked for. For the same reason it makes
+one `eth_chainId` call per run and refuses to proceed when the endpoint
+disagrees with `--chain-id`: `chain_id` is otherwise a pure operator assertion,
+and `chain` is an uncorrelated filename slug, so a misdirected `TCA_RPC_URL`
+would put another chain's blocks in the canonical archive undetectably.
 
 **The v0.1 pilot does not use this flag.** The gate and the `provisional/` path
 are built and tested in v0.1, but nothing in the pilot exercises them — they

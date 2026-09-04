@@ -12,17 +12,30 @@
  * through into an unrelated but validly-shaped block range.
  */
 
+/**
+ * A flag value is DIGITS, nothing else.
+ *
+ * `Number()` alone is far too generous for a value that decides how much of a
+ * chain gets read: it maps `""` and `" "` to 0, `"\n5"` to 5, `"0x10"` to 16
+ * and `"1e3"` to 1000 — every one of which then passes `Number.isInteger`. A
+ * typo'd `--from "" --to 50842929` was therefore accepted as a fifty-million
+ * block range, and because ingest is all-or-nothing and entirely in memory,
+ * that is ~150M RPC calls followed by an OOM. Match the digits first, then
+ * range-check the number.
+ */
+const DIGITS = /^\d+$/;
+
 export function parsePositiveInt(raw: string, flag: string): number {
-	const n = Number(raw);
-	if (!Number.isInteger(n) || n < 1) {
+	const n = DIGITS.test(raw) ? Number(raw) : Number.NaN;
+	if (!Number.isSafeInteger(n) || n < 1) {
 		throw new Error(`${flag} must be a positive integer, got ${JSON.stringify(raw)}`);
 	}
 	return n;
 }
 
 export function parseNonNegativeInt(raw: string, flag: string): number {
-	const n = Number(raw);
-	if (!Number.isInteger(n) || n < 0) {
+	const n = DIGITS.test(raw) ? Number(raw) : Number.NaN;
+	if (!Number.isSafeInteger(n) || n < 0) {
 		throw new Error(`${flag} must be a non-negative integer, got ${JSON.stringify(raw)}`);
 	}
 	return n;

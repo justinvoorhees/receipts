@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 import { Command } from 'commander';
 import { resolve } from 'node:path';
 import { assertFromToPaired, parseNonNegativeInt, parsePositiveInt } from './cliValidation.js';
-import { finalizedWindow, ingestRange } from './ingest.js';
+import { DEFAULT_MAX_BLOCKS, finalizedWindow, ingestRange } from './ingest.js';
 
 /**
  * cli.ts — the ingest entry point.
@@ -27,7 +27,12 @@ program
 	.option('--chain-id <id>', 'numeric chain id', '8453')
 	.option('--data-dir <path>', 'root of the data directory', 'data')
 	.option('--source <label>', 'provenance label; never a URL', 'quicknode-base-mainnet')
-	.option('--concurrency <n>', 'blocks fetched in parallel', '8')
+	.option('--concurrency <n>', 'blocks fetched in parallel', '4')
+	.option(
+		'--max-blocks <n>',
+		'sanity ceiling on the range size; ingest is all-or-nothing',
+		String(DEFAULT_MAX_BLOCKS),
+	)
 	.option('--allow-unfinalized', 'write past the finalized head, into seeds/provisional/', false)
 	.action(async (options) => {
 		const rpcUrl = process.env.TCA_RPC_URL;
@@ -39,6 +44,11 @@ program
 		assertFromToPaired(options.from, options.to);
 		const explicit = options.from !== undefined && options.to !== undefined;
 		const concurrency = parsePositiveInt(options.concurrency, '--concurrency');
+		const maxBlocks = parsePositiveInt(options.maxBlocks, '--max-blocks');
+		// Was `Number(options.chainId)`: `--chain-id abc` gave NaN, which
+		// JSON.stringify renders as `null`, which DuckDB writes as NULL on
+		// every row of an immutable file, with no error at any layer.
+		const chainId = parsePositiveInt(options.chainId, '--chain-id');
 
 		const { fromBlock, toBlock } = explicit
 			? {
@@ -58,13 +68,14 @@ program
 		const result = await ingestRange({
 			rpcUrl,
 			chain: options.chain,
-			chainId: Number(options.chainId),
+			chainId,
 			fromBlock,
 			toBlock,
 			dataDir: resolve(process.cwd(), options.dataDir),
 			source: options.source,
 			allowUnfinalized: Boolean(options.allowUnfinalized),
 			concurrency,
+			maxBlocks,
 			onProgress: (done, total) => {
 				if (done % 25 === 0 || done === total) console.log(`  blocks ${done}/${total}`);
 			},

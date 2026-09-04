@@ -29,6 +29,30 @@ describe('parsePositiveInt', () => {
 			'--concurrency must be a positive integer, got "2.5"',
 		);
 	});
+
+	// `Number()` accepts all of these. Each one silently became a plausible
+	// integer, which for a flag that decides how much of a chain gets read is
+	// the difference between a 300-block run and a 50-million-block one.
+	it.each([
+		['', 'the empty string'],
+		[' ', 'whitespace only'],
+		['\n5', 'a leading newline'],
+		['0x10', 'hex notation'],
+		['1e3', 'exponential notation'],
+		['5 ', 'a trailing space'],
+		['+5', 'an explicit plus sign'],
+		['Infinity', 'Infinity'],
+	])('rejects %j (%s), which Number() would have accepted', (raw) => {
+		expect(() => parsePositiveInt(raw, '--concurrency')).toThrow(
+			'--concurrency must be a positive integer',
+		);
+	});
+
+	it('rejects a digit string too large to be an exact integer', () => {
+		expect(() => parsePositiveInt('99999999999999999999', '--span')).toThrow(
+			'--span must be a positive integer',
+		);
+	});
 });
 
 describe('parseNonNegativeInt', () => {
@@ -49,6 +73,29 @@ describe('parseNonNegativeInt', () => {
 	it('rejects a non-numeric string', () => {
 		expect(() => parseNonNegativeInt('abc', '--from')).toThrow(
 			'--from must be a non-negative integer, got "abc"',
+		);
+	});
+
+	// `--from ""` used to parse as block 0. Paired with a real `--to` that is
+	// a fifty-million-block range: ~150M RPC calls, then an OOM, because
+	// ingest is all-or-nothing and holds the whole range in memory.
+	it.each([
+		['', 'the empty string'],
+		[' ', 'whitespace only'],
+		['\n5', 'a leading newline'],
+		['0x10', 'hex notation'],
+		['1e3', 'exponential notation'],
+		['5 ', 'a trailing space'],
+		['+5', 'an explicit plus sign'],
+	])('rejects %j (%s), which Number() would have accepted', (raw) => {
+		expect(() => parseNonNegativeInt(raw, '--from')).toThrow(
+			'--from must be a non-negative integer',
+		);
+	});
+
+	it('rejects a digit string too large to be an exact integer', () => {
+		expect(() => parseNonNegativeInt('99999999999999999999', '--to')).toThrow(
+			'--to must be a non-negative integer',
 		);
 	});
 });
