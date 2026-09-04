@@ -19,6 +19,9 @@
 - **Vitest runs from the REPO ROOT.** `npx vitest run` from a package subdirectory silently reports roughly half the suite. Every `Run:` command below is written from the repo root.
 - **Derived files are versioned, not frozen.** Unlike the Seed's schema tripwire, a Derived tripwire failure is a prompt to bump `DERIVED_SCHEMA_VERSION`, not a wall. Test failure messages must say so.
 - **uint256 has no native Parquet type.** Wei quantities are stored as VARCHAR decimal strings via the `hex_to_dec` macro (Task 5), which is bounded at 2^128 by design.
+- **`noUncheckedIndexedAccess: true`.** `arr[0]` is `T | undefined`, so indexed access needs a non-null assertion: `rows[0]!.column`. Test files ARE typechecked (`tsc --build` includes `src/**/*`), and the repo's existing tests already use `rows[0]!`.
+- **`exactOptionalPropertyTypes: true`.** An optional property cannot be explicitly assigned `undefined`.
+- **Indexing a literal-keyed `as const` object requires a literal key.** `CANDIDATE_COLUMNS[someString]` is a type error; iterate with `as const` so the key is a literal union.
 - **A v4 pool's identity is its `poolId` (`topics[1]`), NOT the Swap log's emitter.** Every v4 leg in the pilot window is emitted by one of two singletons, so `count(DISTINCT emitter)` collapses 485 pools onto 2 rows. Always key on `CASE WHEN topic0 = <v4 Swap> THEN topic1 ELSE emitter END`.
 
 ### Event topic0 constants used throughout
@@ -358,7 +361,7 @@ describe('candidates schema', () => {
 	it('stores wei quantities as VARCHAR, never a numeric type', () => {
 		// uint256 has no native Parquet type and DECIMAL(38,0) cannot hold the
 		// range. Any of these becoming numeric is a silent precision loss.
-		for (const col of ['effective_gas_price', 'l1_fee', 'tx_value']) {
+		for (const col of ['effective_gas_price', 'l1_fee', 'tx_value'] as const) {
 			expect(CANDIDATE_COLUMNS[col]).toBe('VARCHAR');
 		}
 	});
@@ -1272,9 +1275,9 @@ describe('candidates selection', () => {
 			}),
 		]);
 		expect(rows).toHaveLength(1);
-		expect(rows[0].selected_via).toBe('swap_log');
-		expect(Number(rows[0].swap_log_count)).toBe(1);
-		expect(rows[0].router_name).toBeNull();
+		expect(rows[0]!.selected_via).toBe('swap_log');
+		expect(Number(rows[0]!.swap_log_count)).toBe(1);
+		expect(rows[0]!.router_name).toBeNull();
 	});
 
 	it('selects a router tx with no Swap log as router, and keeps it', async () => {
@@ -1282,10 +1285,10 @@ describe('candidates selection', () => {
 			seedRow({ tx_hash: '0xb', block_position: 0, tx_to: ROUTER }),
 		]);
 		expect(rows).toHaveLength(1);
-		expect(rows[0].selected_via).toBe('router');
-		expect(rows[0].router_name).toBe('1inch');
-		expect(Number(rows[0].swap_log_count)).toBe(0);
-		expect(Number(rows[0].distinct_pools)).toBe(0);
+		expect(rows[0]!.selected_via).toBe('router');
+		expect(rows[0]!.router_name).toBe('1inch');
+		expect(Number(rows[0]!.swap_log_count)).toBe(0);
+		expect(Number(rows[0]!.distinct_pools)).toBe(0);
 	});
 
 	it('selects a router tx WITH a Swap log as both', async () => {
@@ -1301,8 +1304,8 @@ describe('candidates selection', () => {
 				}),
 			}),
 		]);
-		expect(rows[0].selected_via).toBe('both');
-		expect(rows[0].router_name).toBe('1inch');
+		expect(rows[0]!.selected_via).toBe('both');
+		expect(rows[0]!.router_name).toBe('1inch');
 	});
 
 	it('excludes a tx that is neither a router call nor a swap', async () => {
@@ -1351,9 +1354,9 @@ describe('candidates pool counting', () => {
 				}),
 			}),
 		]);
-		expect(Number(rows[0].v4_legs)).toBe(2);
-		expect(Number(rows[0].distinct_v4_poolids)).toBe(2);
-		expect(Number(rows[0].distinct_pools)).toBe(2);
+		expect(Number(rows[0]!.v4_legs)).toBe(2);
+		expect(Number(rows[0]!.distinct_v4_poolids)).toBe(2);
+		expect(Number(rows[0]!.distinct_pools)).toBe(2);
 	});
 
 	it('counts repeated hits on one pool once', async () => {
@@ -1368,8 +1371,8 @@ describe('candidates pool counting', () => {
 				}),
 			}),
 		]);
-		expect(Number(rows[0].v3_legs)).toBe(2);
-		expect(Number(rows[0].distinct_pools)).toBe(1);
+		expect(Number(rows[0]!.v3_legs)).toBe(2);
+		expect(Number(rows[0]!.distinct_pools)).toBe(1);
 	});
 
 	it('counts transfers and total logs separately from swaps', async () => {
@@ -1388,9 +1391,9 @@ describe('candidates pool counting', () => {
 				}),
 			}),
 		]);
-		expect(Number(rows[0].log_count)).toBe(3);
-		expect(Number(rows[0].erc20_transfer_count)).toBe(2);
-		expect(Number(rows[0].swap_log_count)).toBe(1);
+		expect(Number(rows[0]!.log_count)).toBe(3);
+		expect(Number(rows[0]!.erc20_transfer_count)).toBe(2);
+		expect(Number(rows[0]!.swap_log_count)).toBe(1);
 	});
 });
 
@@ -1408,10 +1411,10 @@ describe('candidates gas and value columns', () => {
 				tx_json: JSON.stringify({ value: '0x0de0b6b3a7640000' }),
 			}),
 		]);
-		expect(Number(rows[0].gas_used)).toBe(21000);
-		expect(rows[0].effective_gas_price).toBe('6000000');
-		expect(rows[0].l1_fee).toBeNull();
-		expect(rows[0].tx_value).toBe('1000000000000000000');
+		expect(Number(rows[0]!.gas_used)).toBe(21000);
+		expect(rows[0]!.effective_gas_price).toBe('6000000');
+		expect(rows[0]!.l1_fee).toBeNull();
+		expect(rows[0]!.tx_value).toBe('1000000000000000000');
 	});
 
 	it('stamps provenance on every row', async () => {
@@ -1426,8 +1429,8 @@ describe('candidates gas and value columns', () => {
 				}),
 			}),
 		]);
-		expect(rows[0].seed_file).toBe('traces.base.0050842630-0050842929.parquet');
-		expect(Number(rows[0].derived_schema_version)).toBe(1);
+		expect(rows[0]!.seed_file).toBe('traces.base.0050842630-0050842929.parquet');
+		expect(Number(rows[0]!.derived_schema_version)).toBe(1);
 	});
 });
 ```
@@ -1589,7 +1592,7 @@ export function candidatesSelectSql(opts: {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run packages/etl/src/candidatesSql.test.ts`
-Expected: PASS, 13 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 5: Typecheck and lint**
 
