@@ -108,6 +108,88 @@ describe('buildCandidates', () => {
 		}
 	});
 
+	it('refuses to publish when the data falls outside the requested --from/--to range', async () => {
+		const { seedPath, routersPath } = await setup();
+		await expect(
+			buildCandidates({
+				seedGlob: seedPath,
+				seedFile: 'traces.base.0050842630-0050842929.parquet',
+				routersPath,
+				dataDir: dir,
+				build: 'testbuild',
+				chain: 'base',
+				fromBlock: 1,
+				toBlock: 2,
+				now: () => new Date('2026-09-04T12:00:00.000Z'),
+			}),
+		).rejects.toThrow(/outside the requested range 1-2/);
+
+		// The well-formed-but-wrong file must never be published.
+		expect(
+			existsSync(join(dir, 'derived', 'testbuild', 'candidates.base.0000000001-0000000002.parquet')),
+		).toBe(false);
+	});
+
+	it('leaves an existing published file alone when a later build at the same path fails the range check', async () => {
+		const { seedPath, routersPath } = await setup();
+		const opts = {
+			seedGlob: seedPath,
+			seedFile: 'traces.base.0050842630-0050842929.parquet',
+			routersPath,
+			dataDir: dir,
+			build: 'testbuild',
+			chain: 'base',
+			fromBlock: 50842630,
+			toBlock: 50842929,
+			now: () => new Date('2026-09-04T12:00:00.000Z'),
+		};
+		const good = await buildCandidates(opts);
+
+		// A second Seed file whose blocks fall outside the SAME requested range.
+		const badSeedPath = join(dir, 'traces.base.0000000100-0000000100.parquet');
+		await writeSeedParquet(
+			[
+				{
+					chain_id: 8453,
+					block_number: 100,
+					block_position: 0,
+					tx_hash: '0xbad',
+					block_timestamp: '2026-09-03T22:30:07.000Z',
+					tx_from: '0xfrom',
+					tx_to: ROUTER,
+					tx_status: true,
+					block_hash: '0xblock',
+					trace_json: '{}',
+					receipt_json: JSON.stringify({ logs: [], gasUsed: '0x5208', effectiveGasPrice: '0x3b9aca00' }),
+					tx_json: JSON.stringify({ value: '0x0' }),
+					block_json: '{}',
+					finality: 'finalized',
+					ingested_at: '2026-09-03T22:45:00.000Z',
+					source: 'test',
+					schema_version: 1,
+				} as SeedRow,
+			],
+			badSeedPath,
+		);
+
+		await expect(buildCandidates({ ...opts, seedGlob: badSeedPath })).rejects.toThrow(
+			/outside the requested range/,
+		);
+
+		expect(existsSync(good.outPath)).toBe(true);
+		const instance = await DuckDBInstance.create(':memory:');
+		const connection = await instance.connect();
+		try {
+			const reader = await connection.runAndReadAll(
+				`SELECT count(*) AS n FROM read_parquet('${good.outPath}')`,
+			);
+			expect(Number(reader.getRowObjects()[0]!.n as unknown as bigint)).toBe(good.rowCount);
+		} finally {
+			connection.closeSync();
+			instance.closeSync();
+		}
+	});
+
 	it('is idempotent: a second build replaces the file at the same path', async () => {
 		const { seedPath, routersPath } = await setup();
 		const opts = {

@@ -140,6 +140,15 @@ describe('candidates selection', () => {
 		expect(rows[0]!.router_name).toBe('1inch');
 		expect(Number(rows[0]!.swap_log_count)).toBe(0);
 		expect(Number(rows[0]!.distinct_pools)).toBe(0);
+		// This is the only fixture with NO logs at all — the exact case the
+		// outer SELECT's COALESCEs exist to guard. Pin all of them so dropping
+		// any one COALESCE (turning a 0 into a NULL row) fails a test here.
+		expect(Number(rows[0]!.v2_legs)).toBe(0);
+		expect(Number(rows[0]!.v3_legs)).toBe(0);
+		expect(Number(rows[0]!.v4_legs)).toBe(0);
+		expect(Number(rows[0]!.distinct_v4_poolids)).toBe(0);
+		expect(Number(rows[0]!.log_count)).toBe(0);
+		expect(Number(rows[0]!.erc20_transfer_count)).toBe(0);
 	});
 
 	it('selects a router tx WITH a Swap log as both', async () => {
@@ -157,6 +166,35 @@ describe('candidates selection', () => {
 		]);
 		expect(rows[0]!.selected_via).toBe('both');
 		expect(rows[0]!.router_name).toBe('1inch');
+	});
+
+	it('refuses a Seed glob that matches the same tx_hash more than once', async () => {
+		// Simulates two overlapping ingest ranges (or an original alongside a
+		// promoted provisional/ copy) both matching one glob: the same
+		// transaction appears twice in `seed`. Without a guard this fans
+		// `tx_logs` out per duplicate and doubles every aggregate.
+		await expect(
+			runCandidates([
+				seedRow({
+					tx_hash: '0xdup',
+					block_position: 0,
+					receipt_json: JSON.stringify({
+						logs: [log('0xpool1', [SWAP_TOPICS.v3])],
+						gasUsed: '0x5208',
+						effectiveGasPrice: '0x3b9aca00',
+					}),
+				}),
+				seedRow({
+					tx_hash: '0xdup',
+					block_position: 1,
+					receipt_json: JSON.stringify({
+						logs: [log('0xpool1', [SWAP_TOPICS.v3])],
+						gasUsed: '0x5208',
+						effectiveGasPrice: '0x3b9aca00',
+					}),
+				}),
+			]),
+		).rejects.toThrow(/distinct tx_hash/);
 	});
 
 	it('excludes a tx that is neither a router call nor a swap', async () => {
@@ -266,6 +304,26 @@ describe('candidates gas and value columns', () => {
 		expect(rows[0]!.effective_gas_price).toBe('6000000');
 		expect(rows[0]!.l1_fee).toBeNull();
 		expect(rows[0]!.tx_value).toBe('1000000000000000000');
+	});
+
+	it('decodes l1Fee when the payload sets it', async () => {
+		// Pins the populated path: `l1Fee` appears nowhere else in this repo and
+		// every other fixture omits it, so the absent-l1Fee -> NULL assertion
+		// above could pass even if '$.l1Fee' were the wrong key. The real pilot
+		// output has l1_fee populated on all 13,641 rows.
+		const rows = await runCandidates([
+			seedRow({
+				tx_hash: '0x14',
+				block_position: 0,
+				receipt_json: JSON.stringify({
+					logs: [log('0xpool1', [SWAP_TOPICS.v3])],
+					gasUsed: '0x5208',
+					effectiveGasPrice: '0x3b9aca00',
+					l1Fee: '0x3b9aca00',
+				}),
+			}),
+		]);
+		expect(rows[0]!.l1_fee).toBe('1000000000');
 	});
 
 	it('stamps provenance on every row', async () => {

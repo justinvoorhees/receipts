@@ -42,13 +42,29 @@ export async function loadRouterRegistry(configPath: string): Promise<RouterEntr
 	const raw = Array.isArray(parsed.routers) ? parsed.routers : [];
 
 	const entries: RouterEntry[] = [];
-	for (const router of raw) {
+	const seenAddresses = new Set<string>();
+	for (const [index, router] of raw.entries()) {
 		if (router.active !== true) continue;
 		if (typeof router.address !== 'string' || typeof router.name !== 'string') {
-			throw new Error(`Router registry at ${configPath} has an entry with no address or name`);
+			throw new Error(
+				`Router registry at ${configPath} has an entry with no address or name at index ` +
+					`${index}: ${JSON.stringify(router)}`,
+			);
 		}
+		const address = router.address.toLowerCase();
+		if (seenAddresses.has(address)) {
+			// A duplicated active address would fan out the candidates LEFT JOIN
+			// and duplicate rows — the same grain break Important 1 guards
+			// against in the Seed glob, but from a human-curated file other
+			// scripts (resolveAggregator) also touch.
+			throw new Error(
+				`Router registry at ${configPath} lists address ${address} more than once among ` +
+					`active entries (index ${index}). Remove or deactivate the duplicate.`,
+			);
+		}
+		seenAddresses.add(address);
 		entries.push({
-			address: router.address.toLowerCase(),
+			address,
 			name: router.name,
 			version: typeof router.version === 'string' ? router.version : '',
 		});

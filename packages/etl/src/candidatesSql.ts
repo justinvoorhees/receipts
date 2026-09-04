@@ -26,8 +26,13 @@ const ALL_SWAP_TOPICS = [SWAP_TOPICS.v2, SWAP_TOPICS.v3, SWAP_TOPICS.v4]
  * ⚠️ A v4 pool's identity is its poolId (`topics[1]`), NOT the log's emitter.
  * Every v4 Swap in the pilot window is emitted by one of two singletons, so
  * `count(DISTINCT emitter)` collapses 485 distinct pools onto 2 rows.
+ *
+ * `lower()` on both branches: unlike `lower(s.tx_to) = r.address`, `emitter`
+ * and `topic1` are not currently compared against anything already
+ * normalized, so nothing forced this. Inert against QuickNode (lowercase log
+ * addresses), but this column is the pool census the file exists to provide.
  */
-const POOL_KEY = `CASE WHEN topic0 = ${sqlLiteral(SWAP_TOPICS.v4)} THEN topic1 ELSE emitter END`;
+const POOL_KEY = `CASE WHEN topic0 = ${sqlLiteral(SWAP_TOPICS.v4)} THEN lower(topic1) ELSE lower(emitter) END`;
 
 /**
  * Hex string -> decimal string, for wei quantities.
@@ -68,6 +73,20 @@ export function candidatesSetupSql(opts: { seedGlob: string; routerValues: strin
 	return [
 		HEX_TO_DEC_MACRO,
 		`CREATE OR REPLACE VIEW seed AS SELECT * FROM read_parquet(${sqlLiteral(opts.seedGlob)})`,
+		// Refuse a Seed glob that matches the same transaction more than once —
+		// e.g. two overlapping ingest ranges, or a promoted `provisional/` copy
+		// left alongside the original. Nothing in the Seed layer prevents this,
+		// and unnoticed it fans `tx_logs` out per duplicate and doubles the
+		// `tx_agg` join, silently doubling every aggregate on the affected rows.
+		`CREATE OR REPLACE TEMP TABLE seed_tx_hash_check AS
+		 SELECT CASE WHEN count(*) != count(DISTINCT tx_hash) THEN error(
+		   'Seed glob ' || ${sqlLiteral(opts.seedGlob)} || ' matches ' || count(*) ||
+		   ' rows but only ' || count(DISTINCT tx_hash) || ' distinct tx_hash values — ' ||
+		   'the glob matches the same transaction in more than one Seed file (overlapping ' ||
+		   'ingest ranges, or an original alongside a provisional/ copy). Narrow the glob so ' ||
+		   'each transaction is matched exactly once before building candidates.'
+		 ) END AS ok
+		 FROM seed`,
 		`CREATE OR REPLACE TABLE routers (address VARCHAR, name VARCHAR, version VARCHAR)`,
 		`INSERT INTO routers VALUES ${opts.routerValues}`,
 		// One row per receipt log. A transaction with no logs contributes none,
@@ -86,7 +105,7 @@ export function candidatesSetupSql(opts: { seedGlob: string; routerValues: strin
 		        count(*) FILTER (topic0 = ${sqlLiteral(SWAP_TOPICS.v3)})        AS v3_legs,
 		        count(*) FILTER (topic0 = ${sqlLiteral(SWAP_TOPICS.v4)})        AS v4_legs,
 		        count(DISTINCT ${POOL_KEY}) FILTER (topic0 IN (${ALL_SWAP_TOPICS})) AS distinct_pools,
-		        count(DISTINCT topic1) FILTER (topic0 = ${sqlLiteral(SWAP_TOPICS.v4)}) AS distinct_v4_poolids
+		        count(DISTINCT lower(topic1)) FILTER (topic0 = ${sqlLiteral(SWAP_TOPICS.v4)}) AS distinct_v4_poolids
 		 FROM tx_logs GROUP BY tx_hash`,
 	];
 }

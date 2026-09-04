@@ -86,7 +86,7 @@ export interface CandidateRow {
 	log_count: number;
 	erc20_transfer_count: number;
 	gas_used: number;
-	/** Wei, decimal string. NULL when the payload exceeds 2^128 (see hexToDecMacro). */
+	/** Wei, decimal string. NULL when the payload exceeds 2^128 (see HEX_TO_DEC_MACRO). */
 	effective_gas_price: string | null;
 	l1_fee: string | null;
 	tx_value: string | null;

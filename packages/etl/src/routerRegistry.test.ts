@@ -46,7 +46,26 @@ describe('loadRouterRegistry', () => {
 		await expect(loadRouterRegistry(join(dir, 'missing.json'))).rejects.toThrow(/missing\.json/);
 	});
 
+	it('names the index and value of a malformed entry', async () => {
+		const path = writeConfig([
+			{ name: 'A', address: '0xaa', version: '1', active: true },
+			{ name: 'B', version: '1', active: true }, // no address
+		]);
+		await expect(loadRouterRegistry(path)).rejects.toThrow(/index 1/);
+	});
+
+	it('throws on a duplicated active address rather than fanning out the join', async () => {
+		const path = writeConfig([
+			{ name: 'A', address: '0xaa', version: '1', active: true },
+			{ name: 'A-again', address: '0xAA', version: '2', active: true },
+		]);
+		await expect(loadRouterRegistry(path)).rejects.toThrow(/more than once/);
+	});
+
 	it('loads the real repo registry', async () => {
+		// Relative to the repo root: vitest runs from there (see the project's
+		// vitest config / CI invocation), NOT from this package's directory.
+		// Run from packages/etl and this throws a confusing ENOENT instead.
 		const entries = await loadRouterRegistry('configs/routers.json');
 		expect(entries.length).toBeGreaterThanOrEqual(20);
 		expect(entries.every((e) => e.address === e.address.toLowerCase())).toBe(true);

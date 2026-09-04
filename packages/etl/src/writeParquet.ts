@@ -68,14 +68,22 @@ export function writeNdjsonLines(rows: readonly unknown[], sink: Writable): Prom
  * Run `body` against a fresh in-memory DuckDB, closing both handles afterwards
  * whatever happens. `closeSync` on an already-closed handle is not expected
  * here — each is closed exactly once — so failures are not swallowed.
+ *
+ * Nested try/finally, not a flat one: `instance.connect()` and `body()` can
+ * each throw before the other handle exists or after it is already open, so
+ * only nesting guarantees `instance.closeSync()` still runs when `connect()`
+ * itself throws, and that a throwing `connection.closeSync()` cannot skip it.
  */
 async function withDuckDb<T>(body: (connection: DuckDBConnection) => Promise<T>): Promise<T> {
 	const instance = await DuckDBInstance.create(':memory:');
-	const connection = await instance.connect();
 	try {
-		return await body(connection);
+		const connection = await instance.connect();
+		try {
+			return await body(connection);
+		} finally {
+			connection.closeSync();
+		}
 	} finally {
-		connection.closeSync();
 		instance.closeSync();
 	}
 }
@@ -161,6 +169,13 @@ export async function copyQueryToParquet(opts: {
 	setupSql?: readonly string[];
 	selectSql: string;
 	rowGroupSize?: number;
+	/**
+	 * Runs against the just-written temp Parquet, after the COPY but before the
+	 * empty-result check and the atomic rename — i.e. before the result is
+	 * published. Throw to refuse publishing; the temp file is still cleaned up
+	 * and `outPath` (if something already lives there) is left untouched.
+	 */
+	validate?: (connection: DuckDBConnection, parquetTmpPath: string) => Promise<void>;
 }): Promise<number> {
 	const { dir, parquet } = tempPaths(opts.outPath);
 	mkdirSync(dir, { recursive: true });
@@ -173,6 +188,7 @@ export async function copyQueryToParquet(opts: {
 			await connection.run(
 				copySql(opts.selectSql, parquet, opts.rowGroupSize ?? DEFAULT_ROW_GROUP_SIZE),
 			);
+			await opts.validate?.(connection, parquet);
 			const reader = await connection.runAndReadAll(
 				`SELECT count(*) AS n FROM read_parquet(${sqlLiteral(parquet)})`,
 			);
