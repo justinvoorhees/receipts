@@ -13,9 +13,15 @@ const dir = mkdtempSync(join(tmpdir(), 'etl-e2e-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 /**
- * Live pipeline test against Base. Skips SILENTLY without TCA_RPC_URL, which is
- * the repo's established pattern — and its established trap. If you changed
- * ingest and this "passed", check that it actually RAN.
+ * Live pipeline test against Base. It ISSUES REAL RPC CALLS — roughly 20 per
+ * run, on a paid endpoint.
+ *
+ * ⚠️ It does NOT skip just because you did not export TCA_RPC_URL: this file
+ * calls dotenv `config()` itself (line 9), so a repo-root `.env` supplies the
+ * URL and the suite RUNS. There is no opt-out short of moving the `.env` aside
+ * or filtering this file out of the vitest invocation. Conversely, if you are
+ * relying on it to prove an ingest change and it "passed" in a context with no
+ * `.env` and no exported URL, it skipped — check that it actually RAN.
  */
 describe.skipIf(!RPC)('ingestRange (live)', () => {
 	it('ingests a small finalized range into the canonical archive', async () => {
