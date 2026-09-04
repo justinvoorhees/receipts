@@ -110,6 +110,80 @@ describe('rpcCall retry with backoff', () => {
 		});
 	});
 
+	/**
+	 * A 200 carrying a JSON-RPC error is the ONE path where provider-controlled
+	 * text used to be interpolated verbatim into a thrown Error. Providers echo
+	 * the request URL back on auth and quota errors, so that text is a live
+	 * secret-exfiltration channel — onto stderr and into every CI log.
+	 */
+	it('never lets a JSON-RPC error message leak the URL it echoes back', async () => {
+		const fetchFn = vi.fn(async () =>
+			fakeResponse(200, {
+				error: { code: -32000, message: `unauthorized for ${secretUrl}` },
+			}),
+		);
+		const delayFn = vi.fn(async () => {});
+
+		let caught: unknown;
+		try {
+			await rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn });
+		} catch (err) {
+			caught = err;
+		}
+
+		expect(caught).toBeInstanceOf(Error);
+		const error = caught as Error;
+		expect(error.message).not.toContain(secret);
+		expect(error.message).not.toContain('rpc.example.invalid');
+		expect(error.stack ?? '').not.toContain(secret);
+		expect(error.cause).toBeUndefined();
+		// Still diagnostic: the JSON-RPC code is a defined scalar, not provider prose.
+		expect(error.message).toBe('RPC eth_blockNumber failed: JSON-RPC error code -32000');
+	});
+
+	it('reports a JSON-RPC error with no numeric code without leaking the message', async () => {
+		const fetchFn = vi.fn(async () =>
+			fakeResponse(200, { error: { message: `bad key in ${secretUrl}` } }),
+		);
+		const delayFn = vi.fn(async () => {});
+
+		await expect(rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn })).rejects.toThrow(
+			'RPC eth_blockNumber failed: JSON-RPC error code unknown',
+		);
+	});
+
+	/**
+	 * `json()` is this package's own injected seam (`RpcResponseLike`), so its
+	 * rejection is whatever the implementation throws. undici's current parse
+	 * error text ends with " at <request URL>" — the API key included.
+	 */
+	it('never lets a body-parse rejection leak the URL it names', async () => {
+		const fetchFn = vi.fn(async () => ({
+			ok: true,
+			status: 200,
+			headers: { get: () => null },
+			json: async () => {
+				throw new SyntaxError(`Unexpected token '<' at ${secretUrl}`);
+			},
+		}));
+		const delayFn = vi.fn(async () => {});
+
+		let caught: unknown;
+		try {
+			await rpcCall(secretUrl, 'eth_blockNumber', [], { fetchFn, delayFn });
+		} catch (err) {
+			caught = err;
+		}
+
+		expect(caught).toBeInstanceOf(Error);
+		const error = caught as Error;
+		expect(error.message).not.toContain(secret);
+		expect(error.message).not.toContain('rpc.example.invalid');
+		expect(error.stack ?? '').not.toContain(secret);
+		expect(error.cause).toBeUndefined();
+		expect(error.message).toBe('RPC eth_blockNumber failed: response body was not valid JSON');
+	});
+
 	it('never lets the planted secret reach the error message on the exhausted-retry path', async () => {
 		const fetchFn = vi.fn(async () => fakeResponse(500, {}));
 		const delayFn = vi.fn(async () => {});

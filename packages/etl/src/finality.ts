@@ -101,8 +101,26 @@ export async function rpcCall<T>(
 		// including after every retry attempt is spent.
 		throw new Error(`RPC ${method} failed: HTTP ${response.status}`);
 	}
-	const body = (await response.json()) as { result?: T; error?: { message?: string } };
-	if (body.error) throw new Error(`RPC ${method} failed: ${body.error.message ?? 'unknown error'}`);
+	let body: { result?: T; error?: { code?: unknown; message?: string } };
+	try {
+		body = (await response.json()) as typeof body;
+	} catch {
+		// `json()` comes through this package's own `RpcResponseLike` seam, so
+		// the rejection is whatever the injected implementation throws — and
+		// undici's own parse error already ends with " at <the request URL>",
+		// which is where the API key lives. Never let that reach the caller,
+		// as this message or as a `cause`.
+		throw new Error(`RPC ${method} failed: response body was not valid JSON`);
+	}
+	if (body.error) {
+		// A JSON-RPC error message is PROVIDER-CONTROLLED text. Providers echo
+		// the request URL back on auth and quota errors, which would put the
+		// API key on stderr and into every CI log, so no part of it is
+		// interpolated. The numeric `code` is a JSON-RPC-defined scalar and
+		// carries no provider text, so it is the one detail worth keeping.
+		const code = typeof body.error.code === 'number' ? body.error.code : 'unknown';
+		throw new Error(`RPC ${method} failed: JSON-RPC error code ${code}`);
+	}
 	if (body.result === undefined) throw new Error(`RPC ${method} returned no result`);
 	return body.result;
 }
