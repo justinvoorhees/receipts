@@ -160,6 +160,35 @@ export const AGGREGATOR_SIGNATURES: Record<string, SettlementSignature> = {
 		aggregator: 'juicebox', settlementContract: '0x2db6d704058e552defe415753465df8df0361846',
 		eventTopics: [], eventName: null,
 	},
+	// fly.trade is Magpie's rebranded front-end (MagpieRouterV3_1); the
+	// routers.json entry is a verified non-proxy contract, so it emits from its
+	// own address and is its own settlementContract. Topics empty for the same
+	// reason as spire and juicebox: no sample tx. Checked the 300-block Base Seed
+	// archive (50842630-50842929) — fly.trade appears zero times, as tx_to and as
+	// a log emitter, so router mode's "first non-noise event from this contract"
+	// fallback is also what will discover the real topic when one shows up.
+	'fly.trade': {
+		aggregator: 'fly.trade', settlementContract: '0x5e766616aabfb588e23a8ea854e9dbd1042affd3',
+		eventTopics: [], eventName: null,
+	},
+	// LI.FI's diamond settles down TWO paths, so it needs both topics: a same-chain
+	// swap ends in LiFiGenericSwapCompleted, a bridge starts with LiFiTransferStarted.
+	// Topics sourced from the 300-block Base Seed archive (50842630-50842929), where
+	// the diamond is tx_to on 25 txs: 8 emit the swap event, 16 the bridge event, and
+	// together they cover 24 of the 24 SUCCESSFUL routed txs (the 25th reverted and
+	// correctly emits nothing). Both are emitted BY the diamond, so plain router mode
+	// is right and no event_anywhere escape is needed.
+	// AssetSwapped (0x7bfdfdb5…) is deliberately NOT here: it fires once per DEX leg
+	// (291 logs across 161 txs), so it marks a hop, not a settlement.
+	'li.fi': {
+		aggregator: 'li.fi', settlementContract: '0x1231deb6f5749ef6ce6943a275a1d3e7486f4eae',
+		eventTopics: [
+			'0x38eee76fd911eabac79da7af16053e809be0e12c8637f156e77e1af309b99537', // LiFiGenericSwapCompleted
+			'0xcba69f43792f9f399347222505213b55af8e0b0b54b893085c2e27ecbe1644f1', // LiFiTransferStarted
+		],
+		// Two events with different names share this entry, as with odos above.
+		eventName: null,
+	},
 };
 
 export interface EmittedEvent { address: string; topic0: string; count: number }
