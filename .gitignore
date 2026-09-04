@@ -8,3 +8,4 @@ dist
 *.tsbuildinfo
 .superpowers/sdd
 data/
+.duckdbrc
