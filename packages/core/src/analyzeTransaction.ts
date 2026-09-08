@@ -317,6 +317,26 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 }
 
 /**
+ * `analyzeTransaction`'s options. With ONLY `rpcUrl` set (the dashboard's
+ * call), behaviour is byte-identical to before these options existed — that
+ * is the governing contract for this whole options surface, not just a
+ * convention:
+ *
+ *   - `includeWings` (default true): compute the two adjacent-block market-mid
+ *     wings. `false` skips them — see pricing.ts.
+ *   - `prefetched`: feed the receipt/tx/trace from the ETL Seed layer instead
+ *     of RPC — see prefetched.ts.
+ *   - `factCache`: a process-global cache of immutable on-chain facts shared
+ *     across calls — see factCache.ts and cachedReaders.ts.
+ */
+export interface AnalyzeTransactionOptions {
+	rpcUrl: string;
+	includeWings?: boolean;
+	prefetched?: PrefetchedTx;
+	factCache?: FactCache;
+}
+
+/**
  * One call = one decode = one RPC memo (see rpcSession.ts). The session is
  * opened HERE, at the only function that owns a whole receipt, so every read
  * below — pricing, pool discovery, the route readers, the benchmark — dedupes
@@ -327,7 +347,7 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 export function analyzeTransaction(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx; factCache?: FactCache },
+	opts: AnalyzeTransactionOptions,
 ): Promise<Receipt | null> {
 	return runInDecodeSession(() => analyzeTransactionInSession(hash, chainId, opts));
 }
@@ -335,7 +355,7 @@ export function analyzeTransaction(
 async function analyzeTransactionInSession(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx; factCache?: FactCache },
+	opts: AnalyzeTransactionOptions,
 ): Promise<Receipt | null> {
 	const { rpcUrl } = opts;
 	try {

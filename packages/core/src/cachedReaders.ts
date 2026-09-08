@@ -44,7 +44,21 @@ export const CACHEABLE_FEE_VENUES: ReadonlySet<VenueType> = new Set<VenueType>([
 	'pancakev3',
 ]);
 
-/** poolId → currencies. The big win: ~25 serial `extsload` probes become zero. */
+/**
+ * poolId → currencies. The big win: ~25 serial `extsload` probes become zero.
+ *
+ * ⚠️ The 535/535 determinism baseline (see the determinism-mode analysis) was
+ * measured with NO FactCache warm. A warm cache introduces order-dependence
+ * IN PRINCIPLE: `createDefaultV4PoolKeyReader` is `toBlock`-bounded
+ * (routeReaders.ts, `createDefaultV4PoolKeyReader`'s bisect search), so a
+ * cache hit written by an earlier decode at a LATER block is a wider search
+ * than a live read pinned to an earlier block would have performed on its
+ * own. It is believed inert — a pool cannot appear in a trace before its
+ * Initialize event, so a wider bound can only ever CONFIRM the same
+ * Initialize log, never find a different one — but that is reasoning, not
+ * measurement. Re-run the determinism gate with a warm FactCache before
+ * relying on this belief.
+ */
 export function cachedPoolKeyReader(inner: V4PoolKeyReader, cache: FactCache): V4PoolKeyReader {
 	return async (poolId: string) => {
 		const hit = cache.getPoolKey(poolId);
@@ -57,6 +71,17 @@ export function cachedPoolKeyReader(inner: V4PoolKeyReader, cache: FactCache): V
 
 type V3FactoryReader = (addr: string) => Promise<string | null> | string | null;
 
+/**
+ * A v3 POOL's `factory()` is fixed at creation — that immutability is the
+ * whole safety argument for caching it. It does NOT generalize to "any
+ * contract's factory() return is immutable": decomposeRoute.ts calls this
+ * reader over every transfer COUNTERPARTY, which includes plain token
+ * contracts, not only pools (`addKnownFactoryVenuesFromTransfers`,
+ * `refineV3VenueTypes`). This reader is therefore NOT pool-scoped — a `null`
+ * from a non-pool address is expected and is never cached (see the module
+ * docstring's rule 1), and any non-null answer is trusted as immutable on the
+ * strength of the pool-specific argument only.
+ */
 export function cachedV3FactoryReader(inner: V3FactoryReader, cache: FactCache): V3FactoryReader {
 	return async (addr: string) => {
 		const hit = cache.getPool(addr)?.factory;

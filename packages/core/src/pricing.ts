@@ -629,15 +629,23 @@ export async function priceReceipt(
       // independently on failure; the center call is intentionally NOT caught
       // here — a failed ruler must still degrade the WHOLE receipt to partial
       // (see the "never throws: a throwing benchmark" test), unchanged from
-      // before this fix.
+      // before this fix. `includeWings: false` skips both wing calls here too —
+      // this fast path must honour the option exactly like the general path
+      // below, or WETH/USDC trades (a large share of Base volume) pay the full
+      // wing cost regardless of the option.
+      const wings = args.includeWings !== false;
       const [bench, rawBeforeWethUsd, rawAfterWethUsd] = await Promise.all([
         deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber }),
-        deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber: refBlock })
-          .then((b) => b.marketMid)
-          .catch(() => null),
-        deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber: refBlock + 2n })
-          .then((b) => b.marketMid)
-          .catch(() => null),
+        wings
+          ? deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber: refBlock })
+              .then((b) => b.marketMid)
+              .catch(() => null)
+          : Promise.resolve(null),
+        wings
+          ? deps.benchmark({ rpcUrl: args.rpcUrl, blockNumber: refBlock + 2n })
+              .then((b) => b.marketMid)
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
       // bench.marketMid is USDC-per-WETH. We want output-per-input — same
       // orientation must apply to the wings or they render upside down.
@@ -698,10 +706,12 @@ export async function priceReceipt(
     // independently via its own `.catch`. Reuses the one middle call — three
     // total calls, not four.
     //
-    // `includeWings: false` skips both, at a measured saving of ~19% of a
-    // decode's RPC calls. The ETL path passes it: with no UI there is no
-    // consumer for the adjacent-block table, and each wing is one more
-    // independent chance for a transient read failure to degrade a row.
+    // `includeWings: false` skips both — here AND on the USDC/WETH fast path
+    // above, which honours the same option via its own `wings` const — at a
+    // measured saving of ~19% of a decode's RPC calls. The ETL path passes it:
+    // with no UI there is no consumer for the adjacent-block table, and each
+    // wing is one more independent chance for a transient read failure to
+    // degrade a row.
     const wings = args.includeWings !== false;
     const [mp, marketMidBefore, marketMidAfter] = await Promise.all([
       deps.getMarketPrice(inputToken, outputToken, refBlock),

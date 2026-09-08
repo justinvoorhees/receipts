@@ -77,4 +77,59 @@ describe('fromSeedJson', () => {
 			fromSeedJson({ receiptJson: 'not json', txJson: TX_JSON, traceJson: TRACE_JSON }),
 		).toThrow(/receipt/i);
 	});
+
+	// A malformed log must not silently degrade — resolveTrader matches log
+	// addresses against REACTORS/ENTRY_POINTS, so a coerced "undefined" address
+	// would pick a DIFFERENT trader anchor with no flag, not fail loudly.
+	it('refuses a receipt whose logs is not an array', () => {
+		expect(() =>
+			fromSeedJson({
+				receiptJson: JSON.stringify({ blockNumber: '0x1', gasUsed: '0x1', logs: null }),
+				txJson: TX_JSON,
+				traceJson: TRACE_JSON,
+			}),
+		).toThrow(/logs/);
+	});
+
+	it('refuses a log with a missing address rather than coercing to "undefined"', () => {
+		expect(() =>
+			fromSeedJson({
+				receiptJson: JSON.stringify({
+					blockNumber: '0x1',
+					gasUsed: '0x1',
+					logs: [{ topics: ['0x11'] }],
+				}),
+				txJson: TX_JSON,
+				traceJson: TRACE_JSON,
+			}),
+		).toThrow(/logs\[0\]\.address/);
+	});
+
+	it('refuses a log whose topics is not an array', () => {
+		expect(() =>
+			fromSeedJson({
+				receiptJson: JSON.stringify({
+					blockNumber: '0x1',
+					gasUsed: '0x1',
+					logs: [{ address: '0xAAA', topics: null }],
+				}),
+				txJson: TX_JSON,
+				traceJson: TRACE_JSON,
+			}),
+		).toThrow(/logs\[0\]\.topics/);
+	});
+
+	it('refuses a log with a non-hex topic entry', () => {
+		expect(() =>
+			fromSeedJson({
+				receiptJson: JSON.stringify({
+					blockNumber: '0x1',
+					gasUsed: '0x1',
+					logs: [{ address: '0xAAA', topics: ['0x11', 'not-hex'] }],
+				}),
+				txJson: TX_JSON,
+				traceJson: TRACE_JSON,
+			}),
+		).toThrow(/logs\[0\]\.topics\[1\]/);
+	});
 });

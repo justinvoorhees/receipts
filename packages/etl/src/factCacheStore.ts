@@ -1,8 +1,7 @@
-import { DuckDBInstance } from '@duckdb/node-api';
 import type { FactCacheEntries } from '@fabric-tca/core';
 import { existsSync } from 'node:fs';
 import { cacheFilePath } from './derivedPath.js';
-import { sqlLiteral, writeRowsToParquet } from './writeParquet.js';
+import { sqlLiteral, withDuckDb, writeRowsToParquet } from './writeParquet.js';
 
 /**
  * factCacheStore.ts — the FactCache on disk.
@@ -36,20 +35,43 @@ const POOL_COLUMNS =
 
 async function readRows(path: string): Promise<Record<string, unknown>[]> {
 	if (!existsSync(path)) return [];
-	const instance = await DuckDBInstance.create(':memory:');
-	const connection = await instance.connect();
-	try {
+	// withDuckDb (writeParquet.ts) nests its try/finally so instance.closeSync()
+	// still runs when connect() itself throws — a flat try/finally here would
+	// leak the DuckDB instance on exactly that failure.
+	return withDuckDb(async (connection) => {
 		const reader = await connection.runAndReadAll(`SELECT * FROM read_parquet(${sqlLiteral(path)})`);
 		return reader.getRowObjects() as Record<string, unknown>[];
-	} finally {
-		connection.closeSync();
-		instance.closeSync();
-	}
+	});
 }
 
-/** `undefined` for an absent optional field — never `null`, which would be a stored fact. */
+/** `undefined` for an absent optional field — never `null`, which would be a
+ *  stored fact. A genuinely empty string ("") is a VALUE, not an absence — a
+ *  token whose `symbol()` really returns "" must round-trip as "", not be
+ *  reclassified as "could not read" (see factCache.ts's "A NULL IS NEVER A
+ *  FACT"). Only `undefined`/`null` count as absent. */
 function optionalString(value: unknown): string | undefined {
-	return typeof value === 'string' && value.length > 0 ? value : undefined;
+	return typeof value === 'string' ? value : undefined;
+}
+
+/** Required string field read back from the cache Parquet. Throws, naming the
+ *  offending field, rather than coercing a missing/null value to a
+ *  plausible-looking string — the same posture as prefetched.ts's
+ *  `requiredHex` on the Seed path. A poisoned pool key is worse than a
+ *  poisoned log: `cachedPoolKeyReader` serves it as a fact FOREVER. */
+function requiredString(value: unknown, field: string): string {
+	if (typeof value !== 'string' || value.length === 0) {
+		throw new Error(`Fact cache row has no usable ${field} (got ${JSON.stringify(value)})`);
+	}
+	return value;
+}
+
+/** Required numeric field. A NULL `decimals` must not silently become a
+ *  plausible-looking 0 — see requiredString above for the same reasoning. */
+function requiredNumber(value: unknown, field: string): number {
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		throw new Error(`Fact cache row has no usable ${field} (got ${JSON.stringify(value)})`);
+	}
+	return value;
 }
 
 export async function loadFactCacheEntries(opts: {
@@ -64,26 +86,41 @@ export async function loadFactCacheEntries(opts: {
 
 	const entries: FactCacheEntries = {
 		poolKeys: poolKeyRows.map((r) => [
-			String(r.pool_id),
-			{ currency0: String(r.currency0), currency1: String(r.currency1) },
-		]),
-		tokens: tokenRows.map((r) => [
-			String(r.address),
-			{ decimals: Number(r.decimals), symbol: optionalString(r.symbol) ?? null },
-		]),
-		pools: poolRows.map((r) => [
-			String(r.address),
+			requiredString(r.pool_id, 'pool_id'),
 			{
-				...(optionalString(r.token0) ? { token0: String(r.token0) } : {}),
-				...(optionalString(r.token1) ? { token1: String(r.token1) } : {}),
-				...(r.fee_bps == null ? {} : { feeBps: Number(r.fee_bps) }),
-				...(optionalString(r.factory) ? { factory: String(r.factory) } : {}),
+				currency0: requiredString(r.currency0, 'currency0'),
+				currency1: requiredString(r.currency1, 'currency1'),
 			},
 		]),
+		tokens: tokenRows.map((r) => [
+			requiredString(r.address, 'address'),
+			{ decimals: requiredNumber(r.decimals, 'decimals'), symbol: optionalString(r.symbol) ?? null },
+		]),
+		pools: poolRows.map((r) => {
+			const token0 = optionalString(r.token0);
+			const token1 = optionalString(r.token1);
+			const factory = optionalString(r.factory);
+			return [
+				String(r.address),
+				{
+					...(token0 ? { token0 } : {}),
+					...(token1 ? { token1 } : {}),
+					...(r.fee_bps == null ? {} : { feeBps: Number(r.fee_bps) }),
+					...(factory ? { factory } : {}),
+				},
+			];
+		}),
 	};
 	return entries;
 }
 
+/**
+ * ⚠️ REPLACES each family's file wholesale — it is not a merge. A caller that
+ * builds `entries` without first `loadFactCacheEntries`-ing the existing file
+ * and folding it in will silently truncate the accumulated on-disk cache down
+ * to whatever it just built. Always compose as
+ * `saveFactCacheEntries(mergeIntoExisting(await loadFactCacheEntries(...), newFacts), ...)`.
+ */
 export async function saveFactCacheEntries(
 	entries: FactCacheEntries,
 	opts: { dataDir: string; chain: string },

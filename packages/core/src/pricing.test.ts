@@ -132,6 +132,29 @@ describe('priceReceipt', () => {
     expect(r.marketMidAfter).toBeCloseTo(3000, 6);
   });
 
+  // Counterpart of the general-path "includeWings false calls ... ONCE" test
+  // below: the fast path has its own `deps.benchmark` wing calls and its own
+  // `wings` const, so the option must be independently verified here — this is
+  // exactly the gap the whole-branch review caught (every fast-path test was
+  // otherwise unconditional on `includeWings`).
+  it('fast path: includeWings false calls benchmark ONCE, at the ruler block, and nulls both wings', async () => {
+    const seenBlocks: bigint[] = [];
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: WETH, outputToken: USDC, includeWings: false },
+      makeDeps({
+        benchmark: async ({ blockNumber }) => {
+          seenBlocks.push(blockNumber);
+          return fakeBenchmark({ marketMid: 1800 });
+        },
+        getUsdValue: async () => 1800,
+      }),
+    );
+    expect(seenBlocks).toEqual([baseArgs.blockNumber]);
+    expect(r.marketMid).toBeCloseTo(1800, 6);
+    expect(r.marketMidBefore).toBeNull();
+    expect(r.marketMidAfter).toBeNull();
+  });
+
   it('USDC/WETH fast-path downgrades to estimated when the oracle disagrees', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: WETH, outputToken: USDC },

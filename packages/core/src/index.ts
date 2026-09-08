@@ -4,7 +4,11 @@
  * The single on-demand entry point for the receipts tool: paste a tx hash,
  * get a `Receipt` (or `null`).
  */
-export { analyzeTransaction, type Receipt } from './analyzeTransaction.js';
+export {
+	analyzeTransaction,
+	type AnalyzeTransactionOptions,
+	type Receipt,
+} from './analyzeTransaction.js';
 export { resolveContractName, enrichFeeSinkNames, type FeeSinkNamed, type NameResolverDeps } from './contractNames.js';
 export { buildFeeSinks, type FeeSinkOut } from './decomposeRoute.js';
 export { classifyTransaction } from './classifyTransaction.js';

@@ -67,6 +67,18 @@ function optionalHex(value: unknown): bigint | undefined {
 	return typeof value === 'string' && /^0x[0-9a-fA-F]+$/.test(value) ? BigInt(value) : undefined;
 }
 
+/** Required 0x-prefixed string field (address or topic) → the string itself,
+ *  unmodified (no BigInt conversion — addresses/topics stay strings). Throws
+ *  rather than silently coercing a missing value to the literal "undefined",
+ *  which — fed to `resolveTrader`'s REACTORS/ENTRY_POINTS match — would
+ *  produce a DIFFERENT receipt with a different trader anchor, not a null one. */
+function requiredHexString(value: unknown, field: string): string {
+	if (typeof value !== 'string' || !/^0x[0-9a-fA-F]+$/.test(value)) {
+		throw new Error(`Prefetched log has no usable ${field} (got ${JSON.stringify(value)})`);
+	}
+	return value;
+}
+
 export function fromSeedJson(args: {
 	receiptJson: string;
 	txJson: string;
@@ -76,11 +88,19 @@ export function fromSeedJson(args: {
 	const tx = parseJson(args.txJson, 'transaction');
 	const trace = parseJson(args.traceJson, 'trace');
 
-	const rawLogs = Array.isArray(receipt.logs) ? (receipt.logs as Record<string, unknown>[]) : [];
-	const logs: PrefetchedLog[] = rawLogs.map((l) => ({
-		address: String(l.address),
-		topics: Array.isArray(l.topics) ? (l.topics as unknown[]).map(String) : [],
-	}));
+	if (!Array.isArray(receipt.logs)) {
+		throw new Error(`Prefetched receipt has no usable logs (got ${JSON.stringify(receipt.logs)})`);
+	}
+	const rawLogs = receipt.logs as Record<string, unknown>[];
+	const logs: PrefetchedLog[] = rawLogs.map((l, i) => {
+		if (!Array.isArray(l.topics)) {
+			throw new Error(`Prefetched log has no usable logs[${i}].topics (got ${JSON.stringify(l.topics)})`);
+		}
+		return {
+			address: requiredHexString(l.address, `logs[${i}].address`),
+			topics: (l.topics as unknown[]).map((t, j) => requiredHexString(t, `logs[${i}].topics[${j}]`)),
+		};
+	});
 
 	const effectiveGasPrice = optionalHex(receipt.effectiveGasPrice);
 
