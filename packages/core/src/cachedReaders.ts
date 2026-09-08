@@ -1,4 +1,4 @@
-import type { FactCache } from './factCache.js';
+import type { FactCache, PoolProtocol } from './factCache.js';
 import type { VenueType } from './routeGraph.js';
 import type { V4PoolKeyReader } from './routeReaders.js';
 
@@ -59,12 +59,22 @@ export const CACHEABLE_FEE_VENUES: ReadonlySet<VenueType> = new Set<VenueType>([
  * measurement. Re-run the determinism gate with a warm FactCache before
  * relying on this belief.
  */
-export function cachedPoolKeyReader(inner: V4PoolKeyReader, cache: FactCache): V4PoolKeyReader {
+export function cachedPoolKeyReader(
+	inner: V4PoolKeyReader,
+	cache: FactCache,
+	chainId: number,
+	protocol: PoolProtocol,
+): V4PoolKeyReader {
 	return async (poolId: string) => {
-		const hit = cache.getPoolKey(poolId);
-		if (hit) return hit;
+		const hit = cache.getPoolKey(chainId, poolId);
+		// Return only the reader's declared shape, not the whole PoolKeyFact —
+		// `protocol` is provenance for the cache table, not part of what a
+		// V4PoolKeyReader promises its callers. Without this, a cache hit and a
+		// cache miss would hand callers differently-shaped objects for the same
+		// poolId depending on which decode warmed the cache.
+		if (hit) return { currency0: hit.currency0, currency1: hit.currency1 };
 		const fresh = await inner(poolId);
-		if (fresh) cache.setPoolKey(poolId, fresh);
+		if (fresh) cache.setPoolKey(chainId, poolId, { ...fresh, protocol });
 		return fresh;
 	};
 }
@@ -82,12 +92,12 @@ type V3FactoryReader = (addr: string) => Promise<string | null> | string | null;
  * docstring's rule 1), and any non-null answer is trusted as immutable on the
  * strength of the pool-specific argument only.
  */
-export function cachedV3FactoryReader(inner: V3FactoryReader, cache: FactCache): V3FactoryReader {
+export function cachedV3FactoryReader(inner: V3FactoryReader, cache: FactCache, chainId: number): V3FactoryReader {
 	return async (addr: string) => {
-		const hit = cache.getPool(addr)?.factory;
+		const hit = cache.getPool(chainId, addr)?.factory;
 		if (hit) return hit;
 		const fresh = await inner(addr);
-		if (fresh) cache.setPool(addr, { factory: fresh });
+		if (fresh) cache.setPool(chainId, addr, { factory: fresh });
 		return fresh;
 	};
 }
@@ -95,14 +105,14 @@ export function cachedV3FactoryReader(inner: V3FactoryReader, cache: FactCache):
 type FeeResult = { bps: number; defaulted: boolean };
 type FeeReader = (addr: string, type: VenueType, feeRawPips?: number) => Promise<FeeResult> | FeeResult;
 
-export function cachedFeeReader(inner: FeeReader, cache: FactCache): FeeReader {
+export function cachedFeeReader(inner: FeeReader, cache: FactCache, chainId: number): FeeReader {
 	return async (addr: string, type: VenueType, feeRawPips?: number) => {
 		if (!CACHEABLE_FEE_VENUES.has(type)) return inner(addr, type, feeRawPips);
-		const hit = cache.getPool(addr)?.feeBps;
+		const hit = cache.getPool(chainId, addr)?.feeBps;
 		if (hit !== undefined) return { bps: hit, defaulted: false };
 		const fresh = await inner(addr, type, feeRawPips);
 		// `defaulted` means the read FAILED and a fallback was substituted.
-		if (!fresh.defaulted) cache.setPool(addr, { feeBps: fresh.bps });
+		if (!fresh.defaulted) cache.setPool(chainId, addr, { feeBps: fresh.bps });
 		return fresh;
 	};
 }

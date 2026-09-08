@@ -488,13 +488,24 @@ async function analyzeTransactionInSession(
 		const cache = opts.factCache;
 		const cachedDeps = cache
 			? {
-					v4PoolKeyReader: cachedPoolKeyReader(createDefaultV4PoolKeyReader(rpcUrl, blockNumber), cache),
+					v4PoolKeyReader: cachedPoolKeyReader(
+						createDefaultV4PoolKeyReader(rpcUrl, blockNumber),
+						cache,
+						chainId,
+						'v4',
+					),
 					infinityPoolKeyReader: cachedPoolKeyReader(
 						createDefaultInfinityPoolKeyReader(rpcUrl, blockNumber),
 						cache,
+						chainId,
+						'infinity',
 					),
-					v3FactoryReader: cachedV3FactoryReader(createDefaultV3FactoryReader(rpcUrl, blockNumber), cache),
-					feeReader: cachedFeeReader(createDefaultFeeReader(rpcUrl, blockNumber), cache),
+					v3FactoryReader: cachedV3FactoryReader(
+						createDefaultV3FactoryReader(rpcUrl, blockNumber),
+						cache,
+						chainId,
+					),
+					feeReader: cachedFeeReader(createDefaultFeeReader(rpcUrl, blockNumber), cache, chainId),
 				}
 			: {};
 		const route = await decomposeRoute(

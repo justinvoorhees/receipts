@@ -27,56 +27,58 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 	it('round-trips all three families', async () => {
 		const counts = await saveFactCacheEntries(
 			{
-				poolKeys: [['0xpoolid', { currency0: '0x11', currency1: '0x22' }]],
-				tokens: [['0xtok', { decimals: 6, symbol: 'USDC' }]],
-				pools: [['0xpool', { token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac' }]],
+				poolKeys: [[8453, '0xpoolid', { currency0: '0x11', currency1: '0x22', protocol: 'v4' }]],
+				tokens: [[8453, '0xtok', { decimals: 6, symbol: 'USDC' }]],
+				pools: [[8453, '0xpool', { token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac' }]],
 			},
 			{ dataDir: dir, chain: 'base' },
 		);
 		expect(counts).toEqual({ poolKeys: 1, tokens: 1, pools: 1 });
 
 		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
-		expect(back.poolKeys).toEqual([['0xpoolid', { currency0: '0x11', currency1: '0x22' }]]);
-		expect(back.tokens).toEqual([['0xtok', { decimals: 6, symbol: 'USDC' }]]);
-		expect(back.pools).toEqual([['0xpool', { token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac' }]]);
+		expect(back.poolKeys).toEqual([[8453, '0xpoolid', { currency0: '0x11', currency1: '0x22', protocol: 'v4' }]]);
+		expect(back.tokens).toEqual([[8453, '0xtok', { decimals: 6, symbol: 'USDC' }]]);
+		expect(back.pools).toEqual([
+			[8453, '0xpool', { token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac' }],
+		]);
 	});
 
 	it('preserves a null symbol through the round trip', async () => {
 		await saveFactCacheEntries(
-			{ ...EMPTY, tokens: [['0xa', { decimals: 18, symbol: null }]] },
+			{ ...EMPTY, tokens: [[8453, '0xa', { decimals: 18, symbol: null }]] },
 			{ dataDir: dir, chain: 'base' },
 		);
 		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
-		expect(back.tokens).toEqual([['0xa', { decimals: 18, symbol: null }]]);
+		expect(back.tokens).toEqual([[8453, '0xa', { decimals: 18, symbol: null }]]);
 	});
 
 	it('preserves partial pool facts without inventing fields', async () => {
 		// An absent token0 must come back ABSENT, not as null — the same
 		// "absent is not measured" rule the fee work already established.
 		await saveFactCacheEntries(
-			{ ...EMPTY, pools: [['0xa', { factory: '0xf' }]] },
+			{ ...EMPTY, pools: [[8453, '0xa', { factory: '0xf' }]] },
 			{ dataDir: dir, chain: 'base' },
 		);
 		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
-		expect(back.pools).toEqual([['0xa', { factory: '0xf' }]]);
+		expect(back.pools).toEqual([[8453, '0xa', { factory: '0xf' }]]);
 	});
 
 	it('a second save replaces the files rather than appending', async () => {
 		await saveFactCacheEntries(
-			{ ...EMPTY, tokens: [['0xa', { decimals: 18, symbol: 'A' }]] },
+			{ ...EMPTY, tokens: [[8453, '0xa', { decimals: 18, symbol: 'A' }]] },
 			{ dataDir: dir, chain: 'base' },
 		);
 		await saveFactCacheEntries(
-			{ ...EMPTY, tokens: [['0xb', { decimals: 6, symbol: 'B' }]] },
+			{ ...EMPTY, tokens: [[8453, '0xb', { decimals: 6, symbol: 'B' }]] },
 			{ dataDir: dir, chain: 'base' },
 		);
 		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
-		expect(back.tokens.map(([k]) => k)).toEqual(['0xb']);
+		expect(back.tokens.map(([, k]) => k)).toEqual(['0xb']);
 	});
 
 	it('writes no file for an empty family, and still loads', async () => {
 		const counts = await saveFactCacheEntries(
-			{ ...EMPTY, tokens: [['0xa', { decimals: 18, symbol: 'A' }]] },
+			{ ...EMPTY, tokens: [[8453, '0xa', { decimals: 18, symbol: 'A' }]] },
 			{ dataDir: dir, chain: 'base' },
 		);
 		expect(counts).toEqual({ poolKeys: 0, tokens: 1, pools: 0 });
@@ -90,11 +92,11 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 		// factCache.ts's "A NULL IS NEVER A FACT". Round-tripping "" to null would
 		// make a later reader treat "could not read" and "read empty" the same.
 		await saveFactCacheEntries(
-			{ ...EMPTY, tokens: [['0xa', { decimals: 18, symbol: '' }]] },
+			{ ...EMPTY, tokens: [[8453, '0xa', { decimals: 18, symbol: '' }]] },
 			{ dataDir: dir, chain: 'base' },
 		);
 		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
-		expect(back.tokens).toEqual([['0xa', { decimals: 18, symbol: '' }]]);
+		expect(back.tokens).toEqual([[8453, '0xa', { decimals: 18, symbol: '' }]]);
 	});
 
 	// Malformed rows below are written with writeRowsToParquet directly (bypassing
@@ -104,11 +106,12 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 	describe('refuses a malformed cache row rather than coercing it into a fact', () => {
 		it('throws on a NULL decimals rather than reading it back as a plausible 0', async () => {
 			await writeRowsToParquet(
-				[{ address: '0xa', decimals: null, symbol: 'USDC' }],
+				[{ chain_id: 8453, address: '0xa', decimals: null, symbol: 'USDC' }],
 				{
 					outPath: cacheFilePath({ dataDir: dir, name: 'tokens', chain: 'base' }),
-					columnSpec: "{'address': 'VARCHAR', 'decimals': 'INTEGER', 'symbol': 'VARCHAR'}",
-					orderBy: 'address',
+					columnSpec:
+						"{'chain_id': 'INTEGER', 'address': 'VARCHAR', 'decimals': 'INTEGER', 'symbol': 'VARCHAR'}",
+					orderBy: 'chain_id, address',
 				},
 			);
 			await expect(loadFactCacheEntries({ dataDir: dir, chain: 'base' })).rejects.toThrow(/decimals/);
@@ -116,11 +119,12 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 
 		it('throws on a NULL currency1 rather than reading it back as the string "null"', async () => {
 			await writeRowsToParquet(
-				[{ pool_id: '0xpoolid', currency0: '0x11', currency1: null }],
+				[{ chain_id: 8453, pool_id: '0xpoolid', currency0: '0x11', currency1: null, protocol: 'v4' }],
 				{
 					outPath: cacheFilePath({ dataDir: dir, name: 'v4_poolkeys', chain: 'base' }),
-					columnSpec: "{'pool_id': 'VARCHAR', 'currency0': 'VARCHAR', 'currency1': 'VARCHAR'}",
-					orderBy: 'pool_id',
+					columnSpec:
+						"{'chain_id': 'INTEGER', 'pool_id': 'VARCHAR', 'currency0': 'VARCHAR', 'currency1': 'VARCHAR', 'protocol': 'VARCHAR'}",
+					orderBy: 'chain_id, pool_id',
 				},
 			);
 			await expect(loadFactCacheEntries({ dataDir: dir, chain: 'base' })).rejects.toThrow(/currency1/);
@@ -128,11 +132,12 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 
 		it('throws on a NULL pool_id rather than coercing it into a usable key', async () => {
 			await writeRowsToParquet(
-				[{ pool_id: null, currency0: '0x11', currency1: '0x22' }],
+				[{ chain_id: 8453, pool_id: null, currency0: '0x11', currency1: '0x22', protocol: 'v4' }],
 				{
 					outPath: cacheFilePath({ dataDir: dir, name: 'v4_poolkeys', chain: 'base' }),
-					columnSpec: "{'pool_id': 'VARCHAR', 'currency0': 'VARCHAR', 'currency1': 'VARCHAR'}",
-					orderBy: 'currency0',
+					columnSpec:
+						"{'chain_id': 'INTEGER', 'pool_id': 'VARCHAR', 'currency0': 'VARCHAR', 'currency1': 'VARCHAR', 'protocol': 'VARCHAR'}",
+					orderBy: 'chain_id, currency0',
 				},
 			);
 			await expect(loadFactCacheEntries({ dataDir: dir, chain: 'base' })).rejects.toThrow(/pool_id/);
@@ -156,5 +161,37 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 		const valueImports = src.match(/import\s+(?!type\b)[\s\S]*?from\s*['"]@fabric-tca\/core['"]/g) ?? [];
 		expect(valueImports).toEqual([]);
 		expect(src).toMatch(/import type[\s\S]*?from\s*['"]@fabric-tca\/core['"]/);
+	});
+});
+
+describe('chain and protocol columns', () => {
+	it('round-trips chain_id and protocol', async () => {
+		await saveFactCacheEntries(
+			{
+				poolKeys: [[8453, '0xid', { currency0: '0x1', currency1: '0x2', protocol: 'infinity' }]],
+				tokens: [[8453, '0xt', { decimals: 6, symbol: 'USDC' }]],
+				pools: [[8453, '0xp', { factory: '0xf' }]],
+			},
+			{ dataDir: dir, chain: 'base' },
+		);
+		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
+		expect(back.poolKeys).toEqual([[8453, '0xid', { currency0: '0x1', currency1: '0x2', protocol: 'infinity' }]]);
+		expect(back.pools).toEqual([[8453, '0xp', { factory: '0xf' }]]);
+		expect(back.tokens).toEqual([[8453, '0xt', { decimals: 6, symbol: 'USDC' }]]);
+	});
+
+	it('refuses a pool key row with an unknown protocol rather than guessing', async () => {
+		// A protocol we cannot name is a provenance hole, and this table is
+		// supposed to close one.
+		await expect(
+			saveFactCacheEntries(
+				{
+					poolKeys: [[8453, '0xid', { currency0: '0x1', currency1: '0x2', protocol: 'nope' as never }]],
+					tokens: [],
+					pools: [],
+				},
+				{ dataDir: dir, chain: 'base' },
+			),
+		).rejects.toThrow(/protocol/);
 	});
 });
