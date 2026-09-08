@@ -78,7 +78,7 @@ wall: 10,045ms   RPC calls: 175   distinct: 131   repeats: 44
 | `packages/core/src/prefetched.ts` | Seed-JSON → viem-shaped `receipt`/`tx` translation. New. |
 | `packages/core/src/prefetched.test.ts` | Tests for the above. New. |
 | `packages/core/src/index.ts` | Re-export the new surface. Modified. |
-| `packages/etl/src/factCacheStore.ts` | Parquet load/save for the three caches. New. |
+| `packages/etl/src/factCacheStore.ts` | Parquet load/save for the three caches, as plain entries. Type-only import from core. New. |
 | `packages/etl/src/factCacheStore.test.ts` | Tests for the above. New. |
 | `packages/etl/src/index.ts` | Re-export. Modified. |
 
@@ -481,26 +481,32 @@ git commit -m "feat(core): FactCache for immutable chain facts"
 **Interfaces:**
 - Consumes: `createMemoryFactCache`, `FactCache`, `FactCacheEntries` from `@fabric-tca/core`; `cacheFilePath` from `./derivedPath.js`; `writeRowsToParquet` from `./writeParquet.js`
 - Produces:
-  - `loadFactCache(opts: { dataDir: string; chain: string }): Promise<FactCache>`
-  - `saveFactCache(cache: FactCache, opts: { dataDir: string; chain: string }): Promise<{ poolKeys: number; tokens: number; pools: number }>`
+  - `loadFactCacheEntries(opts: { dataDir: string; chain: string }): Promise<FactCacheEntries>`
+  - `saveFactCacheEntries(entries: FactCacheEntries, opts: { dataDir: string; chain: string }): Promise<{ poolKeys: number; tokens: number; pools: number }>`
+
+⚠️⚠️ **This module must import from `@fabric-tca/core` with `import type` ONLY — never a runtime value.** Measured in this worktree before the plan was executed: `packages/core`'s `package.json` sets `"main": "./src/index.ts"`, so a value import from etl typechecks, compiles, and passes vitest (which transpiles), then fails at runtime with `ERR_UNKNOWN_FILE_EXTENSION` the moment compiled etl code under `dist/` tries to load a `.ts` file. `packages/etl` has never imported `packages/core` before, so nothing has hit this yet.
+
+That is why the store trades in plain `FactCacheEntries` rather than constructing a `FactCache`: serialization is its whole job, and the caller composes `createMemoryFactCache(await loadFactCacheEntries(...))`. `import type` is erased at compile time, so no cross-package runtime edge exists.
 
 **Context you need:** `derivedPath.ts` already provides `cacheFilePath({ dataDir, name, chain })` for `name` in `'pools' | 'tokens' | 'v4_poolkeys'`, placing files at `data/cache/<name>.<chain>.parquet` — deliberately **outside** any build directory, because a cache holds facts about the chain rather than about a build.
 
 `writeRowsToParquet(rows, { outPath, columnSpec, orderBy })` writes atomically. Missing cache files are normal on a first run and must load as empty, not throw.
 
-⚠️ `packages/etl` may import from `packages/core`; the reverse is what must not happen. Check `packages/etl/package.json` — if `@fabric-tca/core` is not already a dependency, add it (it is a workspace package, so `"@fabric-tca/core": "*"`).
+⚠️ `packages/etl` may import TYPES from `packages/core`; the reverse is what must not happen, and a runtime value import in either direction breaks (see the interfaces note above). Add `"@fabric-tca/core": "*"` to `packages/etl/package.json` dependencies — note the dashboard does not declare it either and relies on workspace hoisting, but declaring it is correct and costs nothing.
 
 - [ ] **Step 1: Write the failing test**
 
 Create `packages/etl/src/factCacheStore.test.ts`:
 
 ```ts
-import { createMemoryFactCache } from '@fabric-tca/core';
+import type { FactCacheEntries } from '@fabric-tca/core';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadFactCache, saveFactCache } from './factCacheStore.js';
+import { loadFactCacheEntries, saveFactCacheEntries } from './factCacheStore.js';
+
+const EMPTY: FactCacheEntries = { poolKeys: [], tokens: [], pools: [] };
 
 let dir: string;
 beforeEach(() => {
@@ -510,68 +516,83 @@ afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-describe('loadFactCache', () => {
-	it('returns an empty cache when no files exist yet', async () => {
-		const cache = await loadFactCache({ dataDir: dir, chain: 'base' });
-		expect(cache.entries()).toEqual({ poolKeys: [], tokens: [], pools: [] });
+describe('loadFactCacheEntries', () => {
+	it('returns empty families when no files exist yet', async () => {
+		expect(await loadFactCacheEntries({ dataDir: dir, chain: 'base' })).toEqual(EMPTY);
 	});
 });
 
-describe('saveFactCache / loadFactCache', () => {
+describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 	it('round-trips all three families', async () => {
-		const cache = createMemoryFactCache();
-		cache.setPoolKey('0xPOOLID', { currency0: '0x11', currency1: '0x22' });
-		cache.setToken('0xTok', { decimals: 6, symbol: 'USDC' });
-		cache.setPool('0xPool', { token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac' });
-
-		const counts = await saveFactCache(cache, { dataDir: dir, chain: 'base' });
+		const counts = await saveFactCacheEntries(
+			{
+				poolKeys: [['0xpoolid', { currency0: '0x11', currency1: '0x22' }]],
+				tokens: [['0xtok', { decimals: 6, symbol: 'USDC' }]],
+				pools: [['0xpool', { token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac' }]],
+			},
+			{ dataDir: dir, chain: 'base' },
+		);
 		expect(counts).toEqual({ poolKeys: 1, tokens: 1, pools: 1 });
 
-		const reloaded = await loadFactCache({ dataDir: dir, chain: 'base' });
-		expect(reloaded.getPoolKey('0xpoolid')).toEqual({ currency0: '0x11', currency1: '0x22' });
-		expect(reloaded.getToken('0xtok')).toEqual({ decimals: 6, symbol: 'USDC' });
-		expect(reloaded.getPool('0xpool')).toEqual({
-			token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac',
-		});
+		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
+		expect(back.poolKeys).toEqual([['0xpoolid', { currency0: '0x11', currency1: '0x22' }]]);
+		expect(back.tokens).toEqual([['0xtok', { decimals: 6, symbol: 'USDC' }]]);
+		expect(back.pools).toEqual([['0xpool', { token0: '0x11', token1: '0x22', feeBps: 30, factory: '0xfac' }]]);
 	});
 
 	it('preserves a null symbol through the round trip', async () => {
-		const cache = createMemoryFactCache();
-		cache.setToken('0xa', { decimals: 18, symbol: null });
-		await saveFactCache(cache, { dataDir: dir, chain: 'base' });
-		const reloaded = await loadFactCache({ dataDir: dir, chain: 'base' });
-		expect(reloaded.getToken('0xa')).toEqual({ decimals: 18, symbol: null });
+		await saveFactCacheEntries(
+			{ ...EMPTY, tokens: [['0xa', { decimals: 18, symbol: null }]] },
+			{ dataDir: dir, chain: 'base' },
+		);
+		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
+		expect(back.tokens).toEqual([['0xa', { decimals: 18, symbol: null }]]);
 	});
 
 	it('preserves partial pool facts without inventing fields', async () => {
-		const cache = createMemoryFactCache();
-		cache.setPool('0xa', { factory: '0xf' });
-		await saveFactCache(cache, { dataDir: dir, chain: 'base' });
-		const reloaded = await loadFactCache({ dataDir: dir, chain: 'base' });
-		expect(reloaded.getPool('0xa')).toEqual({ factory: '0xf' });
+		// An absent token0 must come back ABSENT, not as null — the same
+		// "absent is not measured" rule the fee work already established.
+		await saveFactCacheEntries(
+			{ ...EMPTY, pools: [['0xa', { factory: '0xf' }]] },
+			{ dataDir: dir, chain: 'base' },
+		);
+		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
+		expect(back.pools).toEqual([['0xa', { factory: '0xf' }]]);
 	});
 
 	it('a second save replaces the files rather than appending', async () => {
-		const first = createMemoryFactCache();
-		first.setToken('0xa', { decimals: 18, symbol: 'A' });
-		await saveFactCache(first, { dataDir: dir, chain: 'base' });
-
-		const second = createMemoryFactCache();
-		second.setToken('0xb', { decimals: 6, symbol: 'B' });
-		await saveFactCache(second, { dataDir: dir, chain: 'base' });
-
-		const reloaded = await loadFactCache({ dataDir: dir, chain: 'base' });
-		expect(reloaded.entries().tokens.map(([k]) => k)).toEqual(['0xb']);
+		await saveFactCacheEntries(
+			{ ...EMPTY, tokens: [['0xa', { decimals: 18, symbol: 'A' }]] },
+			{ dataDir: dir, chain: 'base' },
+		);
+		await saveFactCacheEntries(
+			{ ...EMPTY, tokens: [['0xb', { decimals: 6, symbol: 'B' }]] },
+			{ dataDir: dir, chain: 'base' },
+		);
+		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
+		expect(back.tokens.map(([k]) => k)).toEqual(['0xb']);
 	});
 
 	it('writes no file for an empty family, and still loads', async () => {
-		const cache = createMemoryFactCache();
-		cache.setToken('0xa', { decimals: 18, symbol: 'A' });
-		const counts = await saveFactCache(cache, { dataDir: dir, chain: 'base' });
+		const counts = await saveFactCacheEntries(
+			{ ...EMPTY, tokens: [['0xa', { decimals: 18, symbol: 'A' }]] },
+			{ dataDir: dir, chain: 'base' },
+		);
 		expect(counts).toEqual({ poolKeys: 0, tokens: 1, pools: 0 });
-		const reloaded = await loadFactCache({ dataDir: dir, chain: 'base' });
-		expect(reloaded.getToken('0xa')?.symbol).toBe('A');
-		expect(reloaded.entries().poolKeys).toEqual([]);
+		const back = await loadFactCacheEntries({ dataDir: dir, chain: 'base' });
+		expect(back.tokens).toHaveLength(1);
+		expect(back.poolKeys).toEqual([]);
+	});
+
+	it('imports only TYPES from @fabric-tca/core', async () => {
+		// packages/core's package.json main is ./src/index.ts, so a VALUE import
+		// here compiles and passes vitest, then dies at runtime under dist/ with
+		// ERR_UNKNOWN_FILE_EXTENSION. Verified in-repo before this plan ran.
+		const { readFileSync } = await import('node:fs');
+		const src = readFileSync(new URL('./factCacheStore.ts', import.meta.url), 'utf8');
+		const coreImports = src.split('\n').filter((l) => l.includes('@fabric-tca/core'));
+		expect(coreImports.length).toBeGreaterThan(0);
+		for (const line of coreImports) expect(line).toMatch(/^import type /);
 	});
 });
 ```
@@ -587,7 +608,7 @@ Create `packages/etl/src/factCacheStore.ts`:
 
 ```ts
 import { DuckDBInstance } from '@duckdb/node-api';
-import { createMemoryFactCache, type FactCache, type FactCacheEntries } from '@fabric-tca/core';
+import type { FactCacheEntries } from '@fabric-tca/core';
 import { existsSync } from 'node:fs';
 import { cacheFilePath } from './derivedPath.js';
 import { sqlLiteral, writeRowsToParquet } from './writeParquet.js';
@@ -602,6 +623,17 @@ import { sqlLiteral, writeRowsToParquet } from './writeParquet.js';
  * ⚠️ `packages/core` must never import this file. It owns the FactCache
  * INTERFACE; DuckDB ships a native binary that must stay out of the dashboard's
  * Railway build, so the Parquet implementation lives here.
+ *
+ * ⚠️⚠️ EVERY import from `@fabric-tca/core` in this file is `import type`, and
+ * that is load-bearing, not style. core's package.json sets
+ * `"main": "./src/index.ts"`, so a VALUE import from etl typechecks, compiles,
+ * and passes vitest (which transpiles) — then dies at runtime under `dist/`
+ * with ERR_UNKNOWN_FILE_EXTENSION, because node cannot load a .ts file. A test
+ * in factCacheStore.test.ts pins this.
+ *
+ * That is also why this module trades in plain FactCacheEntries rather than
+ * building a FactCache: `createMemoryFactCache` is a runtime value. Callers
+ * compose `createMemoryFactCache(await loadFactCacheEntries(...))`.
  *
  * A missing file is a first run, not an error.
  */
@@ -629,7 +661,10 @@ function optionalString(value: unknown): string | undefined {
 	return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export async function loadFactCache(opts: { dataDir: string; chain: string }): Promise<FactCache> {
+export async function loadFactCacheEntries(opts: {
+	dataDir: string;
+	chain: string;
+}): Promise<FactCacheEntries> {
 	const [poolKeyRows, tokenRows, poolRows] = await Promise.all([
 		readRows(cacheFilePath({ dataDir: opts.dataDir, name: 'v4_poolkeys', chain: opts.chain })),
 		readRows(cacheFilePath({ dataDir: opts.dataDir, name: 'tokens', chain: opts.chain })),
@@ -655,14 +690,14 @@ export async function loadFactCache(opts: { dataDir: string; chain: string }): P
 			},
 		]),
 	};
-	return createMemoryFactCache(entries);
+	return entries;
 }
 
-export async function saveFactCache(
-	cache: FactCache,
+export async function saveFactCacheEntries(
+	entries: FactCacheEntries,
 	opts: { dataDir: string; chain: string },
 ): Promise<{ poolKeys: number; tokens: number; pools: number }> {
-	const e = cache.entries();
+	const e = entries;
 
 	// writeRowsToParquet refuses an empty row set (an empty file is never
 	// correct), so an empty family is simply not written. Its absence loads as
@@ -711,14 +746,14 @@ export async function saveFactCache(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run packages/etl/src/factCacheStore.test.ts`
-Expected: PASS, 6 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 5: Export from the package index**
 
 Append to `packages/etl/src/index.ts`:
 
 ```ts
-export { loadFactCache, saveFactCache } from './factCacheStore.js';
+export { loadFactCacheEntries, saveFactCacheEntries } from './factCacheStore.js';
 ```
 
 And add the core re-exports to `packages/core/src/index.ts`:
