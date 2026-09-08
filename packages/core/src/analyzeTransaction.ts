@@ -26,7 +26,15 @@ import { base } from 'viem/chains';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { priceReceipt, createSymbolReader } from './pricing.js';
 import { decomposeRoute, type FeeSinkOut } from './decomposeRoute.js';
-import { createDefaultMidReader } from './routeReaders.js';
+import {
+	createDefaultFeeReader,
+	createDefaultInfinityPoolKeyReader,
+	createDefaultMidReader,
+	createDefaultV3FactoryReader,
+	createDefaultV4PoolKeyReader,
+} from './routeReaders.js';
+import { cachedFeeReader, cachedPoolKeyReader, cachedV3FactoryReader } from './cachedReaders.js';
+import type { FactCache } from './factCache.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
 import { AGGREGATOR_SIGNATURES, matchSettlementEvent } from './aggregatorSignatures.js';
@@ -319,7 +327,7 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 export function analyzeTransaction(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx },
+	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx; factCache?: FactCache },
 ): Promise<Receipt | null> {
 	return runInDecodeSession(() => analyzeTransactionInSession(hash, chainId, opts));
 }
@@ -327,7 +335,7 @@ export function analyzeTransaction(
 async function analyzeTransactionInSession(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx },
+	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx; factCache?: FactCache },
 ): Promise<Receipt | null> {
 	const { rpcUrl } = opts;
 	try {
@@ -454,6 +462,21 @@ async function analyzeTransactionInSession(
 				? notionalUsd / wethHuman
 				: (ethUsd ?? realizedPrice ?? 0);
 		const { midReader, decimalsReader } = createDefaultMidReader(rpcUrl, blockNumber);
+		// Cache-wrapped readers go through decomposeRoute's existing `deps` seam,
+		// so routeReaders.ts keeps its signatures. With no factCache, `deps` is
+		// exactly what it was before and decomposeRoute builds its own defaults.
+		const cache = opts.factCache;
+		const cachedDeps = cache
+			? {
+					v4PoolKeyReader: cachedPoolKeyReader(createDefaultV4PoolKeyReader(rpcUrl, blockNumber), cache),
+					infinityPoolKeyReader: cachedPoolKeyReader(
+						createDefaultInfinityPoolKeyReader(rpcUrl, blockNumber),
+						cache,
+					),
+					v3FactoryReader: cachedV3FactoryReader(createDefaultV3FactoryReader(rpcUrl, blockNumber), cache),
+					feeReader: cachedFeeReader(createDefaultFeeReader(rpcUrl, blockNumber), cache),
+				}
+			: {};
 		const route = await decomposeRoute(
 			{
 				trace,
@@ -475,7 +498,7 @@ async function analyzeTransactionInSession(
 				recognizeV3Forks: true,
 				impureOnVenueThirdToken: true,
 			},
-			{ midReader, decimalsReader },
+			{ midReader, decimalsReader, ...cachedDeps },
 		);
 
 		// Settlement-event confirmation + normalizeFlags (mirrors buildSmokeRow).
