@@ -36,6 +36,7 @@ import path from 'node:path';
 import { resolveTrader, anchorFlags, type Anchor } from './resolveTrader.js';
 import { loadReactors, loadEntryPoints } from './settlementDecoders.js';
 import { extractFrameChains } from './legFrameChains.js';
+import type { PrefetchedTx } from './prefetched.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REACTORS = await loadReactors(path.resolve(__dirname, '../../../configs/reactors.json'));
@@ -318,7 +319,7 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 export function analyzeTransaction(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string; includeWings?: boolean },
+	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx },
 ): Promise<Receipt | null> {
 	return runInDecodeSession(() => analyzeTransactionInSession(hash, chainId, opts));
 }
@@ -326,21 +327,29 @@ export function analyzeTransaction(
 async function analyzeTransactionInSession(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string; includeWings?: boolean },
+	opts: { rpcUrl: string; includeWings?: boolean; prefetched?: PrefetchedTx },
 ): Promise<Receipt | null> {
 	const { rpcUrl } = opts;
 	try {
 		const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 		const txHash = hash as `0x${string}`;
 
-		const [receipt, tx, rawTrace] = await Promise.all([
-			rpc.getTransactionReceipt({ hash: txHash }),
-			rpc.getTransaction({ hash: txHash }),
-			(rpc.request as unknown as (r: { method: string; params: unknown[] }) => Promise<unknown>)({
-				method: 'debug_traceTransaction',
-				params: [txHash, { tracer: 'callTracer', tracerConfig: { withLog: true, onlyTopCall: false } }],
-			}),
-		]);
+		// The Seed layer already holds all three. Injecting them removes the
+		// archive-node dependency for this step and makes a derived build
+		// reproducible from disk. See prefetched.ts for the field contract.
+		const { receipt, tx, rawTrace } = opts.prefetched
+			? { receipt: opts.prefetched.receipt, tx: opts.prefetched.tx, rawTrace: opts.prefetched.trace }
+			: await (async () => {
+					const [receipt, tx, rawTrace] = await Promise.all([
+						rpc.getTransactionReceipt({ hash: txHash }),
+						rpc.getTransaction({ hash: txHash }),
+						(rpc.request as unknown as (r: { method: string; params: unknown[] }) => Promise<unknown>)({
+							method: 'debug_traceTransaction',
+							params: [txHash, { tracer: 'callTracer', tracerConfig: { withLog: true, onlyTopCall: false } }],
+						}),
+					]);
+					return { receipt, tx, rawTrace };
+				})();
 
 		const trace = rawTrace as TraceNode;
 		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, topics: l.topics }));

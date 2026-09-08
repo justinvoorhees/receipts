@@ -25,3 +25,4 @@ export {
 	type PoolKeyFact,
 	type TokenFact,
 } from './factCache.js';
+export { fromSeedJson, type PrefetchedTx, type PrefetchedReceipt, type PrefetchedTransaction } from './prefetched.js';
