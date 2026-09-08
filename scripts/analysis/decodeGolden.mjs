@@ -60,18 +60,21 @@ const flagStr = (name, dflt) => {
 async function hashesFromParquet(parquetPath) {
 	const { DuckDBInstance } = await import('@duckdb/node-api');
 	const instance = await DuckDBInstance.create(':memory:');
-	const connection = await instance.connect();
 	try {
-		const reader = await connection.runAndReadAll(
-			`SELECT tx_hash, chain_id FROM read_parquet('${parquetPath.replace(/'/g, "''")}')
-			 WHERE selected_via = 'both' ORDER BY block_number, block_position`,
-		);
-		return reader.getRowObjects().map((r) => ({
-			hash: String(r.tx_hash),
-			chainId: Number(r.chain_id),
-		}));
+		const connection = await instance.connect();
+		try {
+			const reader = await connection.runAndReadAll(
+				`SELECT tx_hash, chain_id FROM read_parquet('${parquetPath.replace(/'/g, "''")}')
+				 WHERE selected_via = 'both' ORDER BY block_number, block_position`,
+			);
+			return reader.getRowObjects().map((r) => ({
+				hash: String(r.tx_hash),
+				chainId: Number(r.chain_id),
+			}));
+		} finally {
+			connection.closeSync();
+		}
 	} finally {
-		connection.closeSync();
 		instance.closeSync();
 	}
 }
@@ -83,23 +86,30 @@ const stable = (v) => {
 	return Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]));
 };
 
-async function capture(outFile) {
+/**
+ * `hashesFrom`/`concurrency` default to the CLI `flagStr`/`flag` lookups when
+ * not supplied, so the plain `capture(outFile)` call from the `capture` mode
+ * dispatch below behaves exactly as before. `determinism()` instead passes
+ * both explicitly — see its docstring for why that is load-bearing rather
+ * than cosmetic.
+ */
+async function capture(outFile, { hashesFrom, concurrency } = {}) {
 	if (!outFile) throw new Error('usage: decodeGolden.mjs capture <out.json>');
 	const rpcUrl = env.TCA_RPC_URL;
 	if (!rpcUrl) throw new Error('TCA_RPC_URL missing from the repo-root .env');
 
-	const concurrency = flag('concurrency', 1);
+	const resolvedConcurrency = concurrency ?? flag('concurrency', 1);
 	const limit = flag('limit', Infinity);
-	if (concurrency > 1) {
+	if (resolvedConcurrency > 1) {
 		console.error(
-			`⚠️  concurrency=${concurrency}: expect false differences. Re-run anything this flags serially before believing it.`,
+			`⚠️  concurrency=${resolvedConcurrency}: expect false differences. Re-run anything this flags serially before believing it.`,
 		);
 	}
 
 	const { analyzeTransaction, enrichFeeSinkNames } = await core('index.js');
-	const hashesFrom = flagStr('hashes-from', null);
-	const rows = hashesFrom
-		? (await hashesFromParquet(hashesFrom)).slice(0, limit)
+	const resolvedHashesFrom = hashesFrom ?? flagStr('hashes-from', null);
+	const rows = resolvedHashesFrom
+		? (await hashesFromParquet(resolvedHashesFrom)).slice(0, limit)
 		: loadCases().slice(0, limit).map((c) => ({ hash: c.hash, chainId: c.chainId ?? 8453 }));
 
 	const results = {};
@@ -124,14 +134,14 @@ async function capture(outFile) {
 		}
 	};
 	const wall = performance.now();
-	await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+	await Promise.all(Array.from({ length: Math.max(1, resolvedConcurrency) }, worker));
 
 	const ordered = Object.fromEntries(Object.keys(results).sort().map((k) => [k, results[k]]));
 	writeFileSync(outFile, JSON.stringify(ordered, null, 2));
 	const decoded = Object.values(ordered).filter((r) => r.receipt).length;
 	console.log(
 		`\nwrote ${outFile}: ${rows.length} hashes, ${decoded} decoded, ${rows.length - decoded} null` +
-		`  (${((performance.now() - wall) / 1000).toFixed(0)}s, concurrency ${concurrency})`,
+		`  (${((performance.now() - wall) / 1000).toFixed(0)}s, concurrency ${resolvedConcurrency})`,
 	);
 }
 
@@ -173,19 +183,24 @@ function diff(beforeFile, afterFile) {
  * `transient-rpc-silently-degrades-receipts` hazard — and every before/after
  * diff in the enrichment work is uninterpretable until it is understood.
  *
- * Both passes run at concurrency 1. That is not a default to override here:
- * a concurrent pass manufactures exactly the differences this mode exists to
- * detect.
+ * `concurrency: 1` is passed to `capture()` as an explicit option, not via
+ * `process.argv` — a `--concurrency=N` typed on this mode's own command line
+ * has no path to reach `capture()`'s concurrency at all, so it structurally
+ * cannot raise it. (An earlier version pushed `--concurrency=1` onto
+ * `process.argv` instead; `flag()` resolves via `Array.prototype.find`, which
+ * returns the FIRST match, so a `--concurrency=8` already present ahead of
+ * the pushed value in argv would have won. That version's serial guarantee
+ * was a positional accident, not an enforced one — fixed here.)
  */
 async function determinism(parquetPath) {
 	if (!parquetPath) throw new Error('usage: decodeGolden.mjs determinism <candidates.parquet>');
 	const a = `/tmp/determinism-pass1.${process.pid}.json`;
 	const b = `/tmp/determinism-pass2.${process.pid}.json`;
-	process.argv.push(`--hashes-from=${parquetPath}`, '--concurrency=1');
+	const options = { hashesFrom: parquetPath, concurrency: 1 };
 	console.log('pass 1 of 2...');
-	await capture(a);
+	await capture(a, options);
 	console.log('pass 2 of 2...');
-	await capture(b);
+	await capture(b, options);
 	console.log('\n=== determinism diff (same code, two serial passes) ===');
 	diff(a, b);
 }
