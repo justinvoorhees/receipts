@@ -89,7 +89,9 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 		// ERR_UNKNOWN_FILE_EXTENSION. Verified in-repo before this plan ran.
 		const { readFileSync } = await import('node:fs');
 		const src = readFileSync(new URL('./factCacheStore.ts', import.meta.url), 'utf8');
-		const coreImports = src.split('\n').filter((l) => l.includes('@fabric-tca/core'));
+		const coreImports = src
+			.split('\n')
+			.filter((l) => /^\s*import\b[^\n]*'@fabric-tca\/core'/.test(l));
 		expect(coreImports.length).toBeGreaterThan(0);
 		for (const line of coreImports) expect(line).toMatch(/^import type /);
 	});

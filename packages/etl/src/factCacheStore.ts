@@ -15,7 +15,7 @@ import { sqlLiteral, writeRowsToParquet } from './writeParquet.js';
  * INTERFACE; DuckDB ships a native binary that must stay out of the dashboard's
  * Railway build, so the Parquet implementation lives here.
  *
- * ⚠️⚠️ EVERY import from packages/core in this file is `import type`, and
+ * ⚠️⚠️ EVERY import from `@fabric-tca/core` in this file is `import type`, and
  * that is load-bearing, not style. core's package.json sets
  * `"main": "./src/index.ts"`, so a VALUE import from etl typechecks, compiles,
  * and passes vitest (which transpiles) — then dies at runtime under `dist/`
