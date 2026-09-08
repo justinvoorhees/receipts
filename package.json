@@ -14,6 +14,7 @@
 		"build": "tsc --build && npm --workspace packages/dashboard run build",
 		"start": "npm --workspace packages/dashboard run start",
 		"etl:ingest": "tsc --build && node packages/etl/dist/cli.js",
+		"etl:derive": "tsc --build && node packages/etl/dist/cliDerive.js",
 		"settlers:refresh": "tsc --build && node packages/core/dist/scripts/refreshSettlers.js",
 		"reactors:refresh": "tsc --build && node packages/core/dist/scripts/refreshReactors.js",
 		"aggregators:coverage": "tsc --build && node packages/core/dist/scripts/reportAggregatorCoverage.js"
