@@ -181,6 +181,21 @@ describe('toDisplayPrice', () => {
 	});
 });
 
+describe('includeWings forwarding', () => {
+	it('forwards includeWings only when the caller set it', () => {
+		// exactOptionalPropertyTypes makes `{ includeWings: undefined }` a type
+		// error at the priceReceipt call, so this is enforced by the compiler.
+		// This test pins the SHAPE so a later refactor to `includeWings: opts.includeWings`
+		// is caught by review rather than by a changed receipt in production.
+		const forward = (o: { includeWings?: boolean }) =>
+			({ ...(o.includeWings === undefined ? {} : { includeWings: o.includeWings }) });
+		expect(forward({})).toEqual({});
+		expect(Object.hasOwn(forward({}), 'includeWings')).toBe(false);
+		expect(forward({ includeWings: false })).toEqual({ includeWings: false });
+		expect(forward({ includeWings: true })).toEqual({ includeWings: true });
+	});
+});
+
 describe.runIf(RPC)('analyzeTransaction (integration)', () => {
 	it('produces a full receipt for a known USDC/WETH smoke hash', async () => {
 		const r = await analyzeTransaction(

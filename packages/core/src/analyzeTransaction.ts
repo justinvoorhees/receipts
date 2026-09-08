@@ -318,7 +318,7 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 export function analyzeTransaction(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string },
+	opts: { rpcUrl: string; includeWings?: boolean },
 ): Promise<Receipt | null> {
 	return runInDecodeSession(() => analyzeTransactionInSession(hash, chainId, opts));
 }
@@ -326,7 +326,7 @@ export function analyzeTransaction(
 async function analyzeTransactionInSession(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string },
+	opts: { rpcUrl: string; includeWings?: boolean },
 ): Promise<Receipt | null> {
 	const { rpcUrl } = opts;
 	try {
@@ -379,6 +379,7 @@ async function analyzeTransactionInSession(
 			outputToken: endpoints.outputToken,
 			inputAmountRaw: endpoints.inputAmountRaw,
 			outputAmountRaw: endpoints.outputAmountRaw,
+			...(opts.includeWings === undefined ? {} : { includeWings: opts.includeWings }),
 		});
 		// A market mid exists on both the oracle-validated (full) and best-effort
 		// (estimated) tiers. The Execution/Market/Delta rows and the cost
