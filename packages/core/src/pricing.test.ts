@@ -132,6 +132,29 @@ describe('priceReceipt', () => {
     expect(r.marketMidAfter).toBeCloseTo(3000, 6);
   });
 
+  // Counterpart of the general-path "includeWings false calls ... ONCE" test
+  // below: the fast path has its own `deps.benchmark` wing calls and its own
+  // `wings` const, so the option must be independently verified here — this is
+  // exactly the gap the whole-branch review caught (every fast-path test was
+  // otherwise unconditional on `includeWings`).
+  it('fast path: includeWings false calls benchmark ONCE, at the ruler block, and nulls both wings', async () => {
+    const seenBlocks: bigint[] = [];
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: WETH, outputToken: USDC, includeWings: false },
+      makeDeps({
+        benchmark: async ({ blockNumber }) => {
+          seenBlocks.push(blockNumber);
+          return fakeBenchmark({ marketMid: 1800 });
+        },
+        getUsdValue: async () => 1800,
+      }),
+    );
+    expect(seenBlocks).toEqual([baseArgs.blockNumber]);
+    expect(r.marketMid).toBeCloseTo(1800, 6);
+    expect(r.marketMidBefore).toBeNull();
+    expect(r.marketMidAfter).toBeNull();
+  });
+
   it('USDC/WETH fast-path downgrades to estimated when the oracle disagrees', async () => {
     const r = await priceReceipt(
       { ...baseArgs, inputToken: WETH, outputToken: USDC },
@@ -242,6 +265,65 @@ describe('priceReceipt', () => {
     expect(seenBlocks).toHaveLength(3);
     const sorted = [...seenBlocks].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     expect(sorted).toEqual([refBlock - 1n, refBlock, refBlock + 1n]);
+  });
+
+  // includeWings: false skips the two adjacent-block mids. The ETL path passes
+  // it — with no UI there is no consumer for the adjacent-block table, and each
+  // wing is one more independent chance for a transient read to degrade a row.
+  it('general path: includeWings false calls getMarketPrice ONCE, at the ruler block', async () => {
+    const seenBlocks: bigint[] = [];
+    await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B, includeWings: false },
+      makeDeps({
+        getMarketPrice: async (_i, _o, blockNumber) => {
+          seenBlocks.push(blockNumber);
+          return { tier: 'full', marketMid: 200, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null };
+        },
+      }),
+    );
+    // refBlock is blockNumber - 1n: the mid samples the block BEFORE the trade.
+    expect(seenBlocks).toEqual([baseArgs.blockNumber - 1n]);
+  });
+
+  it('general path: includeWings false nulls both wings and keeps the ruler', async () => {
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B, includeWings: false },
+      makeDeps({
+        getMarketPrice: async () => ({ tier: 'full', marketMid: 200, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null }),
+      }),
+    );
+    expect(r.marketMid).toBeCloseTo(200, 10);
+    expect(r.marketMidBefore).toBeNull();
+    expect(r.marketMidAfter).toBeNull();
+  });
+
+  it('general path: omitting includeWings still calls getMarketPrice three times', async () => {
+    // The dashboard passes nothing. Defaulting to anything but "wings on"
+    // would silently change every receipt it renders.
+    const seenBlocks: bigint[] = [];
+    await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B },
+      makeDeps({
+        getMarketPrice: async (_i, _o, blockNumber) => {
+          seenBlocks.push(blockNumber);
+          return { tier: 'full', marketMid: 200, corroboratedBy: ['direct'], flags: [], referenceDepthUsd: null, referencePoolAddress: null };
+        },
+      }),
+    );
+    expect(seenBlocks).toHaveLength(3);
+  });
+
+  it('general path: a throwing RULER still degrades the whole receipt, wings off', async () => {
+    // The centre call is deliberately NOT caught (see the "never throws"
+    // test). Turning wings off must not make a ruler failure survivable.
+    const r = await priceReceipt(
+      { ...baseArgs, inputToken: EXOTIC_A, outputToken: EXOTIC_B, includeWings: false },
+      makeDeps({
+        getMarketPrice: async () => { throw new Error('ruler down'); },
+      }),
+    );
+    expect(r.status).toBe('partial');
+    expect(r.marketMid).toBeNull();
   });
 
   // Prior-reviewer follow-up: a null centre must null BOTH wings, even when

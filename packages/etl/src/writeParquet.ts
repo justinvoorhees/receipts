@@ -73,8 +73,11 @@ export function writeNdjsonLines(rows: readonly unknown[], sink: Writable): Prom
  * each throw before the other handle exists or after it is already open, so
  * only nesting guarantees `instance.closeSync()` still runs when `connect()`
  * itself throws, and that a throwing `connection.closeSync()` cannot skip it.
+ *
+ * Exported so other readers (e.g. factCacheStore.ts's `readRows`) reuse this
+ * shape instead of nesting a second copy that can drift from it.
  */
-async function withDuckDb<T>(body: (connection: DuckDBConnection) => Promise<T>): Promise<T> {
+export async function withDuckDb<T>(body: (connection: DuckDBConnection) => Promise<T>): Promise<T> {
 	const instance = await DuckDBInstance.create(':memory:');
 	try {
 		const connection = await instance.connect();

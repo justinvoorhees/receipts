@@ -26,7 +26,15 @@ import { base } from 'viem/chains';
 import { extractEndpoints, type TraceNode } from './endpoints.js';
 import { priceReceipt, createSymbolReader } from './pricing.js';
 import { decomposeRoute, type FeeSinkOut } from './decomposeRoute.js';
-import { createDefaultMidReader } from './routeReaders.js';
+import {
+	createDefaultFeeReader,
+	createDefaultInfinityPoolKeyReader,
+	createDefaultMidReader,
+	createDefaultV3FactoryReader,
+	createDefaultV4PoolKeyReader,
+} from './routeReaders.js';
+import { cachedFeeReader, cachedPoolKeyReader, cachedV3FactoryReader } from './cachedReaders.js';
+import type { FactCache } from './factCache.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
 import { AGGREGATOR_SIGNATURES, matchSettlementEvent } from './aggregatorSignatures.js';
@@ -36,6 +44,7 @@ import path from 'node:path';
 import { resolveTrader, anchorFlags, type Anchor } from './resolveTrader.js';
 import { loadReactors, loadEntryPoints } from './settlementDecoders.js';
 import { extractFrameChains } from './legFrameChains.js';
+import type { PrefetchedTx } from './prefetched.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REACTORS = await loadReactors(path.resolve(__dirname, '../../../configs/reactors.json'));
@@ -308,6 +317,26 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 }
 
 /**
+ * `analyzeTransaction`'s options. With ONLY `rpcUrl` set (the dashboard's
+ * call), behaviour is byte-identical to before these options existed — that
+ * is the governing contract for this whole options surface, not just a
+ * convention:
+ *
+ *   - `includeWings` (default true): compute the two adjacent-block market-mid
+ *     wings. `false` skips them — see pricing.ts.
+ *   - `prefetched`: feed the receipt/tx/trace from the ETL Seed layer instead
+ *     of RPC — see prefetched.ts.
+ *   - `factCache`: a process-global cache of immutable on-chain facts shared
+ *     across calls — see factCache.ts and cachedReaders.ts.
+ */
+export interface AnalyzeTransactionOptions {
+	rpcUrl: string;
+	includeWings?: boolean;
+	prefetched?: PrefetchedTx;
+	factCache?: FactCache;
+}
+
+/**
  * One call = one decode = one RPC memo (see rpcSession.ts). The session is
  * opened HERE, at the only function that owns a whole receipt, so every read
  * below — pricing, pool discovery, the route readers, the benchmark — dedupes
@@ -318,7 +347,7 @@ async function bestEffortEthUsd(rpcUrl: string, blockNumber: bigint): Promise<nu
 export function analyzeTransaction(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string },
+	opts: AnalyzeTransactionOptions,
 ): Promise<Receipt | null> {
 	return runInDecodeSession(() => analyzeTransactionInSession(hash, chainId, opts));
 }
@@ -326,21 +355,29 @@ export function analyzeTransaction(
 async function analyzeTransactionInSession(
 	hash: string,
 	chainId: number,
-	opts: { rpcUrl: string },
+	opts: AnalyzeTransactionOptions,
 ): Promise<Receipt | null> {
 	const { rpcUrl } = opts;
 	try {
 		const rpc = createPublicClient({ chain: base, transport: sessionHttp(rpcUrl) });
 		const txHash = hash as `0x${string}`;
 
-		const [receipt, tx, rawTrace] = await Promise.all([
-			rpc.getTransactionReceipt({ hash: txHash }),
-			rpc.getTransaction({ hash: txHash }),
-			(rpc.request as unknown as (r: { method: string; params: unknown[] }) => Promise<unknown>)({
-				method: 'debug_traceTransaction',
-				params: [txHash, { tracer: 'callTracer', tracerConfig: { withLog: true, onlyTopCall: false } }],
-			}),
-		]);
+		// The Seed layer already holds all three. Injecting them removes the
+		// archive-node dependency for this step and makes a derived build
+		// reproducible from disk. See prefetched.ts for the field contract.
+		const { receipt, tx, rawTrace } = opts.prefetched
+			? { receipt: opts.prefetched.receipt, tx: opts.prefetched.tx, rawTrace: opts.prefetched.trace }
+			: await (async () => {
+					const [receipt, tx, rawTrace] = await Promise.all([
+						rpc.getTransactionReceipt({ hash: txHash }),
+						rpc.getTransaction({ hash: txHash }),
+						(rpc.request as unknown as (r: { method: string; params: unknown[] }) => Promise<unknown>)({
+							method: 'debug_traceTransaction',
+							params: [txHash, { tracer: 'callTracer', tracerConfig: { withLog: true, onlyTopCall: false } }],
+						}),
+					]);
+					return { receipt, tx, rawTrace };
+				})();
 
 		const trace = rawTrace as TraceNode;
 		const receiptLogs = receipt.logs.map((l) => ({ address: l.address, topics: l.topics }));
@@ -379,6 +416,7 @@ async function analyzeTransactionInSession(
 			outputToken: endpoints.outputToken,
 			inputAmountRaw: endpoints.inputAmountRaw,
 			outputAmountRaw: endpoints.outputAmountRaw,
+			...(opts.includeWings === undefined ? {} : { includeWings: opts.includeWings }),
 		});
 		// A market mid exists on both the oracle-validated (full) and best-effort
 		// (estimated) tiers. The Execution/Market/Delta rows and the cost
@@ -444,6 +482,21 @@ async function analyzeTransactionInSession(
 				? notionalUsd / wethHuman
 				: (ethUsd ?? realizedPrice ?? 0);
 		const { midReader, decimalsReader } = createDefaultMidReader(rpcUrl, blockNumber);
+		// Cache-wrapped readers go through decomposeRoute's existing `deps` seam,
+		// so routeReaders.ts keeps its signatures. With no factCache, `deps` is
+		// exactly what it was before and decomposeRoute builds its own defaults.
+		const cache = opts.factCache;
+		const cachedDeps = cache
+			? {
+					v4PoolKeyReader: cachedPoolKeyReader(createDefaultV4PoolKeyReader(rpcUrl, blockNumber), cache),
+					infinityPoolKeyReader: cachedPoolKeyReader(
+						createDefaultInfinityPoolKeyReader(rpcUrl, blockNumber),
+						cache,
+					),
+					v3FactoryReader: cachedV3FactoryReader(createDefaultV3FactoryReader(rpcUrl, blockNumber), cache),
+					feeReader: cachedFeeReader(createDefaultFeeReader(rpcUrl, blockNumber), cache),
+				}
+			: {};
 		const route = await decomposeRoute(
 			{
 				trace,
@@ -465,7 +518,7 @@ async function analyzeTransactionInSession(
 				recognizeV3Forks: true,
 				impureOnVenueThirdToken: true,
 			},
-			{ midReader, decimalsReader },
+			{ midReader, decimalsReader, ...cachedDeps },
 		);
 
 		// Settlement-event confirmation + normalizeFlags (mirrors buildSmokeRow).

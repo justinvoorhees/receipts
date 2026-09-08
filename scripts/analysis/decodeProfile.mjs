@@ -25,6 +25,13 @@
  * Read-only. Writes only the NDJSON log it is asked for.
  *
  *   node scripts/analysis/decodeProfile.mjs <txHash> [--chain=8453] [--out=FILE] [--timeline]
+ *     [--no-wings] [--fact-cache]
+ *
+ * --no-wings passes `includeWings: false` through to analyzeTransaction.
+ * --fact-cache seeds a fresh in-memory FactCache, warms it with one throwaway
+ * decode through this proxy, then RESETS the proxy's counters before the
+ * measured decode — so the reported call count is the warm-cache decode
+ * alone, and the warm-up's own calls are never silently folded in.
  */
 import http from 'node:http';
 import { writeFileSync } from 'node:fs';
@@ -43,6 +50,8 @@ if (!hash) {
 const chainId = Number(flag('chain', '8453'));
 const outFile = flag('out', null);
 const showTimeline = args.includes('--timeline');
+const noWings = args.includes('--no-wings');
+const useFactCache = args.includes('--fact-cache');
 
 const upstream = env.TCA_RPC_URL;
 if (!upstream) throw new Error('TCA_RPC_URL missing from the repo-root .env');
@@ -110,9 +119,25 @@ const port = server.address().port;
 
 // ── The decode ──────────────────────────────────────────────────────────────
 
-const { analyzeTransaction } = await core('index.js');
+const { analyzeTransaction, createMemoryFactCache } = await core('index.js');
+const opts = {
+	rpcUrl: `http://127.0.0.1:${port}`,
+	...(noWings ? { includeWings: false } : {}),
+};
+
+let factCache;
+if (useFactCache) {
+	factCache = createMemoryFactCache();
+	// Warm-up decode: populates the cache. Its calls must not count toward the
+	// reported total, so the proxy's counters are reset before the measured run.
+	await analyzeTransaction(hash, chainId, { ...opts, factCache });
+	rows.length = 0;
+	seq = 0;
+	t0 = null;
+}
+
 const started = performance.now();
-const receipt = await analyzeTransaction(hash, chainId, { rpcUrl: `http://127.0.0.1:${port}` });
+const receipt = await analyzeTransaction(hash, chainId, useFactCache ? { ...opts, factCache } : opts);
 const wall = performance.now() - started;
 server.close();
 

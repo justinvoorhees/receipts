@@ -27,8 +27,9 @@
  *
  * Read-only against the chain. Writes only the capture file it is given.
  *
- *   node scripts/analysis/decodeGolden.mjs capture <out.json> [--concurrency=1] [--limit=N]
+ *   node scripts/analysis/decodeGolden.mjs capture <out.json> [--hashes-from=<parquet>] [--concurrency=1] [--limit=N]
  *   node scripts/analysis/decodeGolden.mjs diff <before.json> <after.json>
+ *   node scripts/analysis/decodeGolden.mjs determinism <candidates.parquet> [--limit=N]
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { env, core, loadCases } from './_env.mjs';
@@ -38,6 +39,45 @@ const flag = (name, dflt) => {
 	const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
 	return hit ? Number(hit.slice(name.length + 3)) : dflt;
 };
+/**
+ * `flag()` above always coerces via `Number(...)` — fine for `--concurrency=`
+ * and `--limit=`, but `Number('data/derived/.../candidates....parquet')` is
+ * `NaN`. `--hashes-from=` needs the raw string, so it gets its own reader
+ * rather than reusing `flag()`.
+ */
+const flagStr = (name, dflt) => {
+	const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
+	return hit ? hit.slice(name.length + 3) : dflt;
+};
+
+/**
+ * Hashes from a candidates Parquet instead of docs/qa/cases.json.
+ *
+ * `selected_via = 'both'` is the router-selected subset that actually swaps —
+ * 535 rows on the 2026-09-04a pilot build. 'router' (130) emits no Swap log and
+ * 'swap_log' (12,976) is the full population, which is a different run.
+ */
+async function hashesFromParquet(parquetPath) {
+	const { DuckDBInstance } = await import('@duckdb/node-api');
+	const instance = await DuckDBInstance.create(':memory:');
+	try {
+		const connection = await instance.connect();
+		try {
+			const reader = await connection.runAndReadAll(
+				`SELECT tx_hash, chain_id FROM read_parquet('${parquetPath.replace(/'/g, "''")}')
+				 WHERE selected_via = 'both' ORDER BY block_number, block_position`,
+			);
+			return reader.getRowObjects().map((r) => ({
+				hash: String(r.tx_hash),
+				chainId: Number(r.chain_id),
+			}));
+		} finally {
+			connection.closeSync();
+		}
+	} finally {
+		instance.closeSync();
+	}
+}
 
 /** Stable key order + bigint support, so a byte diff is a real diff. */
 const stable = (v) => {
@@ -46,21 +86,31 @@ const stable = (v) => {
 	return Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]));
 };
 
-async function capture(outFile) {
+/**
+ * `hashesFrom`/`concurrency` default to the CLI `flagStr`/`flag` lookups when
+ * not supplied, so the plain `capture(outFile)` call from the `capture` mode
+ * dispatch below behaves exactly as before. `determinism()` instead passes
+ * both explicitly — see its docstring for why that is load-bearing rather
+ * than cosmetic.
+ */
+async function capture(outFile, { hashesFrom, concurrency } = {}) {
 	if (!outFile) throw new Error('usage: decodeGolden.mjs capture <out.json>');
 	const rpcUrl = env.TCA_RPC_URL;
 	if (!rpcUrl) throw new Error('TCA_RPC_URL missing from the repo-root .env');
 
-	const concurrency = flag('concurrency', 1);
+	const resolvedConcurrency = concurrency ?? flag('concurrency', 1);
 	const limit = flag('limit', Infinity);
-	if (concurrency > 1) {
+	if (resolvedConcurrency > 1) {
 		console.error(
-			`⚠️  concurrency=${concurrency}: expect false differences. Re-run anything this flags serially before believing it.`,
+			`⚠️  concurrency=${resolvedConcurrency}: expect false differences. Re-run anything this flags serially before believing it.`,
 		);
 	}
 
 	const { analyzeTransaction, enrichFeeSinkNames } = await core('index.js');
-	const rows = loadCases().slice(0, limit).map((c) => ({ hash: c.hash, chainId: c.chainId ?? 8453 }));
+	const resolvedHashesFrom = hashesFrom ?? flagStr('hashes-from', null);
+	const rows = resolvedHashesFrom
+		? (await hashesFromParquet(resolvedHashesFrom)).slice(0, limit)
+		: loadCases().slice(0, limit).map((c) => ({ hash: c.hash, chainId: c.chainId ?? 8453 }));
 
 	const results = {};
 	let done = 0;
@@ -84,14 +134,14 @@ async function capture(outFile) {
 		}
 	};
 	const wall = performance.now();
-	await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+	await Promise.all(Array.from({ length: Math.max(1, resolvedConcurrency) }, worker));
 
 	const ordered = Object.fromEntries(Object.keys(results).sort().map((k) => [k, results[k]]));
 	writeFileSync(outFile, JSON.stringify(ordered, null, 2));
 	const decoded = Object.values(ordered).filter((r) => r.receipt).length;
 	console.log(
 		`\nwrote ${outFile}: ${rows.length} hashes, ${decoded} decoded, ${rows.length - decoded} null` +
-		`  (${((performance.now() - wall) / 1000).toFixed(0)}s, concurrency ${concurrency})`,
+		`  (${((performance.now() - wall) / 1000).toFixed(0)}s, concurrency ${resolvedConcurrency})`,
 	);
 }
 
@@ -125,10 +175,42 @@ function diff(beforeFile, afterFile) {
 	process.exitCode = changed.length ? 1 : 0;
 }
 
+/**
+ * Determinism: capture the SAME code twice, serially, and diff.
+ *
+ * A clean result means a receipt is reproducible. A dirty one means the decode
+ * is absorbing transient RPC failures as evidence — the open
+ * `transient-rpc-silently-degrades-receipts` hazard — and every before/after
+ * diff in the enrichment work is uninterpretable until it is understood.
+ *
+ * `concurrency: 1` is passed to `capture()` as an explicit option, not via
+ * `process.argv` — a `--concurrency=N` typed on this mode's own command line
+ * has no path to reach `capture()`'s concurrency at all, so it structurally
+ * cannot raise it. (An earlier version pushed `--concurrency=1` onto
+ * `process.argv` instead; `flag()` resolves via `Array.prototype.find`, which
+ * returns the FIRST match, so a `--concurrency=8` already present ahead of
+ * the pushed value in argv would have won. That version's serial guarantee
+ * was a positional accident, not an enforced one — fixed here.)
+ */
+async function determinism(parquetPath) {
+	if (!parquetPath) throw new Error('usage: decodeGolden.mjs determinism <candidates.parquet>');
+	const a = `/tmp/determinism-pass1.${process.pid}.json`;
+	const b = `/tmp/determinism-pass2.${process.pid}.json`;
+	const options = { hashesFrom: parquetPath, concurrency: 1 };
+	console.log('pass 1 of 2...');
+	await capture(a, options);
+	console.log('pass 2 of 2...');
+	await capture(b, options);
+	console.log('\n=== determinism diff (same code, two serial passes) ===');
+	diff(a, b);
+}
+
 if (mode === 'capture') await capture(rest[0]);
 else if (mode === 'diff') diff(rest[0], rest[1]);
+else if (mode === 'determinism') await determinism(rest[0]);
 else {
-	console.error('usage: decodeGolden.mjs capture <out.json> [--concurrency=1] [--limit=N]');
+	console.error('usage: decodeGolden.mjs capture <out.json> [--hashes-from=<parquet>] [--concurrency=1] [--limit=N]');
 	console.error('       decodeGolden.mjs diff <before.json> <after.json>');
+	console.error('       decodeGolden.mjs determinism <candidates.parquet> [--limit=N]');
 	process.exit(1);
 }
