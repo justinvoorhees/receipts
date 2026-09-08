@@ -17,3 +17,11 @@ export type { MarketPriceTier, MarketPriceResult, Estimator } from './marketPric
 export { anchorsToUsd, baseIsOutputLeg, reconciledResult } from './receiptPure.js';
 export { extractFrameChains } from './legFrameChains.js';
 export { resolveLegRouter, type ResolvedLegRouter } from './resolveLegRouter.js';
+export {
+	createMemoryFactCache,
+	type FactCache,
+	type FactCacheEntries,
+	type PoolFact,
+	type PoolKeyFact,
+	type TokenFact,
+} from './factCache.js';
