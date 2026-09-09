@@ -31,15 +31,25 @@
  * Keys are lowercased on the way in and out, because callers get addresses from
  * a mix of RPC responses, config files and trace payloads.
  *
- * ⚠️ THE TOKEN FAMILY IS DEFINED HERE BUT DELIBERATELY NOT WIRED TO A READER IN
- * THIS PLAN, and that is not an oversight to "fix" by adding a decimals-only
- * decorator. `TokenFact` carries decimals AND symbol, which two different
- * readers resolve (`decimalsReader`, and `resolveLegSymbols`'s `readSymbol`). A
- * decorator that wrote `{ decimals, symbol: null }` from the decimals path
- * would make a later symbol lookup a cache HIT on a symbol nobody ever read —
- * turning "unknown" into "this token has no symbol", permanently and across
- * runs. The family is populated in v0.2b-2, where both readers are touched
- * together and a complete TokenFact can be written at once.
+ * ⚠️ THE TOKEN FAMILY IS WIRED. `TokenFact` carries decimals AND symbol,
+ * which two different readers resolve (`decimalsReader`, and
+ * `resolveLegSymbols`'s `readSymbol`) — the reason this needed care, not just
+ * a decimals-only decorator, is unchanged: a write of `{ decimals, symbol:
+ * null }` from the decimals path alone would make a later symbol lookup a
+ * cache HIT on a symbol nobody ever read, turning "unknown" into "this token
+ * has no symbol", permanently and across runs. `cachedTokenReader`
+ * (cachedReaders.ts) is therefore read-only and never writes. The actual
+ * write happens in `analyzeTransaction.ts`, at the one place a symbol has
+ * just been read successfully — decimals are fetched to match it right
+ * there, and both fields are written together, so a partial TokenFact is
+ * never possible.
+ *
+ * ⚠️ "WIRED" IS READ-ASYMMETRIC. Only the decimals half is served from cache
+ * on a read — `cachedTokenReader` short-circuits `decimalsReader` on a
+ * complete hit, but there is no equivalent for `readSymbol`: a symbol lookup
+ * always calls through to RPC, even for a token whose `TokenFact` is already
+ * fully cached from a prior decode. Writes are always complete (both fields,
+ * together, as above); reads currently save only the decimals RPC call.
  */
 
 /** Which singleton protocol produced this pool key. v4 and Infinity share one keyspace. */
