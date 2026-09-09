@@ -33,7 +33,7 @@ import {
 	createDefaultV3FactoryReader,
 	createDefaultV4PoolKeyReader,
 } from './routeReaders.js';
-import { cachedFeeReader, cachedPoolKeyReader, cachedV3FactoryReader } from './cachedReaders.js';
+import { cachedFeeReader, cachedPoolKeyReader, cachedTokenReader, cachedV3FactoryReader } from './cachedReaders.js';
 import type { FactCache } from './factCache.js';
 import { signedDeviationBps, isImplausibleDeviationBps } from './priceMath.js';
 import { getBenchmarkMid } from './benchmarkPrice.js';
@@ -122,9 +122,18 @@ export function toDisplayPrice(price: number | null, baseIsOutput: boolean): num
  */
 export function toPersistedLeg(
 	l: {
-		leg: { venue: string; type: string; tokenIn: string; tokenOut: string; replacesVenue?: string };
+		leg: {
+			venue: string;
+			type: string;
+			tokenIn: string;
+			tokenOut: string;
+			amountInRaw: bigint;
+			amountOutRaw: bigint;
+			replacesVenue?: string;
+		};
 		feeTierBps: number;
 		notionalUsdc: number;
+		notionalApprox: boolean;
 		lpFeeBps: number | null;
 		priceImpactBps: number | null;
 		feeResolved?: boolean;
@@ -136,8 +145,15 @@ export function toPersistedLeg(
 		type: l.leg.type,
 		tokenIn: l.leg.tokenIn,
 		tokenOut: l.leg.tokenOut,
+		// Exact decimal strings, never bigints: Receipt.routeLegs is
+		// JSON-serialized and JSON.stringify throws on a bigint. String(bigint)
+		// is exact and unbounded, which is what the VARCHAR column expects —
+		// token amounts genuinely exceed what any Parquet integer type holds.
+		amountInRaw: String(l.leg.amountInRaw),
+		amountOutRaw: String(l.leg.amountOutRaw),
 		feeTierBps: l.feeTierBps,
 		notionalUsdc: l.notionalUsdc,
+		notionalApprox: l.notionalApprox,
 		lpFeeBps: l.lpFeeBps,
 		/*
 		  ⚠️ Deliberately NOT gated on `midReliable`, and there used to be a
@@ -508,6 +524,10 @@ async function analyzeTransactionInSession(
 					feeReader: cachedFeeReader(createDefaultFeeReader(rpcUrl, blockNumber), cache, chainId),
 				}
 			: {};
+		// Cache-wrapped decimals reader, reused below for the token-symbol join.
+		// Reads only (never writes) — see cachedTokenReader's docstring for why
+		// writing a complete TokenFact needs both decimals AND symbol in hand.
+		const tokenDecimalsReader = cache ? cachedTokenReader(decimalsReader, cache, chainId) : decimalsReader;
 		const route = await decomposeRoute(
 			{
 				trace,
@@ -529,7 +549,7 @@ async function analyzeTransactionInSession(
 				recognizeV3Forks: true,
 				impureOnVenueThirdToken: true,
 			},
-			{ midReader, decimalsReader, ...cachedDeps },
+			{ midReader, decimalsReader: tokenDecimalsReader, ...cachedDeps },
 		);
 
 		// Settlement-event confirmation + normalizeFlags (mirrors buildSmokeRow).
@@ -580,6 +600,31 @@ async function analyzeTransactionInSession(
 
 		// Seeded with what costs no RPC: native, plus the endpoints pricing already
 		// resolved. See resolveLegSymbols for the fan-out and the omit-on-failure rule.
+		//
+		// Token-cache population lives HERE, not in a separate pass over
+		// symbolMap: this is the one place a symbol is known to have come from a
+		// genuine, successful on-chain read (the seeded entries above never reach
+		// this reader at all — resolveLegSymbols only calls it for tokens not
+		// already in `seed`). Fetching decimals only once a real symbol is in
+		// hand, and writing both together, is how a decimals-only TokenFact is
+		// avoided: a token whose symbol() reverts never gets this far, and a
+		// decimals() failure here is caught locally so it costs a cache miss on
+		// a future decode, never a wrong or partial fact today.
+		const rawSymbolReader = createSymbolReader(rpcUrl);
+		const readSymbolForCache = cache
+			? async (token: string): Promise<string> => {
+					const symbol = await rawSymbolReader(token);
+					try {
+						const decimals = await tokenDecimalsReader(token);
+						cache.setToken(chainId, token, { decimals, symbol });
+					} catch {
+						// Decimals unavailable for this token right now — the symbol
+						// resolution itself still succeeds and is returned below;
+						// only the cache write is skipped.
+					}
+					return symbol;
+				}
+			: rawSymbolReader;
 		const symbolMap = await resolveLegSymbols(
 			routeLegsBase,
 			new Map<string, string>([
@@ -587,7 +632,7 @@ async function analyzeTransactionInSession(
 				[endpoints.inputToken.toLowerCase(), pricing.inputSymbol],
 				[endpoints.outputToken.toLowerCase(), pricing.outputSymbol],
 			]),
-			createSymbolReader(rpcUrl),
+			readSymbolForCache,
 		);
 		const routeLegs = attachLegSymbols(routeLegsBase, (a) => symbolMap.get(a.toLowerCase()));
 

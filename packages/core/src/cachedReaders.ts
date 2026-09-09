@@ -26,10 +26,18 @@ import type { V4PoolKeyReader } from './routeReaders.js';
  * `getPool` is not decorated here and must not be: it is a `latest`-tag factory
  * lookup whose answer changes when a new fee tier is deployed (rpcMemo.ts).
  *
- * `decimalsReader` is not decorated here either, deliberately. Decimals and
- * symbol are resolved by two separate readers, and writing a decimals-only
- * TokenFact would make a later symbol lookup a cache hit on a symbol nobody
- * read. Both are wired together in v0.2b-2. See factCache.ts's docstring.
+ * `cachedTokenReader` below decorates `decimalsReader` for READS ONLY — it
+ * never writes to the cache itself. Decimals and symbol are resolved by two
+ * separate readers (`decimalsReader`, and `resolveLegSymbols`'s `readSymbol`),
+ * and a decorator here that wrote `{ decimals, symbol: null }` from the
+ * decimals path alone would make a later symbol lookup a cache HIT on a
+ * symbol nobody ever read — turning "unknown" into "this token has no
+ * symbol", permanently and across runs (see factCache.ts's docstring). The
+ * complete `TokenFact` is written from `analyzeTransaction.ts`, at the one
+ * place a symbol is already known to have come from a genuine successful
+ * read — the decimals half is then fetched (cheaply, via this same
+ * decorator) and both are written together. That keeps a write from ever
+ * happening with only one field known.
  */
 
 /**
@@ -114,5 +122,34 @@ export function cachedFeeReader(inner: FeeReader, cache: FactCache, chainId: num
 		// `defaulted` means the read FAILED and a fallback was substituted.
 		if (!fresh.defaulted) cache.setPool(chainId, addr, { feeBps: fresh.bps });
 		return fresh;
+	};
+}
+
+type DecimalsReader = (token: string) => Promise<number>;
+
+/**
+ * Serves `decimals` from a complete cached `TokenFact` when one exists, and
+ * otherwise calls straight through to `inner` (`createDefaultMidReader`'s
+ * `decimalsReader`).
+ *
+ * DELIBERATELY WRITE-FREE. `inner` alone never has a symbol to pair with a
+ * decimals answer, and per the module docstring a decimals-only write would
+ * corrupt a later symbol lookup into a false "no symbol" hit. So this
+ * decorator only ever narrows the READ path (skip an RPC round-trip when a
+ * complete fact is already cached); the WRITE happens in `analyzeTransaction.ts`,
+ * where a symbol has just been read successfully and this reader is called a
+ * second time to fetch its matching decimals before writing both together —
+ * see that call site's comment for the full reasoning.
+ *
+ * `inner` THROWS on a failed read; that throw propagates unchanged. Catching
+ * it here would turn a transport failure into something that looks like a
+ * successful (if unwritten) read, and — worse — invite a future write path to
+ * cache it.
+ */
+export function cachedTokenReader(inner: DecimalsReader, cache: FactCache, chainId: number): DecimalsReader {
+	return async (token: string) => {
+		const hit = cache.getToken(chainId, token);
+		if (hit) return hit.decimals;
+		return inner(token);
 	};
 }

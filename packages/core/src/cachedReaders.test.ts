@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryFactCache } from './factCache.js';
-import { CACHEABLE_FEE_VENUES, cachedFeeReader, cachedPoolKeyReader, cachedV3FactoryReader } from './cachedReaders.js';
+import { CACHEABLE_FEE_VENUES, cachedFeeReader, cachedPoolKeyReader, cachedTokenReader, cachedV3FactoryReader } from './cachedReaders.js';
 
 describe('cachedPoolKeyReader', () => {
 	it('calls the inner reader once, then serves from cache', async () => {
@@ -102,5 +102,38 @@ describe('cachedFeeReader', () => {
 
 	it('pins the allowlist to exactly the four static-tier v3 forks', () => {
 		expect([...CACHEABLE_FEE_VENUES].sort()).toEqual(['baseswapv3', 'pancakev3', 'sushiv3', 'univ3']);
+	});
+});
+
+describe('cachedTokenReader', () => {
+	it('serves a complete cached fact without calling through', async () => {
+		let calls = 0;
+		const inner = async () => { calls++; return 18; };
+		const cache = createMemoryFactCache();
+		cache.setToken(8453, '0xa', { decimals: 6, symbol: 'USDC' });
+		expect(await cachedTokenReader(inner, cache, 8453)('0xA')).toBe(6);
+		expect(calls).toBe(0);
+	});
+
+	it('lets a THROWN read propagate and caches nothing', async () => {
+		// decimalsReader throwing is what makes a successful read unambiguous.
+		// Swallowing it here would turn a transport failure into a cached fact.
+		let calls = 0;
+		const inner = async () => { calls++; throw new Error('read failed'); };
+		const cache = createMemoryFactCache();
+		const reader = cachedTokenReader(inner, cache, 8453);
+		await expect(reader('0xa')).rejects.toThrow(/read failed/);
+		await expect(reader('0xa')).rejects.toThrow(/read failed/);
+		expect(calls).toBe(2);
+		expect(cache.entries().tokens).toEqual([]);
+	});
+
+	it('scopes by chain', async () => {
+		const cache = createMemoryFactCache();
+		cache.setToken(8453, '0xa', { decimals: 6, symbol: 'USDC' });
+		let calls = 0;
+		const inner = async () => { calls++; return 18; };
+		expect(await cachedTokenReader(inner, cache, 1)('0xa')).toBe(18);
+		expect(calls).toBe(1);
 	});
 });
