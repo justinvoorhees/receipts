@@ -28,10 +28,25 @@ import { sqlLiteral, withDuckDb, writeRowsToParquet } from './writeParquet.js';
  * A missing file is a first run, not an error.
  */
 
-const POOL_KEY_COLUMNS = "{'pool_id': 'VARCHAR', 'currency0': 'VARCHAR', 'currency1': 'VARCHAR'}";
-const TOKEN_COLUMNS = "{'address': 'VARCHAR', 'decimals': 'INTEGER', 'symbol': 'VARCHAR'}";
+const POOL_KEY_COLUMNS =
+	"{'chain_id': 'INTEGER', 'pool_id': 'VARCHAR', 'currency0': 'VARCHAR', 'currency1': 'VARCHAR', 'protocol': 'VARCHAR'}";
+const TOKEN_COLUMNS = "{'chain_id': 'INTEGER', 'address': 'VARCHAR', 'decimals': 'INTEGER', 'symbol': 'VARCHAR'}";
 const POOL_COLUMNS =
-	"{'address': 'VARCHAR', 'token0': 'VARCHAR', 'token1': 'VARCHAR', 'fee_bps': 'DOUBLE', 'factory': 'VARCHAR'}";
+	"{'chain_id': 'INTEGER', 'address': 'VARCHAR', 'token0': 'VARCHAR', 'token1': 'VARCHAR', 'fee_bps': 'DOUBLE', 'factory': 'VARCHAR'}";
+
+/** The only protocols that can produce a v4/Infinity pool-key row. */
+const POOL_PROTOCOLS = ['v4', 'infinity'] as const;
+
+/** Required `protocol` field, validated against the known set rather than
+ *  trusted — a value we cannot name is a provenance hole, and this table
+ *  exists to close one. Used on both the write path (guards a caller passing
+ *  `as never`) and the read path (guards a hand-edited/corrupted file). */
+function requiredProtocol(value: unknown, field: string): 'v4' | 'infinity' {
+	if (value === 'v4' || value === 'infinity') return value;
+	throw new Error(
+		`Fact cache row has no usable ${field} (got ${JSON.stringify(value)}), expected one of ${POOL_PROTOCOLS.join(', ')}`,
+	);
+}
 
 async function readRows(path: string): Promise<Record<string, unknown>[]> {
 	if (!existsSync(path)) return [];
@@ -86,13 +101,16 @@ export async function loadFactCacheEntries(opts: {
 
 	const entries: FactCacheEntries = {
 		poolKeys: poolKeyRows.map((r) => [
+			requiredNumber(r.chain_id, 'chain_id'),
 			requiredString(r.pool_id, 'pool_id'),
 			{
 				currency0: requiredString(r.currency0, 'currency0'),
 				currency1: requiredString(r.currency1, 'currency1'),
+				protocol: requiredProtocol(r.protocol, 'protocol'),
 			},
 		]),
 		tokens: tokenRows.map((r) => [
+			requiredNumber(r.chain_id, 'chain_id'),
 			requiredString(r.address, 'address'),
 			{ decimals: requiredNumber(r.decimals, 'decimals'), symbol: optionalString(r.symbol) ?? null },
 		]),
@@ -101,7 +119,8 @@ export async function loadFactCacheEntries(opts: {
 			const token1 = optionalString(r.token1);
 			const factory = optionalString(r.factory);
 			return [
-				String(r.address),
+				requiredNumber(r.chain_id, 'chain_id'),
+				requiredString(r.address, 'address'),
 				{
 					...(token0 ? { token0 } : {}),
 					...(token1 ? { token1 } : {}),
@@ -132,27 +151,34 @@ export async function saveFactCacheEntries(
 	// empty on the next run, which is the same thing.
 	if (e.poolKeys.length > 0) {
 		await writeRowsToParquet(
-			e.poolKeys.map(([pool_id, f]) => ({ pool_id, currency0: f.currency0, currency1: f.currency1 })),
+			e.poolKeys.map(([chain_id, pool_id, f]) => ({
+				chain_id,
+				pool_id,
+				currency0: f.currency0,
+				currency1: f.currency1,
+				protocol: requiredProtocol(f.protocol, 'protocol'),
+			})),
 			{
 				outPath: cacheFilePath({ dataDir: opts.dataDir, name: 'v4_poolkeys', chain: opts.chain }),
 				columnSpec: POOL_KEY_COLUMNS,
-				orderBy: 'pool_id',
+				orderBy: 'chain_id, pool_id',
 			},
 		);
 	}
 	if (e.tokens.length > 0) {
 		await writeRowsToParquet(
-			e.tokens.map(([address, f]) => ({ address, decimals: f.decimals, symbol: f.symbol })),
+			e.tokens.map(([chain_id, address, f]) => ({ chain_id, address, decimals: f.decimals, symbol: f.symbol })),
 			{
 				outPath: cacheFilePath({ dataDir: opts.dataDir, name: 'tokens', chain: opts.chain }),
 				columnSpec: TOKEN_COLUMNS,
-				orderBy: 'address',
+				orderBy: 'chain_id, address',
 			},
 		);
 	}
 	if (e.pools.length > 0) {
 		await writeRowsToParquet(
-			e.pools.map(([address, f]) => ({
+			e.pools.map(([chain_id, address, f]) => ({
+				chain_id,
 				address,
 				token0: f.token0 ?? null,
 				token1: f.token1 ?? null,
@@ -162,7 +188,7 @@ export async function saveFactCacheEntries(
 			{
 				outPath: cacheFilePath({ dataDir: opts.dataDir, name: 'pools', chain: opts.chain }),
 				columnSpec: POOL_COLUMNS,
-				orderBy: 'address',
+				orderBy: 'chain_id, address',
 			},
 		);
 	}

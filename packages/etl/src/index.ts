@@ -17,4 +17,14 @@ export { cacheFilePath, derivedFileName, derivedFilePath, type CacheName, type D
 export { CANDIDATE_COLUMNS, DERIVED_SCHEMA_VERSION, derivedColumnSpec, type CandidateRow } from './derivedSchema.js';
 export { loadRouterRegistry, routerValuesSql, type RouterEntry } from './routerRegistry.js';
 export { copyQueryToParquet, writeRowsToParquet } from './writeParquet.js';
+export { sqlLiteral } from './sql.js';
 export { loadFactCacheEntries, saveFactCacheEntries } from './factCacheStore.js';
+export {
+	toFailureRow,
+	toLegRows,
+	toReceiptRow,
+	type FailureArgs,
+	type RunContext,
+	type TxContext,
+} from './receiptRows.js';
+export { buildReceipts, type BuildReceiptsOptions, type BuildReceiptsResult } from './buildReceipts.js';

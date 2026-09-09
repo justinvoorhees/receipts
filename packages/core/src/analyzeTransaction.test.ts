@@ -138,6 +138,39 @@ describe('toPersistedLeg', () => {
 	});
 });
 
+describe('toPersistedLeg raw amounts', () => {
+	const base = {
+		leg: {
+			venue: '0xpool', type: 'univ3', tokenIn: '0xa', tokenOut: '0xb',
+			amountInRaw: 1_000_000_000_000_000_000n, amountOutRaw: 1_800_000_000n,
+		},
+		feeTierBps: 30, notionalUsdc: 1800, notionalApprox: false,
+		lpFeeBps: 5, priceImpactBps: 2,
+	};
+
+	it('emits raw amounts as exact decimal strings', () => {
+		const out = toPersistedLeg(base, undefined);
+		expect(out.amountInRaw).toBe('1000000000000000000');
+		expect(out.amountOutRaw).toBe('1800000000');
+	});
+
+	it('emits a value larger than 2^128 without loss', () => {
+		// Token amounts genuinely exceed what DuckDB's widest integer holds, so
+		// a numeric round-trip would silently truncate.
+		const huge = 2n ** 200n;
+		const out = toPersistedLeg({ ...base, leg: { ...base.leg, amountInRaw: huge } }, undefined);
+		expect(out.amountInRaw).toBe(huge.toString());
+	});
+
+	it('survives JSON.stringify, which a bigint would not', () => {
+		expect(() => JSON.stringify(toPersistedLeg(base, undefined))).not.toThrow();
+	});
+
+	it('carries notionalApprox through', () => {
+		expect(toPersistedLeg({ ...base, notionalApprox: true }, undefined).notionalApprox).toBe(true);
+	});
+});
+
 describe('attachLegSymbols', () => {
 	const symbolFor = (a: string): string | undefined =>
 		({ '0xusdc': 'USDC', '0x4200000000000000000000000000000000000006': 'WETH', native: 'ETH' })[a.toLowerCase()];

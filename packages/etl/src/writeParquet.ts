@@ -4,6 +4,11 @@ import { createWriteStream, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { sqlLiteral } from './sql.js';
+
+// Re-exported so existing importers (routerRegistry.ts, candidatesSql.ts) keep
+// working unchanged; new callers should import from './sql.js' directly.
+export { sqlLiteral };
 
 /**
  * writeParquet.ts — rows or a query in, Parquet on disk, atomically.
@@ -33,11 +38,6 @@ import { pipeline } from 'node:stream/promises';
  * with measurement against real Derived query patterns, not a settled number.
  */
 const DEFAULT_ROW_GROUP_SIZE = 4096;
-
-/** SQL string literal escaping — paths are ours, but a stray quote must not build broken SQL. */
-export function sqlLiteral(value: string): string {
-	return `'${value.replace(/'/g, "''")}'`;
-}
 
 /** One NDJSON line per row, produced lazily so the whole batch is never held as one string. */
 function* ndjsonLines(rows: readonly unknown[]): Generator<string> {

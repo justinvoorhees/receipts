@@ -11,6 +11,8 @@
  * TIMESTAMP on the way into Parquet.
  */
 
+import { derivedColumnSpec } from './derivedSchema.js';
+
 export const SCHEMA_VERSION = 1;
 
 /** Whether the chain had permanently committed to this block when we read it. */
@@ -68,12 +70,12 @@ export interface SeedRow {
 /**
  * Render SEED_COLUMNS as a DuckDB `read_json(columns := …)` struct literal.
  *
- * Passing the types explicitly rather than letting DuckDB sniff them is what
- * makes the written Parquet deterministic: sniffing infers from the first rows,
- * so a chunk where every `tx_to` happened to be NULL could otherwise land a
- * different type than a chunk where one was set.
+ * Delegates to derivedColumnSpec, which is the same renderer plus an empty-set
+ * guard. Passing the types explicitly rather than letting DuckDB sniff them is
+ * what makes the written Parquet deterministic: sniffing infers from the first
+ * rows, so a chunk where every `tx_to` happened to be NULL could otherwise land
+ * a different type than a chunk where one was set.
  */
 export function seedColumnSpec(): string {
-	const entries = Object.entries(SEED_COLUMNS).map(([name, type]) => `'${name}': '${type}'`);
-	return `{${entries.join(', ')}}`;
+	return derivedColumnSpec(SEED_COLUMNS);
 }

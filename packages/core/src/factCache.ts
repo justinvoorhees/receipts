@@ -7,7 +7,14 @@
  *   rpcMemo   per-decode, dies with the request, may hold ANY read.
  *   FactCache process-global, survives runs, may hold ONLY immutable facts.
  *
- * The whole safety argument is that nothing mutable gets in. Three rules:
+ * The whole safety argument is that nothing mutable gets in.
+ *
+ * ⚠️ EVERY KEY IS SCOPED BY chainId. Pool and token addresses are NOT unique
+ * across chains, so a process-global cache without this would serve one
+ * chain's answer for another's address — silently, and permanently once
+ * persisted. The composite key is `${chainId}:${address.toLowerCase()}`.
+ *
+ * Three rules:
  *
  * 1. `getPool` is NOT here, deliberately. It is a factory lookup at the `latest`
  *    tag whose answer changes when a new fee tier is deployed — the exact thing
@@ -24,21 +31,35 @@
  * Keys are lowercased on the way in and out, because callers get addresses from
  * a mix of RPC responses, config files and trace payloads.
  *
- * ⚠️ THE TOKEN FAMILY IS DEFINED HERE BUT DELIBERATELY NOT WIRED TO A READER IN
- * THIS PLAN, and that is not an oversight to "fix" by adding a decimals-only
- * decorator. `TokenFact` carries decimals AND symbol, which two different
- * readers resolve (`decimalsReader`, and `resolveLegSymbols`'s `readSymbol`). A
- * decorator that wrote `{ decimals, symbol: null }` from the decimals path
- * would make a later symbol lookup a cache HIT on a symbol nobody ever read —
- * turning "unknown" into "this token has no symbol", permanently and across
- * runs. The family is populated in v0.2b-2, where both readers are touched
- * together and a complete TokenFact can be written at once.
+ * ⚠️ THE TOKEN FAMILY IS WIRED. `TokenFact` carries decimals AND symbol,
+ * which two different readers resolve (`decimalsReader`, and
+ * `resolveLegSymbols`'s `readSymbol`) — the reason this needed care, not just
+ * a decimals-only decorator, is unchanged: a write of `{ decimals, symbol:
+ * null }` from the decimals path alone would make a later symbol lookup a
+ * cache HIT on a symbol nobody ever read, turning "unknown" into "this token
+ * has no symbol", permanently and across runs. `cachedTokenReader`
+ * (cachedReaders.ts) is therefore read-only and never writes. The actual
+ * write happens in `analyzeTransaction.ts`, at the one place a symbol has
+ * just been read successfully — decimals are fetched to match it right
+ * there, and both fields are written together, so a partial TokenFact is
+ * never possible.
+ *
+ * ⚠️ "WIRED" IS READ-ASYMMETRIC. Only the decimals half is served from cache
+ * on a read — `cachedTokenReader` short-circuits `decimalsReader` on a
+ * complete hit, but there is no equivalent for `readSymbol`: a symbol lookup
+ * always calls through to RPC, even for a token whose `TokenFact` is already
+ * fully cached from a prior decode. Writes are always complete (both fields,
+ * together, as above); reads currently save only the decimals RPC call.
  */
+
+/** Which singleton protocol produced this pool key. v4 and Infinity share one keyspace. */
+export type PoolProtocol = 'v4' | 'infinity';
 
 /** A v4/Infinity poolId's two currencies. Fixed at Initialize, forever. */
 export interface PoolKeyFact {
 	currency0: string;
 	currency1: string;
+	protocol: PoolProtocol;
 }
 
 /** ERC-20 metadata, set at deploy. `symbol: null` means the token has none we could read. */
@@ -60,42 +81,65 @@ export interface PoolFact {
 }
 
 export interface FactCacheEntries {
-	poolKeys: [string, PoolKeyFact][];
-	tokens: [string, TokenFact][];
-	pools: [string, PoolFact][];
+	poolKeys: [number, string, PoolKeyFact][];
+	tokens: [number, string, TokenFact][];
+	pools: [number, string, PoolFact][];
 }
 
 export interface FactCache {
-	getPoolKey(poolId: string): PoolKeyFact | undefined;
-	setPoolKey(poolId: string, fact: PoolKeyFact): void;
-	getToken(address: string): TokenFact | undefined;
-	setToken(address: string, fact: TokenFact): void;
-	getPool(address: string): PoolFact | undefined;
+	getPoolKey(chainId: number, poolId: string): PoolKeyFact | undefined;
+	setPoolKey(chainId: number, poolId: string, fact: PoolKeyFact): void;
+	getToken(chainId: number, address: string): TokenFact | undefined;
+	setToken(chainId: number, address: string, fact: TokenFact): void;
+	getPool(chainId: number, address: string): PoolFact | undefined;
 	/** Merges into any existing record for this address. */
-	setPool(address: string, fact: PoolFact): void;
+	setPool(chainId: number, address: string, fact: PoolFact): void;
 	/** Everything held, for persistence. Keys are lowercased. */
 	entries(): FactCacheEntries;
 }
 
+/** Splits a composite `${chainId}:${address}` key back into its parts. */
+function splitCompositeKey(key: string): [number, string] {
+	const i = key.indexOf(':');
+	const chainId = Number(key.slice(0, i));
+	const address = key.slice(i + 1);
+	return [chainId, address];
+}
+
+function compositeKey(chainId: number, address: string): string {
+	return `${chainId}:${address.toLowerCase()}`;
+}
+
 export function createMemoryFactCache(seed?: Partial<FactCacheEntries>): FactCache {
-	const poolKeys = new Map<string, PoolKeyFact>(seed?.poolKeys?.map(([k, v]) => [k.toLowerCase(), v]));
-	const tokens = new Map<string, TokenFact>(seed?.tokens?.map(([k, v]) => [k.toLowerCase(), v]));
-	const pools = new Map<string, PoolFact>(seed?.pools?.map(([k, v]) => [k.toLowerCase(), v]));
+	const poolKeys = new Map<string, PoolKeyFact>(
+		seed?.poolKeys?.map(([chainId, k, v]) => [compositeKey(chainId, k), v]),
+	);
+	const tokens = new Map<string, TokenFact>(seed?.tokens?.map(([chainId, k, v]) => [compositeKey(chainId, k), v]));
+	const pools = new Map<string, PoolFact>(seed?.pools?.map(([chainId, k, v]) => [compositeKey(chainId, k), v]));
 
 	return {
-		getPoolKey: (poolId) => poolKeys.get(poolId.toLowerCase()),
-		setPoolKey: (poolId, fact) => void poolKeys.set(poolId.toLowerCase(), fact),
-		getToken: (address) => tokens.get(address.toLowerCase()),
-		setToken: (address, fact) => void tokens.set(address.toLowerCase(), fact),
-		getPool: (address) => pools.get(address.toLowerCase()),
-		setPool: (address, fact) => {
-			const key = address.toLowerCase();
+		getPoolKey: (chainId, poolId) => poolKeys.get(compositeKey(chainId, poolId)),
+		setPoolKey: (chainId, poolId, fact) => void poolKeys.set(compositeKey(chainId, poolId), fact),
+		getToken: (chainId, address) => tokens.get(compositeKey(chainId, address)),
+		setToken: (chainId, address, fact) => void tokens.set(compositeKey(chainId, address), fact),
+		getPool: (chainId, address) => pools.get(compositeKey(chainId, address)),
+		setPool: (chainId, address, fact) => {
+			const key = compositeKey(chainId, address);
 			pools.set(key, { ...pools.get(key), ...fact });
 		},
 		entries: () => ({
-			poolKeys: [...poolKeys.entries()],
-			tokens: [...tokens.entries()],
-			pools: [...pools.entries()],
+			poolKeys: [...poolKeys.entries()].map(([k, v]): [number, string, PoolKeyFact] => {
+				const [chainId, address] = splitCompositeKey(k);
+				return [chainId, address, v];
+			}),
+			tokens: [...tokens.entries()].map(([k, v]): [number, string, TokenFact] => {
+				const [chainId, address] = splitCompositeKey(k);
+				return [chainId, address, v];
+			}),
+			pools: [...pools.entries()].map(([k, v]): [number, string, PoolFact] => {
+				const [chainId, address] = splitCompositeKey(k);
+				return [chainId, address, v];
+			}),
 		}),
 	};
 }

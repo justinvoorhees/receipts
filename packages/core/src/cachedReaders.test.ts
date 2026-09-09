@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryFactCache } from './factCache.js';
-import { CACHEABLE_FEE_VENUES, cachedFeeReader, cachedPoolKeyReader, cachedV3FactoryReader } from './cachedReaders.js';
+import { CACHEABLE_FEE_VENUES, cachedFeeReader, cachedPoolKeyReader, cachedTokenReader, cachedV3FactoryReader } from './cachedReaders.js';
 
 describe('cachedPoolKeyReader', () => {
 	it('calls the inner reader once, then serves from cache', async () => {
 		let calls = 0;
 		const inner = async () => { calls++; return { currency0: '0x1', currency1: '0x2' }; };
 		const cache = createMemoryFactCache();
-		const reader = cachedPoolKeyReader(inner, cache);
+		const reader = cachedPoolKeyReader(inner, cache, 8453, 'v4');
 		expect(await reader('0xPOOL')).toEqual({ currency0: '0x1', currency1: '0x2' });
 		expect(await reader('0xpool')).toEqual({ currency0: '0x1', currency1: '0x2' });
 		expect(calls).toBe(1);
@@ -17,8 +17,8 @@ describe('cachedPoolKeyReader', () => {
 		// This is the win: ~25 serial extsload probes per poolId become zero.
 		let calls = 0;
 		const inner = async () => { calls++; return null; };
-		const cache = createMemoryFactCache({ poolKeys: [['0xa', { currency0: '0x1', currency1: '0x2' }]] });
-		expect(await cachedPoolKeyReader(inner, cache)('0xA')).toEqual({ currency0: '0x1', currency1: '0x2' });
+		const cache = createMemoryFactCache({ poolKeys: [[8453, '0xa', { currency0: '0x1', currency1: '0x2', protocol: 'v4' }]] });
+		expect(await cachedPoolKeyReader(inner, cache, 8453, 'v4')('0xA')).toEqual({ currency0: '0x1', currency1: '0x2' });
 		expect(calls).toBe(0);
 	});
 
@@ -28,7 +28,7 @@ describe('cachedPoolKeyReader', () => {
 		let calls = 0;
 		const inner = async () => { calls++; return null; };
 		const cache = createMemoryFactCache();
-		const reader = cachedPoolKeyReader(inner, cache);
+		const reader = cachedPoolKeyReader(inner, cache, 8453, 'v4');
 		expect(await reader('0xa')).toBeNull();
 		expect(await reader('0xa')).toBeNull();
 		expect(calls).toBe(2);
@@ -41,22 +41,22 @@ describe('cachedV3FactoryReader', () => {
 		let calls = 0;
 		const inner = async () => { calls++; return '0xfac'; };
 		const cache = createMemoryFactCache();
-		const reader = cachedV3FactoryReader(inner, cache);
+		const reader = cachedV3FactoryReader(inner, cache, 8453);
 		expect(await reader('0xP')).toBe('0xfac');
 		expect(await reader('0xp')).toBe('0xfac');
 		expect(calls).toBe(1);
-		expect(cache.getPool('0xp')?.factory).toBe('0xfac');
+		expect(cache.getPool(8453, '0xp')?.factory).toBe('0xfac');
 	});
 
 	it('never caches a null factory', async () => {
 		let calls = 0;
 		const inner = async () => { calls++; return null; };
 		const cache = createMemoryFactCache();
-		const reader = cachedV3FactoryReader(inner, cache);
+		const reader = cachedV3FactoryReader(inner, cache, 8453);
 		await reader('0xa');
 		await reader('0xa');
 		expect(calls).toBe(2);
-		expect(cache.getPool('0xa')).toBeUndefined();
+		expect(cache.getPool(8453, '0xa')).toBeUndefined();
 	});
 });
 
@@ -65,7 +65,7 @@ describe('cachedFeeReader', () => {
 		let calls = 0;
 		const inner = async () => { calls++; return { bps: 30, defaulted: false }; };
 		const cache = createMemoryFactCache();
-		const reader = cachedFeeReader(inner, cache);
+		const reader = cachedFeeReader(inner, cache, 8453);
 		expect(await reader('0xP', 'univ3')).toEqual({ bps: 30, defaulted: false });
 		expect(await reader('0xp', 'univ3')).toEqual({ bps: 30, defaulted: false });
 		expect(calls).toBe(1);
@@ -79,11 +79,11 @@ describe('cachedFeeReader', () => {
 			let calls = 0;
 			const inner = async () => { calls++; return { bps: 30, defaulted: false }; };
 			const cache = createMemoryFactCache();
-			const reader = cachedFeeReader(inner, cache);
+			const reader = cachedFeeReader(inner, cache, 8453);
 			await reader('0xp', venue);
 			await reader('0xp', venue);
 			expect(calls, `${venue} must not be cached`).toBe(2);
-			expect(cache.getPool('0xp')?.feeBps, `${venue} must not be stored`).toBeUndefined();
+			expect(cache.getPool(8453, '0xp')?.feeBps, `${venue} must not be stored`).toBeUndefined();
 		}
 	});
 
@@ -93,14 +93,47 @@ describe('cachedFeeReader', () => {
 		let calls = 0;
 		const inner = async () => { calls++; return { bps: 30, defaulted: true }; };
 		const cache = createMemoryFactCache();
-		const reader = cachedFeeReader(inner, cache);
+		const reader = cachedFeeReader(inner, cache, 8453);
 		await reader('0xp', 'univ3');
 		await reader('0xp', 'univ3');
 		expect(calls).toBe(2);
-		expect(cache.getPool('0xp')?.feeBps).toBeUndefined();
+		expect(cache.getPool(8453, '0xp')?.feeBps).toBeUndefined();
 	});
 
 	it('pins the allowlist to exactly the four static-tier v3 forks', () => {
 		expect([...CACHEABLE_FEE_VENUES].sort()).toEqual(['baseswapv3', 'pancakev3', 'sushiv3', 'univ3']);
+	});
+});
+
+describe('cachedTokenReader', () => {
+	it('serves a complete cached fact without calling through', async () => {
+		let calls = 0;
+		const inner = async () => { calls++; return 18; };
+		const cache = createMemoryFactCache();
+		cache.setToken(8453, '0xa', { decimals: 6, symbol: 'USDC' });
+		expect(await cachedTokenReader(inner, cache, 8453)('0xA')).toBe(6);
+		expect(calls).toBe(0);
+	});
+
+	it('lets a THROWN read propagate and caches nothing', async () => {
+		// decimalsReader throwing is what makes a successful read unambiguous.
+		// Swallowing it here would turn a transport failure into a cached fact.
+		let calls = 0;
+		const inner = async () => { calls++; throw new Error('read failed'); };
+		const cache = createMemoryFactCache();
+		const reader = cachedTokenReader(inner, cache, 8453);
+		await expect(reader('0xa')).rejects.toThrow(/read failed/);
+		await expect(reader('0xa')).rejects.toThrow(/read failed/);
+		expect(calls).toBe(2);
+		expect(cache.entries().tokens).toEqual([]);
+	});
+
+	it('scopes by chain', async () => {
+		const cache = createMemoryFactCache();
+		cache.setToken(8453, '0xa', { decimals: 6, symbol: 'USDC' });
+		let calls = 0;
+		const inner = async () => { calls++; return 18; };
+		expect(await cachedTokenReader(inner, cache, 1)('0xa')).toBe(18);
+		expect(calls).toBe(1);
 	});
 });

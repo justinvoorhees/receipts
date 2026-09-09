@@ -27,7 +27,14 @@ export {
 	type FactCacheEntries,
 	type PoolFact,
 	type PoolKeyFact,
+	type PoolProtocol,
 	type TokenFact,
 } from './factCache.js';
 export { fromSeedJson, type PrefetchedTx, type PrefetchedReceipt, type PrefetchedTransaction } from './prefetched.js';
-export { CACHEABLE_FEE_VENUES, cachedFeeReader, cachedPoolKeyReader, cachedV3FactoryReader } from './cachedReaders.js';
+export {
+	CACHEABLE_FEE_VENUES,
+	cachedFeeReader,
+	cachedPoolKeyReader,
+	cachedTokenReader,
+	cachedV3FactoryReader,
+} from './cachedReaders.js';
