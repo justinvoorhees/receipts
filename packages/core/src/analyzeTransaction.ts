@@ -603,13 +603,20 @@ async function analyzeTransactionInSession(
 		//
 		// Token-cache population lives HERE, not in a separate pass over
 		// symbolMap: this is the one place a symbol is known to have come from a
-		// genuine, successful on-chain read (the seeded entries above never reach
-		// this reader at all — resolveLegSymbols only calls it for tokens not
-		// already in `seed`). Fetching decimals only once a real symbol is in
-		// hand, and writing both together, is how a decimals-only TokenFact is
-		// avoided: a token whose symbol() reverts never gets this far, and a
-		// decimals() failure here is caught locally so it costs a cache miss on
-		// a future decode, never a wrong or partial fact today.
+		// SUCCESSFUL read of some kind — but not always a genuine ON-CHAIN one.
+		// createSymbolReader (pricing.ts) pre-seeds KNOWN_SYMBOLS, so a handful of
+		// addresses (USDC, USDbC, DAI, WETH on Base) short-circuit before any RPC
+		// call and are written here from that static table, not from a chain read.
+		// Benign today because KNOWN_SYMBOLS is correct by construction, but this
+		// comment is the safety argument for the whole token-write path, so state
+		// it precisely: `decimals()` below is ALWAYS a genuine on-chain read for
+		// every token that reaches here (caught locally on failure — see below);
+		// `symbol()` is a genuine on-chain read only for a token NOT already in
+		// KNOWN_SYMBOLS (the seeded entries above never reach this reader at all —
+		// resolveLegSymbols only calls it for tokens not already in `seed`). A
+		// token whose symbol() reverts never gets this far either way, and a
+		// decimals() failure here is caught locally so it costs a cache miss on a
+		// future decode, never a wrong or partial fact today.
 		const rawSymbolReader = createSymbolReader(rpcUrl);
 		const readSymbolForCache = cache
 			? async (token: string): Promise<string> => {

@@ -97,6 +97,22 @@ describe('toLegRows', () => {
 		expect(toLegRows(receipt({ routeLegs: null }))).toEqual([]);
 	});
 
+	it('carries route_reconstructed from the parent receipt onto every leg', () => {
+		// This is what lets a consumer tell a fabricated '0' (un-reconstructed
+		// "pools touched" leg) apart from a genuine measured zero, without a
+		// join back to receipts. See LEG_COLUMNS's docstring.
+		const leg = {
+			venue: '0xp', type: 'univ3', tokenIn: '0xa', tokenOut: '0xb',
+			feeTierBps: 30, notionalUsdc: 0, notionalApprox: true,
+			lpFeeBps: null, priceImpactBps: null, amountInRaw: '0', amountOutRaw: '0',
+		};
+		const reconstructed = toLegRows(receipt({ routeReconstructed: true, routeLegs: [leg] }));
+		expect(reconstructed[0]!.route_reconstructed).toBe(true);
+
+		const notReconstructed = toLegRows(receipt({ routeReconstructed: false, routeLegs: [leg] }));
+		expect(notReconstructed[0]!.route_reconstructed).toBe(false);
+	});
+
 	it('nulls an absent optional rather than stringifying undefined', () => {
 		// fee_resolved and frame_chain are OMITTED by core when they do not
 		// apply. String(undefined) would write the literal "undefined".
@@ -111,11 +127,7 @@ describe('toLegRows', () => {
 	});
 });
 
-describe('module discipline', () => {
-	it('imports only TYPES from @fabric-tca/core', async () => {
-		const { readFileSync } = await import('node:fs');
-		const src = readFileSync(new URL('./receiptRows.ts', import.meta.url), 'utf8');
-		expect(src.match(/import\s+(?!type\b)[\s\S]*?from\s*['"]@fabric-tca\/core['"]/g)).toBeNull();
-		expect(src).toMatch(/import type .*@fabric-tca\/core/);
-	});
-});
+// The per-file "imports only types from @fabric-tca/core" guard that used to
+// live here has been replaced by one shared test that covers every module in
+// this package and every subpath, not just the bare specifier: see
+// coreImportDiscipline.test.ts.

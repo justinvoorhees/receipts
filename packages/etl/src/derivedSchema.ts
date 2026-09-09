@@ -119,7 +119,13 @@ export interface CandidateRow {
  *
  * `fee_sinks` is a genuine nested column, not a JSON string: query it with
  * `UNNEST`. Verified to round-trip through a DuckDB `read_json` columns spec,
- * including the empty-array case.
+ * including the empty-array case. Deliberately has no `name` field: a sink
+ * address's human name resolves from the contract-name registry
+ * (`configs/contractNames.json` + `MANUAL_OVERRIDES`, plus Etherscan for a
+ * cache miss) at READ time, not at persist time — nothing in this ETL run can
+ * populate it (see `receiptRows.ts`'s `toFeeSinks`), and every row would
+ * otherwise carry a NULL that looks like a gap rather than a join a consumer
+ * still needs to do.
  *
  * Deliberately NOT included: `market_mid_before`/`market_mid_after` (dropped
  * in the previous plan), the Chainlink/offchain benchmark block (populated on
@@ -168,7 +174,7 @@ export const RECEIPT_COLUMNS = {
 	decomp_confidence: 'VARCHAR',
 	fee_recipient: 'VARCHAR',
 	fee_sink_source: 'VARCHAR',
-	fee_sinks: 'STRUCT(address VARCHAR, fee_bps DOUBLE, source VARCHAR, name VARCHAR)[]',
+	fee_sinks: 'STRUCT(address VARCHAR, fee_bps DOUBLE, source VARCHAR)[]',
 	integrator_fee_bps: 'DOUBLE',
 	fabric_fee_bps: 'DOUBLE',
 	settlement_event_name: 'VARCHAR',
@@ -183,12 +189,12 @@ export const RECEIPT_COLUMNS = {
 	derived_schema_version: 'INTEGER',
 } as const satisfies Readonly<Record<string, string>>;
 
-/** One entry of `ReceiptRow.fee_sinks`. Mirrors the `fee_sinks` STRUCT fields. */
+/** One entry of `ReceiptRow.fee_sinks`. Mirrors the `fee_sinks` STRUCT fields.
+ *  No `name` — see `RECEIPT_COLUMNS`'s docstring. */
 export interface ReceiptFeeSink {
 	address: string | null;
 	fee_bps: number | null;
 	source: string | null;
-	name: string | null;
 }
 
 export interface ReceiptRow {
@@ -261,10 +267,23 @@ export interface ReceiptRow {
  * amounts genuinely exceed 2^128 for high-supply 18-decimal tokens, so
  * DuckDB's widest integer type cannot hold them; these come from a JS bigint
  * via `String()`, which has no ceiling.
+ *
+ * ⚠️⚠️ `route_reconstructed` (carried over from the parent receipt) is what
+ * makes a `'0'` amount readable. The un-reconstructed "pools touched" path
+ * (`venuesToUncostedLegs` in decomposeRoute.ts) fabricates
+ * `amountInRaw: 0n, amountOutRaw: 0n` for a leg that was never measured — it
+ * is a placeholder, not a reading. Measured: 986 of 10,758 leg rows (9.2%)
+ * have `'0'` on both sides, and 971 of those are on a
+ * `route_reconstructed = false` receipt. The rule: on a row with
+ * `route_reconstructed = false`, a `'0'` amount means NEVER MEASURED, not
+ * measured zero. Only on a `route_reconstructed = true` row does `'0'` mean a
+ * genuine zero (the other 15 of the 986). Without this column the table
+ * cannot tell the two apart without a join back to `receipts`.
  */
 export const LEG_COLUMNS = {
 	tx_hash: 'VARCHAR',
 	leg_index: 'INTEGER',
+	route_reconstructed: 'BOOLEAN',
 	venue: 'VARCHAR',
 	v4_emitter: 'VARCHAR',
 	type: 'VARCHAR',
@@ -287,6 +306,7 @@ export const LEG_COLUMNS = {
 export interface LegRow {
 	tx_hash: string;
 	leg_index: number;
+	route_reconstructed: boolean | null;
 	venue: string | null;
 	v4_emitter: string | null;
 	type: string | null;

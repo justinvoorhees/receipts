@@ -93,11 +93,21 @@ interface SeedPayload {
 	traceJson: string;
 }
 
-/** The work list: one row per candidate matching `selectedVia`, ordered so
- *  the run's progress and the written files both come out in block order. */
+/** The work list: one row per candidate matching `selectedVia` AND `chainId`,
+ *  ordered so the run's progress and the written files both come out in block
+ *  order.
+ *
+ *  ⚠️ The `chain_id` filter is load-bearing, not decorative. `--chain` picks
+ *  the FILE (which candidates/Seed glob to read), but a glob can be pointed at
+ *  the wrong chain's data by a typo, and without this filter every row in it
+ *  gets decoded and labelled with whatever `--chain-id` the caller passed —
+ *  writing mainnet-labelled facts into `pools.base.parquet` with no error. The
+ *  `FactCache` is chain-keyed AND persistent, so a mislabelled fact outlives
+ *  the run that made it and is trusted by every later correct run. */
 async function loadWorkList(opts: {
 	candidatesGlob: string;
 	selectedVia: string[];
+	chainId: number;
 	limit?: number;
 }): Promise<WorkItem[]> {
 	return withDuckDb(async (connection) => {
@@ -107,6 +117,7 @@ async function loadWorkList(opts: {
 			`SELECT tx_hash, chain_id, block_number, block_position, epoch_ms(block_timestamp) AS block_timestamp_ms
 			 FROM read_parquet(${sqlLiteral(opts.candidatesGlob)})
 			 WHERE selected_via IN (${viaList})
+			   AND chain_id = ${opts.chainId}
 			 ORDER BY block_number, block_position
 			 ${limitSql}`,
 		);
@@ -163,6 +174,7 @@ export async function buildReceipts(opts: BuildReceiptsOptions): Promise<BuildRe
 	const workList = await loadWorkList({
 		candidatesGlob: opts.candidatesGlob,
 		selectedVia: opts.selectedVia,
+		chainId: opts.chainId,
 		...(opts.limit === undefined ? {} : { limit: opts.limit }),
 	});
 	const total = workList.length;
@@ -251,13 +263,24 @@ export async function buildReceipts(opts: BuildReceiptsOptions): Promise<BuildRe
 	// both families; skip that write rather than aborting the run, and still
 	// return the path the family WOULD live at.
 	if (receiptRows.length > 0) {
+		// block_number, block_position — NOT tx_hash. writeParquet.ts's docstring
+		// explains why: row-group min/max statistics only prune a block-range
+		// filter when the rows are ordered by the column being filtered on.
+		// Measured on the shipped file before this fix: all four row groups
+		// reported the SAME block_number min/max (the full range) because
+		// tx_hash order scrambles block order — pruning was worth nothing.
 		await writeRowsToParquet(receiptRows, {
 			outPath: receiptsPath,
 			columnSpec: derivedColumnSpec(RECEIPT_COLUMNS),
-			orderBy: 'tx_hash',
+			orderBy: 'block_number, block_position',
 		});
 	}
 	if (legRows.length > 0) {
+		// tx_hash, leg_index — JOIN-KEY ordered, not prune-ordered. legs has no
+		// block column to prune on; its access pattern is "join to receipts on
+		// tx_hash, then walk legs in route order", so this ordering serves that
+		// instead. The asymmetry with receipts' block-ordered write above is
+		// deliberate, not an oversight.
 		await writeRowsToParquet(legRows, {
 			outPath: legsPath,
 			columnSpec: derivedColumnSpec(LEG_COLUMNS),

@@ -96,16 +96,19 @@ function nullableStringArray(value: unknown): string[] | null {
 }
 
 /** Map `Receipt.feeSinks` (`FeeSinkOut[]`, camelCase, no `name`) to the
- *  persisted STRUCT shape. `name` is always NULL here: names resolve at READ
- *  time from a growing routers.json (see per-leg-router-attribution), and a
- *  `Receipt` never carries one to persist — storing a persist-time guess would
- *  silently disagree with the read-time name the receipt page shows. */
+ *  persisted STRUCT shape. No `name` field at all — see `RECEIPT_COLUMNS`'s
+ *  docstring. A sink's human name resolves at READ time from the
+ *  contract-name registry (`configs/contractNames.json` + `MANUAL_OVERRIDES`,
+ *  falling back to Etherscan on a cache miss — see `contractNames.ts`'s
+ *  `enrichFeeSinkNames`), and a `Receipt` never carries one to persist: this
+ *  ETL run never calls that enricher (an Etherscan call per sink, rate
+ *  limited, and its `persistCache()` writes through to the committed config
+ *  file — wrong for a bulk run), so there is nothing correct to store here. */
 function toFeeSinks(feeSinks: Receipt['feeSinks']): ReceiptFeeSink[] {
 	return feeSinks.map((sink) => ({
 		address: nullableString(sink.address),
 		fee_bps: nullableNumber(sink.feeBps),
 		source: nullableString(sink.source),
-		name: null,
 	}));
 }
 
@@ -248,12 +251,20 @@ export function toFailureRow(args: FailureArgs, tx: TxContext, run: RunContext):
  * absent optional (`feeResolved`, `frameChain`, `v4Emitter` are OMITTED by
  * core when they do not apply) becomes NULL, never the literal string
  * `"undefined"`.
+ *
+ * `route_reconstructed` is carried over from the parent `receipt`, not from
+ * the leg itself — `Receipt.routeLegs` has no such field, and this is the one
+ * place a leg row still has the receipt in scope to read it from. See
+ * `LEG_COLUMNS`'s docstring for why: without it, a `'0'` amount on the
+ * un-reconstructed "pools touched" path (`venuesToUncostedLegs`) is
+ * indistinguishable from a genuine measured zero.
  */
 export function toLegRows(receipt: Receipt): LegRow[] {
 	if (receipt.routeLegs == null) return [];
 	return (receipt.routeLegs as RouteLegLike[]).map((leg, index) => ({
 		tx_hash: receipt.txHash,
 		leg_index: index,
+		route_reconstructed: receipt.routeReconstructed,
 		venue: nullableString(leg.venue),
 		v4_emitter: nullableString(leg.v4Emitter),
 		type: nullableString(leg.type),

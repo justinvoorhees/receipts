@@ -105,7 +105,7 @@ program
 			rpcUrl,
 			rpcSource: options.rpcSource,
 			coreGitSha,
-			...(options.limit === undefined ? {} : { limit: parseNonNegativeInt(options.limit, '--limit') }),
+			...(options.limit === undefined ? {} : { limit: parsePositiveInt(options.limit, '--limit') }),
 			onProgress: (done, total) => {
 				if (done % 25 === 0 || done === total) console.log(`  receipts ${done}/${total}`);
 			},

@@ -114,7 +114,7 @@ const RECEIPTS_V2: ReadonlyArray<readonly [string, string]> = [
 	['decomp_confidence', 'VARCHAR'],
 	['fee_recipient', 'VARCHAR'],
 	['fee_sink_source', 'VARCHAR'],
-	['fee_sinks', 'STRUCT(address VARCHAR, fee_bps DOUBLE, source VARCHAR, name VARCHAR)[]'],
+	['fee_sinks', 'STRUCT(address VARCHAR, fee_bps DOUBLE, source VARCHAR)[]'],
 	['integrator_fee_bps', 'DOUBLE'],
 	['fabric_fee_bps', 'DOUBLE'],
 	['settlement_event_name', 'VARCHAR'],
@@ -132,6 +132,7 @@ const RECEIPTS_V2: ReadonlyArray<readonly [string, string]> = [
 const LEGS_V2: ReadonlyArray<readonly [string, string]> = [
 	['tx_hash', 'VARCHAR'],
 	['leg_index', 'INTEGER'],
+	['route_reconstructed', 'BOOLEAN'],
 	['venue', 'VARCHAR'],
 	['v4_emitter', 'VARCHAR'],
 	['type', 'VARCHAR'],

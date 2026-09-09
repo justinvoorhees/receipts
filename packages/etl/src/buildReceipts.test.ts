@@ -151,6 +151,22 @@ describe('buildReceipts', () => {
 		expect(r.attempted).toBe(0);
 	});
 
+	it('selects zero rows when --chain-id does not match the candidates row', async () => {
+		// Every per-transaction chainId used to come from the candidates row —
+		// buildReceipts never read opts.chainId at all, so `--chain base
+		// --chain-id 1` would decode and label the whole base candidates file as
+		// mainnet with no error, and a mislabelled fact would then poison the
+		// persistent, chain-keyed FactCache for every later correct run.
+		const { seedPath, candidatesPath } = await fixtures(['0xa']);
+		const r = await buildReceipts({
+			...opts(seedPath, candidatesPath, async () => RECEIPT),
+			chainId: 1, // fixtures() writes candidates rows with chain_id 8453
+		});
+		expect(r.attempted).toBe(0);
+		expect(r.decoded).toBe(0);
+		expect(r.failed).toBe(0);
+	});
+
 	it('honours limit', async () => {
 		const { seedPath, candidatesPath } = await fixtures(['0xa', '0xb', '0xc']);
 		const r = await buildReceipts({ ...opts(seedPath, candidatesPath, async () => RECEIPT), limit: 2 });
@@ -192,11 +208,8 @@ describe('buildReceipts', () => {
 		expect(existsSync(r.legsPath)).toBe(false);
 	});
 
-	it('imports its runtime values from @fabric-tca/core/runtime, not @fabric-tca/core', async () => {
-		// A value import from the default subpath resolves to src/index.ts and
-		// dies under dist/ with ERR_UNKNOWN_FILE_EXTENSION.
-		const { readFileSync } = await import('node:fs');
-		const src = readFileSync(new URL('./buildReceipts.ts', import.meta.url), 'utf8');
-		expect(src.match(/import\s+(?!type\b)[\s\S]*?from\s*['"]@fabric-tca\/core['"]/g)).toBeNull();
-	});
+	// The per-file "imports its runtime values from @fabric-tca/core/runtime"
+	// guard that used to live here has been replaced by one shared test that
+	// covers every module in this package and every subpath, not just the bare
+	// specifier: see coreImportDiscipline.test.ts.
 });

@@ -144,24 +144,10 @@ describe('saveFactCacheEntries / loadFactCacheEntries', () => {
 		});
 	});
 
-	it('imports only TYPES from @fabric-tca/core', async () => {
-		// packages/core's package.json main is ./src/index.ts, so a VALUE import
-		// here compiles and passes vitest, then dies at runtime under dist/ with
-		// ERR_UNKNOWN_FILE_EXTENSION. Verified in-repo before this plan ran.
-		//
-		// Matched over the WHOLE source, not line-by-line: a formatter is free to
-		// wrap a value import (`import {\n  Foo,\n} from '@fabric-tca/core';`)
-		// across multiple lines, and a line-based filter only ever sees the
-		// surviving `from '@fabric-tca/core'` line — which carries no `type`
-		// keyword to fail on — so a wrapped value import escaped this guard
-		// entirely. This is the one test able to catch a runtime-only failure
-		// (ERR_UNKNOWN_FILE_EXTENSION under dist/), so it must be airtight.
-		const { readFileSync } = await import('node:fs');
-		const src = readFileSync(new URL('./factCacheStore.ts', import.meta.url), 'utf8');
-		const valueImports = src.match(/import\s+(?!type\b)[\s\S]*?from\s*['"]@fabric-tca\/core['"]/g) ?? [];
-		expect(valueImports).toEqual([]);
-		expect(src).toMatch(/import type[\s\S]*?from\s*['"]@fabric-tca\/core['"]/);
-	});
+	// The per-file "imports only types from @fabric-tca/core" guard that used
+	// to live here has been replaced by one shared test that covers every
+	// module in this package and every subpath, not just the bare specifier:
+	// see coreImportDiscipline.test.ts.
 });
 
 describe('chain and protocol columns', () => {

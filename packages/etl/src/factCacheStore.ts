@@ -120,7 +120,7 @@ export async function loadFactCacheEntries(opts: {
 			const factory = optionalString(r.factory);
 			return [
 				requiredNumber(r.chain_id, 'chain_id'),
-				String(r.address),
+				requiredString(r.address, 'address'),
 				{
 					...(token0 ? { token0 } : {}),
 					...(token1 ? { token1 } : {}),
