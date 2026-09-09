@@ -27,3 +27,4 @@ export {
 	type RunContext,
 	type TxContext,
 } from './receiptRows.js';
+export { buildReceipts, type BuildReceiptsOptions, type BuildReceiptsResult } from './buildReceipts.js';
