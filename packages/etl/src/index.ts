@@ -19,3 +19,11 @@ export { loadRouterRegistry, routerValuesSql, type RouterEntry } from './routerR
 export { copyQueryToParquet, writeRowsToParquet } from './writeParquet.js';
 export { sqlLiteral } from './sql.js';
 export { loadFactCacheEntries, saveFactCacheEntries } from './factCacheStore.js';
+export {
+	toFailureRow,
+	toLegRows,
+	toReceiptRow,
+	type FailureArgs,
+	type RunContext,
+	type TxContext,
+} from './receiptRows.js';
