@@ -14,6 +14,11 @@ loadEnv({ path: resolve(here, '..', '..', '.env') });
 const config = {
 	// Top-level since Next 15.5.20; it warns loudly under `experimental`.
 	typedRoutes: true,
+	// Linting is a separate concern (root `npm run lint`, using the monorepo's
+	// eslint.config.js + typescript-eslint) — those aren't dashboard's own
+	// dependencies, so Vercel's per-package install doesn't have them and the
+	// production build shouldn't need them either.
+	eslint: { ignoreDuringBuilds: true },
 	transpilePackages: ['@fabric-tca/core'],
 	// Allow ngrok-tunneled requests to the dev server. Without this, Next 15 logs
 	// a cross-origin warning and may block HMR / static assets when the host
