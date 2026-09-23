@@ -8,11 +8,11 @@
  * link unfurlers as from a real visitor. An unmetered hit on this route is a
  * direct line to the RPC bill.
  *
- * The store is an interface on purpose. We run a single long-lived container
- * today, where an in-memory Map is correct and free. On a serverless host each
- * instance would keep its own counters and the limit would silently multiply by
- * the instance count — swap in a Redis-backed store there WITHOUT touching call
- * sites.
+ * The store is an interface on purpose. createMemoryStore is correct and free
+ * on a single long-lived container (Railway); createRedisStore below is what
+ * a serverless deploy (Vercel) needs instead, since each instance there would
+ * otherwise keep its own counters and the limit would silently multiply by
+ * the instance count. Same interface either way — call sites don't change.
  */
 
 export interface RateLimitStore {
@@ -62,6 +62,50 @@ export function createMemoryStore(now: () => number = Date.now): MemoryStore {
 			return { ...fresh };
 		},
 		size: () => entries.size,
+	};
+}
+
+/** The subset of an Upstash/Vercel KV client this store needs. */
+export interface RedisLikeClient {
+	incr(key: string): Promise<number>;
+	pexpire(key: string, ms: number): Promise<unknown>;
+	pttl(key: string): Promise<number>;
+}
+
+/**
+ * Fixed-window store backed by Redis (Vercel KV / Upstash).
+ *
+ * Unlike createMemoryStore, counters live outside the process — the whole
+ * point, since a serverless deploy runs many instances and an in-process Map
+ * would give each one its own budget. `pexpire` is set only on the first hit
+ * (INCR returning 1) so the window's start doesn't drift on every request;
+ * `pttl` reads the remaining time back to compute `resetAt` without this
+ * process needing to remember when the window began.
+ *
+ * `keyPrefix` matters here in a way it never did for createMemoryStore: each
+ * call to that one got its own private Map, so two limiters could use the same
+ * client IP as a key with no collision. A real Redis is one flat keyspace
+ * shared by every limiter that points at it, so callers that key by client IP
+ * (diagnosis and analysis both do) MUST pass distinct prefixes or their counts
+ * will corrupt each other.
+ */
+export function createRedisStore(
+	client: RedisLikeClient,
+	options: { now?: () => number; keyPrefix?: string } = {},
+): RateLimitStore {
+	const now = options.now ?? Date.now;
+	const prefix = options.keyPrefix ?? '';
+	return {
+		async hit(key, windowMs) {
+			const redisKey = `${prefix}${key}`;
+			const count = await client.incr(redisKey);
+			if (count === 1) {
+				await client.pexpire(redisKey, windowMs);
+			}
+			const ttl = await client.pttl(redisKey);
+			const resetAt = now() + (ttl > 0 ? ttl : windowMs);
+			return { count, resetAt };
+		},
 	};
 }
 

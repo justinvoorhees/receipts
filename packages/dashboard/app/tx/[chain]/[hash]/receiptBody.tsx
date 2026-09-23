@@ -1,4 +1,5 @@
 import { headers } from 'next/headers';
+import { Redis } from '@upstash/redis';
 import { classifyTransaction, type AnalyzeFailure } from '@fabric-tca/core';
 import type { Chain } from '../../../../lib/chains';
 import { loadReceipt } from '../../../../lib/loadReceipt';
@@ -8,6 +9,8 @@ import {
 	clientKeyFromHeaders,
 	createMemoryStore,
 	createRateLimiter,
+	createRedisStore,
+	type RateLimitStore,
 } from '../../../../lib/rateLimit';
 import {
 	baseUrlFromHeaders,
@@ -17,6 +20,31 @@ import {
 	receiptCreatedMessage,
 } from '../../../../lib/alerts.js';
 
+/**
+ * Redis-backed counters when a Vercel-Marketplace Redis integration (Upstash)
+ * is connected to this deployment, otherwise an in-process Map. The Map is
+ * correct for local dev and for the single-container Railway deploy, but
+ * silently wrong on Vercel's serverless model: each instance would keep its
+ * own counters, multiplying every limit below by the instance count. See
+ * lib/rateLimit.ts for the full reasoning.
+ *
+ * Checks both env var namings Vercel's integration may inject:
+ * UPSTASH_REDIS_REST_URL/TOKEN (this package's own convention, set when using
+ * @upstash/redis directly) and KV_REST_API_URL/TOKEN (the naming the now-
+ * deprecated @vercel/kv used, which some Marketplace integrations still set
+ * for backward compatibility).
+ *
+ * Each call site gets its own keyPrefix — required for createRedisStore since,
+ * unlike createMemoryStore, a real Redis is one flat keyspace: diagnosisLimiter
+ * and analysisLimiter both key by client IP, and without a prefix their counts
+ * would corrupt each other.
+ */
+function makeStore(keyPrefix: string): RateLimitStore {
+	const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+	const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+	if (url && token) return createRedisStore(new Redis({ url, token }), { keyPrefix });
+	return createMemoryStore();
+}
 
 /**
  * A miss spends RPC to diagnose WHY, and this is the cheapest path in the app
@@ -28,7 +56,7 @@ import {
  * Moved here verbatim from app/page.tsx when receipts left the index. Same
  * limit, same window, same behaviour — only the address changed.
  */
-const diagnosisLimiter = createRateLimiter(createMemoryStore(), {
+const diagnosisLimiter = createRateLimiter(makeStore('diagnosis:'), {
 	limit: Number(process.env.RATE_LIMIT_DIAGNOSIS_PER_MIN) || 30,
 	windowMs: 60_000,
 });
@@ -42,7 +70,7 @@ const envInt = (name: string, fallback: number): number => {
  * Per-IP analysis budget. Moved here verbatim from POST /api/receipts when
  * receipts stopped being stored — same limit, same window, new address.
  */
-const analysisLimiter = createRateLimiter(createMemoryStore(), {
+const analysisLimiter = createRateLimiter(makeStore('analysis:'), {
 	limit: envInt('RATE_LIMIT_ANALYSES_PER_MIN', 20),
 	windowMs: 60_000,
 });
@@ -58,7 +86,7 @@ const analysisLimiter = createRateLimiter(createMemoryStore(), {
  * pause for everyone rather than quietly running up an RPC invoice.
  */
 const GLOBAL_ANALYSES_PER_HOUR = envInt('RATE_LIMIT_ANALYSES_GLOBAL_PER_HOUR', 500);
-const globalAnalysisLimiter = createRateLimiter(createMemoryStore(), {
+const globalAnalysisLimiter = createRateLimiter(makeStore('global-analysis:'), {
 	limit: GLOBAL_ANALYSES_PER_HOUR,
 	windowMs: 60 * 60 * 1000,
 });

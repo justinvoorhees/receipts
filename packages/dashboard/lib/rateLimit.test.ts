@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { createMemoryStore, createRateLimiter, clientKeyFromHeaders } from './rateLimit';
+import { describe, it, expect, vi } from 'vitest';
+import { createMemoryStore, createRateLimiter, createRedisStore, clientKeyFromHeaders } from './rateLimit';
 
 /** A controllable clock so window expiry is tested without real waiting. */
 function fakeClock(start = 1_000_000) {
@@ -83,6 +83,80 @@ describe('createMemoryStore', () => {
 		clock.advance(60_001);
 		await store.hit('fresh', 60_000);
 		expect(store.size()).toBe(1);
+	});
+});
+
+// A fake Upstash/Vercel KV client — real counters in a Map, so the store's
+// own logic (not a network call) is what's under test.
+function fakeRedisClient() {
+	const counts = new Map<string, number>();
+	const ttls = new Map<string, number>();
+	return {
+		async incr(key: string) {
+			const next = (counts.get(key) ?? 0) + 1;
+			counts.set(key, next);
+			return next;
+		},
+		async pexpire(key: string, ms: number) {
+			ttls.set(key, ms);
+			return 1;
+		},
+		async pttl(key: string) {
+			return ttls.get(key) ?? -1;
+		},
+	};
+}
+
+// Redis is the store that survives across serverless instances — the whole
+// reason it exists is that createMemoryStore's counters do not. Same
+// RateLimitStore contract, different backend, so it's tested the same way.
+describe('createRedisStore', () => {
+	it('counts hits for a key and reports the running count', async () => {
+		const client = fakeRedisClient();
+		const store = createRedisStore(client);
+		expect((await store.hit('1.2.3.4', 60_000)).count).toBe(1);
+		expect((await store.hit('1.2.3.4', 60_000)).count).toBe(2);
+		expect((await store.hit('1.2.3.4', 60_000)).count).toBe(3);
+	});
+
+	it('tracks each key independently', async () => {
+		const client = fakeRedisClient();
+		const store = createRedisStore(client);
+		await store.hit('1.2.3.4', 60_000);
+		await store.hit('1.2.3.4', 60_000);
+		expect((await store.hit('5.6.7.8', 60_000)).count).toBe(1);
+	});
+
+	it('sets the key to expire after windowMs on the FIRST hit only', async () => {
+		const client = fakeRedisClient();
+		const pexpireSpy = vi.spyOn(client, 'pexpire');
+		const store = createRedisStore(client);
+		await store.hit('1.2.3.4', 60_000);
+		await store.hit('1.2.3.4', 60_000);
+		expect(pexpireSpy).toHaveBeenCalledTimes(1);
+		expect(pexpireSpy).toHaveBeenCalledWith('1.2.3.4', 60_000);
+	});
+
+	it('derives resetAt from the key\'s remaining TTL', async () => {
+		const now = () => 1_000_000;
+		const client = fakeRedisClient();
+		const store = createRedisStore(client, { now });
+		const result = await store.hit('1.2.3.4', 60_000);
+		expect(result.resetAt).toBe(now() + 60_000);
+	});
+
+	// A real Redis instance is one flat keyspace, unlike createMemoryStore
+	// where each call gets its own private Map. Two limiters that both key by
+	// client IP (e.g. the diagnosis and analysis limiters) would corrupt each
+	// other's counts against the same Redis unless namespaced — keyPrefix is
+	// how call sites keep separate limiters' counters apart on one client.
+	it('keeps two limiters\' counters apart via keyPrefix even with the same client and Redis', async () => {
+		const client = fakeRedisClient();
+		const diagnosisStore = createRedisStore(client, { keyPrefix: 'diagnosis:' });
+		const analysisStore = createRedisStore(client, { keyPrefix: 'analysis:' });
+		await diagnosisStore.hit('1.2.3.4', 60_000);
+		await diagnosisStore.hit('1.2.3.4', 60_000);
+		expect((await analysisStore.hit('1.2.3.4', 60_000)).count).toBe(1);
 	});
 });
 
