@@ -4,15 +4,8 @@ import { Footer } from '../components/footer';
 import '../styles/globals.css';
 
 export const metadata = {
-	title: 'Receipts - Onchain transaction cost analysis',
+	title: 'Justin Voorhees',
 	description: 'Transaction cost analysis for aggregator-routed swaps on Base.',
-	icons: {
-		icon: [
-			{ url: '/favicon.ico', sizes: 'any' },
-			{ url: '/favicon-16x16.png', type: 'image/png', sizes: '16x16' },
-			{ url: '/favicon-32x32.png', type: 'image/png', sizes: '32x32' },
-		],
-	},
 	openGraph: {
 		type: 'website',
 		title: 'Receipts',

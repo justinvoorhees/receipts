@@ -9,3 +9,5 @@ dist
 .superpowers/sdd
 data/
 .duckdbrc
+.vercel
+.env*
